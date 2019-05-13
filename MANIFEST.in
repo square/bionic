@@ -1,0 +1,3 @@
+include README.md
+graft workflows
+global-exclude *.py[co]
