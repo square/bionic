@@ -1,0 +1,219 @@
+'''
+Contains various data structures used by Bionic's infrastructure.
+'''
+
+from collections import namedtuple
+import yaml
+import hashlib
+
+from util import ImmutableSequence, ImmutableMapping, check_exactly_one_present
+
+
+# TODO Consider using the attr library here?
+class TaskKey(namedtuple('TaskKey', 'resource_name case_key')):
+    '''
+    A unique identifier for a Task.
+    '''
+    def __new__(cls, resource_name, case_key):
+        return super(TaskKey, cls).__new__(cls, resource_name, case_key)
+
+    def __repr__(self):
+        return 'TaskKey(%r, %r)' % (self.resource_name, self.case_key)
+
+
+class Task(object):
+    '''
+    A unit of work.  Can have dependencies, which are referred to via their
+    TaskKeys.
+    '''
+    def __init__(self, key, dep_keys, compute_func):
+        self.key = key
+        self.dep_keys = dep_keys
+        self.compute = compute_func
+
+    def __repr__(self):
+        return 'Task(%r, %r)' % (self.key, self.dep_keys)
+
+
+class Query(object):
+    '''
+    Represents a request for a specific resource value.
+    '''
+    def __init__(self, name, protocol, case_key, provenance):
+        self.name = name
+        self.protocol = protocol
+        self.case_key = case_key
+        self.provenance = provenance
+
+    def to_result(self, value):
+        return Result(query=self, value=value)
+
+    def __repr__(self):
+        return 'Query(%r, %r, %r, %r)' % (
+            self.name, self.protocol, self.case_key, self.provenance)
+
+
+class Result(object):
+    '''
+    Represents one value for one resource.
+    '''
+    def __init__(self, query, value):
+        self.query = query
+        self.value = value
+
+    def __repr__(self):
+        return 'Result(%r, %r)' % (self.query, self.value)
+
+
+class CaseKeySpace(ImmutableSequence):
+    '''
+    A set of CaseKey names (without values) -- represents a space of possible
+    CaseKeys.
+    '''
+    def __init__(self, names=None):
+        if names is None:
+            names = []
+        super(CaseKeySpace, self).__init__(sorted(names))
+
+    def union(self, other):
+        return CaseKeySpace(set(self).union(other))
+
+    def intersection(self, other):
+        return CaseKeySpace(name for name in self if name in other)
+
+    def difference(self, other):
+        return CaseKeySpace(name for name in self if name not in other)
+
+    def select(self, case_key):
+        return case_key.project(self)
+
+    @classmethod
+    def union_all(cls, spaces):
+        if not spaces:
+            raise ValueError("Can't take the union of zero spaces")
+        names = set()
+        for space in spaces:
+            names = names.union(space)
+        return CaseKeySpace(names)
+
+    @classmethod
+    def intersection_all(cls, spaces):
+        if not spaces:
+            raise ValueError("Can't take the intersection of zero spaces")
+        names = None
+        for space in spaces:
+            if names is None:
+                names = set(spaces)
+            else:
+                names = names.intersection(space)
+        return CaseKeySpace(names)
+
+    def __repr__(self):
+        return 'CaseKeySpace(%s)' % ', '.join(repr(name) for name in self)
+
+
+class CaseKey(ImmutableMapping):
+    '''
+    A collection of name-value pairs that uniquely identifies a case.
+    '''
+    def __init__(self, values_by_name=None):
+        if values_by_name is None:
+            values_by_name = {}
+        super(CaseKey, self).__init__(values_by_name)
+
+        self.values_by_name = values_by_name
+        self.space = CaseKeySpace(self.values_by_name.keys())
+
+    def project(self, key_space):
+        return CaseKey({
+            name: value
+            for name, value in self.values_by_name.iteritems()
+            if name in key_space
+        })
+
+    def drop(self, key_space):
+        return CaseKey({
+            name: value
+            for name, value in self.values_by_name.iteritems()
+            if name not in key_space
+        })
+
+    def merge(self, other):
+        new_dict = dict(self.values_by_name)
+        for key, value in other.iteritems():
+            if key in new_dict:
+                assert value == new_dict[key]
+            else:
+                new_dict[key] = value
+        return CaseKey(new_dict)
+
+    def __repr__(self):
+        return 'CaseKey(%s)' % ', '.join(
+            name + '=' + repr(value)
+            for name, value in self.iteritems())
+
+
+class ResultGroup(ImmutableSequence):
+    '''
+    Represents a collection of Results, distinguished by their CaseKeys.  Each
+    CaseKey should have the same set of names.
+    '''
+    def __init__(self, results, key_space):
+        super(ResultGroup, self).__init__(results)
+
+        self.key_space = key_space
+
+    def __repr__(self):
+        return 'ResultGroup(%r)' % list(self)
+
+
+class Provenance(object):
+    '''
+    A compact, unique hash of a (possibly yet-to-be-computed) value.
+    Can be used to determine whether a value needs to be recomputed.
+    '''
+    @classmethod
+    def from_computation(cls, code_id, case_key, dep_provenances_by_name):
+        return cls(body_dict=dict(
+            code_id=code_id,
+            case_key=dict(case_key),
+            deps={
+                name: provenance.hashed_value
+                for name, provenance in dep_provenances_by_name.iteritems()
+            },
+        ))
+
+    @classmethod
+    def from_yaml(cls, yaml_str):
+        return cls(yaml_str=yaml_str)
+
+    def __init__(self, body_dict=None, yaml_str=None):
+        check_exactly_one_present(body_dict=body_dict, yaml_str=yaml_str)
+
+        if body_dict is not None:
+            self._body_dict = body_dict
+            self._yaml_str = yaml.dump(body_dict, default_flow_style=False)
+        else:
+            # I don't think we emit any complicated YAML, so we might as well
+            # use safe_load, which should be able to handle untrusted input
+            # safely.  However, I'm not sure we really need to worry about
+            # untrusted input, so it might be reasonable to switch to
+            # full_load() later if necessary.
+            self._body_dict = yaml.safe_load(yaml_str)
+            self._yaml_str = yaml_str
+
+        hash_ = hashlib.sha256()
+        hash_.update(self._yaml_str)
+        self.hashed_value = hash_.digest()
+
+    def to_yaml(self):
+        return self._yaml_str
+
+    def __repr__(self):
+        return 'Provenance(%s)' % self._hash_as_short_hex()
+
+    def _hash_as_short_hex(self):
+        return '0x%s...%s' % (
+            self.hashed_value[:4].encode('hex'),
+            self.hashed_value[-4:].encode('hex'),
+        )
