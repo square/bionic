@@ -7,7 +7,7 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 import protocol as proto
-from cache import StorageCache, CACHEABLE_NAME_PROTOCOL
+from cache import StorageCache
 from entity import CaseKey
 from exception import UndefinedResourceError
 from resource import ValueResource, multi_index_from_case_keys, as_resource
@@ -71,31 +71,26 @@ class FlowBuilder(object):
 
     def assign(self, name, value=None, values=None, protocol=None):
         check_exactly_one_present(value=value, values=values)
+        if value is not None:
+            values = [value]
 
         if protocol is None:
             protocol = DEFAULT_PROTOCOL
 
-        if value is not None:
+        for value in values:
             protocol.validate(value)
 
-            self._check_resource_does_not_exist(name)
+        self._check_resource_does_not_exist(name)
 
-            resource = self._create_resource(name, protocol)
-            resource.add_case(CaseKey(), value)
-
-        else:  # if values is not None
-            for value in values:
-                protocol.validate(value)
-                CACHEABLE_NAME_PROTOCOL.validate(value)
-
-            self._check_resource_does_not_exist(name)
-
-            resource = self._create_resource(name, protocol)
-            for value in values:
-                resource.add_case(CaseKey({name: value}), value)
+        resource = self._create_resource(name, protocol)
+        for value in values:
+            case_key = CaseKey([(name, value, protocol.tokenize(value))])
+            resource.add_case(case_key, value)
 
     def set(self, name, value=None, values=None):
         check_exactly_one_present(value=value, values=values)
+        if value is not None:
+            values = [value]
 
         self._check_resource_exists(name)
         self._check_is_safe_to_clear([name])
@@ -104,44 +99,41 @@ class FlowBuilder(object):
         resource = state.resources_by_name[name]
         protocol = resource.attrs.protocol
 
-        if value is not None:
-            protocol.validate(value)
+        protocol.validate(value)
 
-            resource = self._clear_resource(resource)
-            resource.add_case(CaseKey(), value)
+        resource = self._clear_resource(resource)
+        for value in values:
+            case_key = CaseKey([(name, value, protocol.tokenize(value))])
+            resource.add_case(case_key, value)
 
-        else:  # values is not None
-            for value in values:
-                protocol.validate(value)
-                CACHEABLE_NAME_PROTOCOL.validate(value)
-
-            resource = self._clear_resource(resource)
-            for value in values:
-                resource.add_case(CaseKey({name: value}), value)
-
-    # TODO Consider allowing adding cases to formerly-singleton values?  Not
-    # sure if we should allow this or not.
     # TODO Should we allow undeclared names?  Having to declare them first is
     # basically always clunky and annoying, but should we allow add_case to
     # create new resources?  (On the other hand, it sort of makes sense in cases
     # where we're using add_case('label', text).then_set('var', value) in order
     # to add a clean label to an unhashable value.  In that case it'd be nice
-    # that we can create new resources even on an Flow.)
+    # that we can create new resources even on a Flow.)
     def add_case(self, *name_values):
         name_value_pairs = group_pairs(name_values)
 
-        for _, value in name_value_pairs:
-            CACHEABLE_NAME_PROTOCOL.validate(value)
-
-        case_key = CaseKey(dict(name_value_pairs))
-
         state = self._get_state()
+        case_nvtr_tuples = []
         for name, value in name_value_pairs:
             self._check_resource_exists(name)
+            resource = state.resources_by_name[name]
+            protocol = resource.attrs.protocol
+            protocol.validate(value)
+            token = protocol.tokenize(value)
+
+            case_nvtr_tuples.append((name, value, token, resource))
+
+        case_key = CaseKey([
+            (name, value, token)
+            for (name, value, token, _) in case_nvtr_tuples  # noqa: F812
+        ])
+        for name, value, _, _ in case_nvtr_tuples:
             self._check_can_add_case(name, case_key, value)
 
-        for name, value in name_value_pairs:
-            resource = state.resources_by_name[name]
+        for name, value, _, resource in case_nvtr_tuples:
             resource.add_case(case_key, value)
 
         case = FlowCase(self, case_key)
@@ -313,11 +305,6 @@ class Flow(object):
             return [result.value for result in result_group]
         elif fmt is set or fmt == 'set':
             return set(result.value for result in result_group)
-        elif fmt is dict or fmt == 'dict':
-            return {
-                result.query.case_key: result.value
-                for result in result_group
-            }
         elif fmt is pd.Series or fmt == 'series':
             if len(result_group.key_space) > 0:
                 index = multi_index_from_case_keys(

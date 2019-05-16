@@ -11,11 +11,11 @@ This module contains a BaseProtocol class and various subclasses.
 
 import pickle
 import sys
-from StringIO import StringIO
 
 import pandas as pd
 
 from resource import resource_wrapper, AttrUpdateResource
+import tokenization
 
 
 def check_is_like_protocol(obj):
@@ -43,10 +43,17 @@ class BaseProtocol(object):
     def read(self, file_):
         raise NotImplementedError()
 
-    def write_to_str(self, value):
-        buf = StringIO()
-        self.write(value, buf)
-        return buf.getvalue()
+    SIMPLE_TYPES = {
+        bool,
+        str, bytes, unicode,
+        int, long, float,
+    }
+
+    def tokenize(self, value):
+        if type(value) in self.SIMPLE_TYPES:
+            return tokenization.tokenize(value)
+        else:
+            return tokenization.tokenize(value, self.write)
 
     def __call__(self, func_or_resource):
         wrapper = resource_wrapper(AttrUpdateResource, 'protocol', self)
@@ -84,35 +91,6 @@ class DillableProtocol(BaseProtocol):
 
     def read(self, file_):
         return self._dill.load(file_)
-
-
-SIMPLE_TYPES = {
-    bool,
-    str, bytes, unicode,
-    int, long, float,
-}
-
-
-class SimpleTypeProtocol(PicklableProtocol):
-    def validate(self, value):
-        assert type(value) in SIMPLE_TYPES
-
-
-SIMPLE_CHARS = set(
-    'abcdefghijklmnopqrstuvwxyz'
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    '01234567890'
-    '._-:'
-)
-
-
-class CleanlyStringableProtocol(SimpleTypeProtocol):
-    def validate(self, value):
-        super(CleanlyStringableProtocol, self).validate(value)
-        assert all(c in SIMPLE_CHARS for c in self.stringify(value))
-
-    def stringify(self, value):
-        return str(value)
 
 
 # TODO Rather than (or in addition to) specifying index_cols and dtype, maybe

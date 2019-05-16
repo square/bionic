@@ -122,10 +122,8 @@ def test_add_case(builder):
     builder.add_case('x', 8)
     assert builder.build().get('x', set) == {7, 8}
 
-    # We can't add values to a case that was already set as a singleton.  I
-    # could go either way on this policy.
-    with raises(ValueError):
-        builder.add_case('y', 7)
+    builder.add_case('y', 7)
+    assert builder.build().get('y', set) == {1, 7}
 
     builder.add_case('z', 7)
     assert builder.build().get('z', set) == {2, 3, 7}
@@ -272,19 +270,6 @@ def test_get_formats(flow):
 
         ps = flow.get('p', fmt)
         assert ps == [4]
-
-    for fmt in [dict, 'dict']:
-        ys = flow.get('y', fmt)
-        assert ys == {bn.entity.CaseKey(): 1}
-
-        assert flow.get('z', fmt) == {
-            bn.entity.CaseKey({'z': 2}): 2,
-            bn.entity.CaseKey({'z': 3}): 3,
-        }
-
-        assert flow.get('p', fmt) == {
-            bn.entity.CaseKey({'p': 4, 'q': 5}): 4,
-        }
 
     for fmt in [set, 'set']:
         assert flow.get('y', fmt) == {1}
