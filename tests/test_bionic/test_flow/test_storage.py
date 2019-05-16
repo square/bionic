@@ -136,6 +136,12 @@ def test_caching_and_invalidation(builder, tmp_path):
         -2*6+6*4, -2*9+9*4, 2*6+6*4, 2*9+9*4}  # noqa: E226
     assert xy_plus_yz.times_called() == 2
 
+    # This is mainly just to check that the cache wrapper returns a sane set of
+    # case keys.
+    key_names = flow.get('xy_plus_yz', 'series').index.names
+    for name in ['x', 'y']:
+        assert name in key_names
+
 
 def test_versioning(builder):
     builder.assign('x', 2)

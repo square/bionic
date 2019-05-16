@@ -307,20 +307,23 @@ class StorageCachedResource(WrappingResource):
         dep_task_key_lists_by_name = dict(dep_task_key_lists_by_name)
         cache_task_keys = dep_task_key_lists_by_name.pop(self._cache_name)
 
-        wrapped_tasks = self.wrapped_resource.get_tasks(
+        inner_tasks = self.wrapped_resource.get_tasks(
             dep_key_spaces_by_name,
             dep_task_key_lists_by_name)
 
         return [
             Task(
-                key=task.key,
+                key=TaskKey(
+                    task.key.resource_name,
+                    task.key.case_key.merge(cache_task_key.case_key)
+                ),
                 dep_keys=([cache_task_key] + task.dep_keys),
                 compute_func=functools.partial(
                     self._compute_task_using_cache,
                     task=task,
                 ),
             )
-            for task in wrapped_tasks
+            for task in inner_tasks
             for cache_task_key in cache_task_keys
         ]
 
