@@ -75,3 +75,9 @@ target/
 # iPython Notebooks
 *.ipynb
 .ipynb_checkpoints
+
+# Vim swap files
+*.swp
+
+# Bionic cache files
+bndata
