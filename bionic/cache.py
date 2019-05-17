@@ -31,19 +31,16 @@ class StorageCache(object):
         official_symlink_entry = self._entry_for_query(query)
         if official_symlink_entry.dir_path.exists():
             old_content_entry = ResourceEntry(
-                query.protocol,
-                pl.Path(os.readlink(str(official_symlink_entry.dir_path))),
-            )
+                pl.Path(os.readlink(str(official_symlink_entry.dir_path))))
         else:
             old_content_entry = None
 
         succeeded = False
         try:
-            with new_content_entry.value_path.open('wb') as f:
+            value_path = new_content_entry.value_path_for_result(result)
+            with value_path.open('wb') as f:
                 query.protocol.write(result.value, f)
 
-            # TODO We are writing the hash values as "!!binary" -- can we
-            # avoid that?
             with new_content_entry.provenance_path.open('wb') as f:
                 f.write(query.provenance.to_yaml())
 
@@ -127,12 +124,12 @@ class StorageCache(object):
 
     def _load_value(self, query):
         entry = self._entry_for_query(query)
-        with entry.value_path.open('rb') as f:
-            return query.protocol.read(f)
+        with entry.existing_value_path().open('rb') as f:
+            return query.protocol.read(f, entry.existing_value_extension())
 
     def _erase_entry(self, entry):
-        if entry.value_path.exists():
-            entry.value_path.unlink()
+        if entry.existing_value_path() is not None:
+            entry.existing_value_path().unlink()
         if entry.provenance_path.exists():
             entry.provenance_path.unlink()
         if entry.dir_path.exists():
@@ -152,17 +149,14 @@ class StorageCache(object):
         )
 
     def _entry_for_query(self, query):
-        return ResourceEntry(
-            query.protocol,
-            self._path_for_query(query) / 'cur',
-        )
+        return ResourceEntry(self._path_for_query(query) / 'cur')
 
     def _candidate_entry_for_query(self, query):
         query_path = self._path_for_query(query)
         n_attempts = 3
         for i in xrange(n_attempts):
             tmp_name = self._random_str()
-            entry = ResourceEntry(query.protocol, query_path / tmp_name)
+            entry = ResourceEntry(query_path / tmp_name)
 
             try:
                 entry.dir_path.mkdir(parents=True)
@@ -180,7 +174,7 @@ class StorageCache(object):
 
     def _check_entry_is_valid(self, entry):
         assert entry.dir_path.is_dir()
-        assert entry.value_path.exists()
+        assert entry.existing_value_path() is not None
         assert entry.provenance_path.exists()
 
     def _random_str(self):
@@ -188,15 +182,35 @@ class StorageCache(object):
 
 
 class ResourceEntry(object):
-    def __init__(self, protocol, path):
-        # TODO Taking a protocol as an argument just for the file suffix feels
-        # a little clunky.
-        self.protocol = protocol
+    VALUE_FILE_STEM = 'value.'
+
+    def __init__(self, path):
         self.dir_path = path
 
-        self.value_path = self.dir_path / (
-            'value' + self.protocol.file_suffix)
         self.provenance_path = self.dir_path / 'provenance.yaml'
+
+    def value_path_for_result(self, result):
+        extension = result.query.protocol.file_extension_for_value(
+            result.value)
+        return self.dir_path / (self.VALUE_FILE_STEM + extension)
+
+    def existing_value_path(self):
+        value_filenames = [
+            path.name
+            for path in self.dir_path.iterdir()
+            if path.is_file() and path.name.startswith(self.VALUE_FILE_STEM)
+        ]
+        if len(value_filenames) == 0:
+            return None
+        if len(value_filenames) > 1:
+            raise AssertionError('Found too many value files in %s: %r' % (
+                self.dir_path, value_filenames))
+        filename, = value_filenames
+        return self.dir_path / filename
+
+    def existing_value_extension(self):
+        filename = self.existing_value_path().name
+        return filename[len(self.VALUE_FILE_STEM):]
 
     def __repr__(self):
         return 'ResourceEntry(path=%s)' % self.dir_path

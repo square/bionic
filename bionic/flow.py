@@ -6,7 +6,7 @@ construction and execution APIs (respectively).
 import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
-import protocol as proto
+import protocols as protos
 from cache import StorageCache
 from entity import CaseKey
 from exception import UndefinedResourceError
@@ -18,7 +18,10 @@ from util import group_pairs, check_exactly_one_present
 import logging
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROTOCOL = proto.picklable()
+DEFAULT_PROTOCOL = protos.CombinedProtocol(
+    protos.DataFrameProtocol(),
+    protos.PicklableProtocol(),
+)
 
 
 class FlowState(object):
@@ -163,7 +166,7 @@ class FlowBuilder(object):
     def derive(self, func_or_resource):
         resource = as_resource(func_or_resource)
         if resource.attrs.protocol is None:
-            resource = proto.picklable()(resource)
+            resource = DEFAULT_PROTOCOL(resource)
 
         self._check_resource_does_not_exist(resource.attrs.name)
 

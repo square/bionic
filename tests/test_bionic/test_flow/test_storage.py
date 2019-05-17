@@ -204,12 +204,13 @@ def test_versioning(builder):
 
 def test_all_returned_results_are_deserialized(builder):
     class RoundingProtocol(bn.protocols.BaseProtocol):
-        file_suffix = '.round'
+        def get_fixed_file_extension(self):
+            return 'round'
 
         def write(self, value, file_):
             file_.write(str(round(value)))
 
-        def read(self, file_):
+        def read(self, file_, extension):
             return float(file_.read())
 
     @builder
