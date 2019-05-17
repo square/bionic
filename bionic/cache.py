@@ -12,12 +12,9 @@ import operator
 import pathlib2 as pl
 
 from entity import Result, Provenance
-import protocol as proto
 
 import logging
 logger = logging.getLogger(__name__)
-
-CACHEABLE_NAME_PROTOCOL = proto.cleanly_stringable()
 
 
 class StorageCache(object):
@@ -144,8 +141,8 @@ class StorageCache(object):
     def _path_for_query(self, query):
         dir_names = [
             item
-            for name, value in sorted(query.case_key.iteritems())
-            for item in (name, CACHEABLE_NAME_PROTOCOL.stringify(value))
+            for name, token in sorted(query.case_key.iteritems())
+            for item in (name, token)
         ]
 
         return reduce(

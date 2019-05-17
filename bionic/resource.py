@@ -130,14 +130,14 @@ class ValueResource(BaseResource):
         resource.key_space = self.key_space
         resource._has_any_values = self._has_any_values
         resource._values_by_case_key = self._values_by_case_key.copy()
-        resource._code_ids_by_case_key = self._code_ids_by_case_key.copy()
+        resource._code_ids_by_key = self._code_ids_by_key.copy()
         return resource
 
     def clear_cases(self):
         self.key_space = CaseKeySpace()
         self._has_any_values = False
         self._values_by_case_key = {}
-        self._code_ids_by_case_key = {}
+        self._code_ids_by_key = {}
 
     def check_can_add_case(self, case_key, value):
         self.attrs.protocol.validate(value)
@@ -154,17 +154,17 @@ class ValueResource(BaseResource):
                     % (case_key, self.attrs.name))
 
     def add_case(self, case_key, value):
-        code_id = self.attrs.protocol.write_to_str(value)
+        code_id = self.attrs.protocol.tokenize(value)
 
         if not self._has_any_values:
             self.key_space = case_key.space
             self._has_any_values = True
 
         self._values_by_case_key[case_key] = value
-        self._code_ids_by_case_key[case_key] = code_id
+        self._code_ids_by_key[case_key] = code_id
 
     def get_code_id(self, case_key):
-        return self._code_ids_by_case_key[case_key]
+        return self._code_ids_by_key[case_key]
 
     def get_key_space(self, dep_key_spaces_by_name):
         assert not dep_key_spaces_by_name
@@ -245,7 +245,7 @@ class FunctionResource(BaseResource):
         ]
 
     def _merge_case_key_lists(self, case_key_lists):
-        merged_case_keys = [CaseKey()]
+        merged_case_keys = [CaseKey([])]
         merged_key_space = CaseKeySpace()
 
         for cur_case_keys in case_key_lists:
@@ -307,20 +307,23 @@ class StorageCachedResource(WrappingResource):
         dep_task_key_lists_by_name = dict(dep_task_key_lists_by_name)
         cache_task_keys = dep_task_key_lists_by_name.pop(self._cache_name)
 
-        wrapped_tasks = self.wrapped_resource.get_tasks(
+        inner_tasks = self.wrapped_resource.get_tasks(
             dep_key_spaces_by_name,
             dep_task_key_lists_by_name)
 
         return [
             Task(
-                key=task.key,
+                key=TaskKey(
+                    task.key.resource_name,
+                    task.key.case_key.merge(cache_task_key.case_key)
+                ),
                 dep_keys=([cache_task_key] + task.dep_keys),
                 compute_func=functools.partial(
                     self._compute_task_using_cache,
                     task=task,
                 ),
             )
-            for task in wrapped_tasks
+            for task in inner_tasks
             for cache_task_key in cache_task_keys
         ]
 
@@ -549,12 +552,14 @@ def multi_index_from_case_keys(case_keys, ordered_key_names):
     assert len(ordered_key_names) > 0
     return pd.MultiIndex.from_tuples(
         tuples=[
-            tuple(case_key[name] for name in ordered_key_names)
+            tuple(case_key.values[name] for name in ordered_key_names)
             for case_key in case_keys
         ],
         names=ordered_key_names,
     )
 
+
+# -- Helpers for working with resources.
 
 RESOURCE_METHODS = [
     'get_code_id', 'get_dependency_names', 'get_tasks', 'get_source_func']

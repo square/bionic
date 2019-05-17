@@ -90,11 +90,8 @@ def test_caching_and_invalidation(builder, tmp_path):
         .setting('y', values=[3, 6])
 
     assert flow.get('xy', set) == {-2*6, -2*3, 2*3, 2*6}  # noqa: E226
-    # TODO Note that we actually called xy one more time than necessary,
-    # because we already computed the case where x=2, y=3.  Unfortunately the
-    # cache system stores it in a different place because we're using case
-    # keys, so we don't find the cached version.
-    assert xy.times_called() == 4
+    # Note that we only call xy 3 times, because one value was already cached.
+    assert xy.times_called() == 3
 
     assert flow.get('yz', set) == {3*4, 6*4}  # noqa: E226
     assert yz.times_called() == 2
@@ -103,7 +100,7 @@ def test_caching_and_invalidation(builder, tmp_path):
         -2*3+3*4, -2*6+6*4, 2*3+3*4, 2*6+6*4}  # noqa: E226
     assert xy.times_called() == 0
     assert yz.times_called() == 0
-    assert xy_plus_yz.times_called() == 4
+    assert xy_plus_yz.times_called() == 3
 
     flow = builder.build()\
         .setting('x', values=[2, -2])\
@@ -135,6 +132,12 @@ def test_caching_and_invalidation(builder, tmp_path):
     assert flow.get('xy_plus_yz', set) == {
         -2*6+6*4, -2*9+9*4, 2*6+6*4, 2*9+9*4}  # noqa: E226
     assert xy_plus_yz.times_called() == 2
+
+    # This is mainly just to check that the cache wrapper returns a sane set of
+    # case keys.
+    key_names = flow.get('xy_plus_yz', 'series').index.names
+    for name in ['x', 'y']:
+        assert name in key_names
 
 
 def test_versioning(builder):
@@ -242,3 +245,43 @@ def test_gather_cache_invalidation(builder):
 
     assert builder.build().get('z', set) == {6, 7}
     assert z.times_called() == 1
+
+
+class Point(object):
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+def test_complex_input_type(builder):
+    builder.assign('point', Point(2, 3))
+
+    @builder
+    def x(point):
+        return point.x
+
+    @builder
+    def y(point):
+        return point.y
+
+    @builder
+    @bn.persist
+    @count_calls
+    def x_plus_y(x, y):
+        return x + y
+
+    flow = builder.build()
+
+    assert flow.get('x_plus_y') == 5
+    assert x_plus_y.times_called() == 1
+    assert flow.get('x_plus_y') == 5
+    assert x_plus_y.times_called() == 0
+
+    builder = flow.to_builder()
+    builder.set('point', values=(Point(2, 3), Point(4, 5)))
+    flow = builder.build()
+
+    assert flow.get('x_plus_y', set) == {5, 9}
+    assert x_plus_y.times_called() == 1
+    assert flow.get('x_plus_y', set) == {5, 9}
+    assert x_plus_y.times_called() == 0

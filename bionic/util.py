@@ -5,6 +5,7 @@ Miscellaneous utility functions.
 import logging
 
 from collections import defaultdict
+from hashlib import sha256
 
 import pandas as pd
 
@@ -86,6 +87,22 @@ def groups_dict(values, keyfunc):
 
 def color(code, text):
     return '\033[%sm%s\033[0m' % (code, text)
+
+
+def hash_to_hex(string, n_bytes=None):
+    hash_ = sha256()
+    hash_.update(string)
+    hex_str = hash_.digest().encode('hex')
+
+    if n_bytes is not None:
+        n_chars = n_bytes * 2
+        available_chars = len(hex_str)
+        if n_chars > available_chars:
+            raise ValueError("Can't keep %d bytes; we only have %d" % (
+                n_bytes, available_chars / 2))
+        hex_str = hex_str[:n_chars]
+
+    return hex_str
 
 
 class ImmutableSequence(object):

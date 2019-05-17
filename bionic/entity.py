@@ -4,9 +4,10 @@ Contains various data structures used by Bionic's infrastructure.
 
 from collections import namedtuple
 import yaml
-import hashlib
 
-from util import ImmutableSequence, ImmutableMapping, check_exactly_one_present
+from util import (
+    ImmutableSequence, ImmutableMapping, check_exactly_one_present, hash_to_hex
+)
 
 
 # TODO Consider using the attr library here?
@@ -116,41 +117,56 @@ class CaseKey(ImmutableMapping):
     '''
     A collection of name-value pairs that uniquely identifies a case.
     '''
-    def __init__(self, values_by_name=None):
-        if values_by_name is None:
-            values_by_name = {}
-        super(CaseKey, self).__init__(values_by_name)
+    def __init__(self, name_value_token_triples):
+        values_by_name = {
+            name: value
+            for name, value, token in name_value_token_triples
+        }
+        tokens_by_name = {
+            name: token
+            for name, value, token in name_value_token_triples
+        }
 
-        self.values_by_name = values_by_name
-        self.space = CaseKeySpace(self.values_by_name.keys())
+        super(CaseKey, self).__init__(tokens_by_name)
+        self._nvt_triples = name_value_token_triples
+        self.values = values_by_name
+        self.space = CaseKeySpace(values_by_name.keys())
 
     def project(self, key_space):
-        return CaseKey({
-            name: value
-            for name, value in self.values_by_name.iteritems()
+        return CaseKey([
+            (name, value, token)
+            for name, value, token in self._nvt_triples
             if name in key_space
-        })
+        ])
 
     def drop(self, key_space):
-        return CaseKey({
-            name: value
-            for name, value in self.values_by_name.iteritems()
+        return CaseKey([
+            (name, value, token)
+            for name, value, token in self._nvt_triples
             if name not in key_space
-        })
+        ])
 
     def merge(self, other):
-        new_dict = dict(self.values_by_name)
-        for key, value in other.iteritems():
-            if key in new_dict:
-                assert value == new_dict[key]
+        vt_pairs_by_name = {
+            name: (value, token)
+            for name, value, token in self._nvt_triples
+        }
+
+        for name, value, token in other._nvt_triples:
+            if name in vt_pairs_by_name:
+                assert token == vt_pairs_by_name[name][1]
             else:
-                new_dict[key] = value
-        return CaseKey(new_dict)
+                vt_pairs_by_name[name] = value, token
+
+        return CaseKey([
+            (name, value, token)
+            for name, (value, token) in vt_pairs_by_name.iteritems()
+        ])
 
     def __repr__(self):
         return 'CaseKey(%s)' % ', '.join(
-            name + '=' + repr(value)
-            for name, value in self.iteritems())
+            name + '=' + token
+            for name, token in self.iteritems())
 
 
 class ResultGroup(ImmutableSequence):
@@ -202,18 +218,10 @@ class Provenance(object):
             self._body_dict = yaml.safe_load(yaml_str)
             self._yaml_str = yaml_str
 
-        hash_ = hashlib.sha256()
-        hash_.update(self._yaml_str)
-        self.hashed_value = hash_.digest()
+        self.hashed_value = hash_to_hex(self._yaml_str)
 
     def to_yaml(self):
         return self._yaml_str
 
     def __repr__(self):
-        return 'Provenance(%s)' % self._hash_as_short_hex()
-
-    def _hash_as_short_hex(self):
-        return '0x%s...%s' % (
-            self.hashed_value[:4].encode('hex'),
-            self.hashed_value[-4:].encode('hex'),
-        )
+        return 'Provenance(%s...)' % self.hashed_value[:8]
