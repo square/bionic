@@ -12,6 +12,7 @@ This module contains a BaseProtocol class and various subclasses.
 import pickle
 import sys
 
+from pyarrow import parquet, Table
 import pandas as pd
 
 from resource import resource_wrapper, AttrUpdateResource
@@ -93,39 +94,19 @@ class DillableProtocol(BaseProtocol):
         return self._dill.load(file_)
 
 
-# TODO Rather than (or in addition to) specifying index_cols and dtype, maybe
-# it would be better to just store these in a separate metadata file?
 class DataFrameProtocol(BaseProtocol):
-    def __init__(
-            self, cols=None, index_cols=None, dtype=None, parse_dates=None,
-            **default_protocol_kwargs):
-        super(DataFrameProtocol, self).__init__(**default_protocol_kwargs)
+    def __init__(self):
+        super(DataFrameProtocol, self).__init__()
 
-        self._cols = cols
-        self._index_cols = index_cols
-        self._dtype = dtype
-        self._parse_dates = parse_dates
-
-        self.file_suffix = '.csv'
+        self.file_suffix = '.pq'
 
     def validate(self, df):
         assert isinstance(df, pd.DataFrame), type(df)
-        if self._cols is not None:
-            assert (df.columns == self._cols).all()
-
-        if self._index_cols is None:
-            assert df.index.names == [None]
-        else:
-            assert df.index.names == self._index_cols
+        # TODO If there are any kinds of dataframe that can't be written to
+        # Parquet, this might be a good place to check them.
 
     def read(self, file_):
-        return pd.read_csv(
-            file_,
-            index_col=self._index_cols,
-            dtype=self._dtype,
-            parse_dates=self._parse_dates,
-        )
+        return parquet.read_table(file_).to_pandas()
 
     def write(self, df, file_):
-        write_index = self._index_cols is not None
-        df.to_csv(file_, index=write_index)
+        parquet.write_table(Table.from_pandas(df), file_)

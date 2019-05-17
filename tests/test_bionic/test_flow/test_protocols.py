@@ -95,51 +95,25 @@ def test_simple_dataframe(builder):
 
 
 def test_typed_dataframe(builder):
-    df_value = pd.DataFrame(
-        columns=['id', 'city', 'country', 'zip', 'lat', 'long'],
-        data=[
-            [1, 'Springfield', 'USA', '45503', 39.9, -83.8],
-            [2, 'Richmond', 'USA', '45503', 39.9, -83.8],
-            [3, 'Houston', 'USA', '45503', 39.9, -83.8],
-            [4, 'London', 'England', None, 51.5, -0.2],
-            [5, 'El Dorado', None, None, None, None],
-        ],
-    )
-    dtypes_by_col = {
-        'id': int,
-        'city': object,
-        'country': object,
-        'zip': object,
-        'lat': float,
-        'long': float,
-    }
-
-    @builder
-    @bn.persist
-    @bn.protocol.frame(dtype=dtypes_by_col)
-    def df():
-        return df_value
-
-    pdt.assert_frame_equal(builder.build().get('df'), df_value)
-    assert builder.build().get('df').dtypes.to_dict() == dtypes_by_col
-
-
-def test_parse_dates(builder):
     df_value = pd.DataFrame()
+    df_value['int'] = [1, 2, 3]
+    df_value['float'] = [1.0, 1.5, float('nan')]
+    df_value['str'] = ['red', 'blue', None]
     df_value['time'] = pd.to_datetime([
         '2011-02-07',
         '2011-03-17',
         '2011-04-27',
     ])
-    df_value['size'] = [1, 2, 3]
 
     @builder
     @bn.persist
-    @bn.protocol.frame(parse_dates=['time'])
+    @bn.protocol.frame()
     def df():
         return df_value
 
     pdt.assert_frame_equal(builder.build().get('df'), df_value)
+    assert builder.build().get('df').dtypes.to_dict() ==\
+        df_value.dtypes.to_dict()
 
 
 def test_dataframe_index_cols(builder):
@@ -163,39 +137,10 @@ def test_dataframe_index_cols(builder):
 
     @builder
     @bn.persist
-    @bn.protocol.frame(index_cols=['continent', 'country'])
+    @bn.protocol.frame()
     def counts_df(raw_df):
         return raw_df.groupby(['continent', 'country']).size()\
             .to_frame('count')
 
     df = builder.build().get('counts_df')
     assert df.loc['Asia'].loc['Japan']['count'] == 2
-
-
-def test_dataframe_validation(builder):
-    @builder
-    @bn.persist
-    @bn.protocol.frame(cols=['two', 'one'])
-    def bad_cols_df():
-        return pd.DataFrame(columns=['one', 'two'], data=[[1, 2]])
-
-    @builder
-    @bn.persist
-    @bn.protocol.frame(index_cols=['nonexistent'])
-    def bad_index_df():
-        return pd.DataFrame(columns=['one', 'two'], data=[[1, 2]])
-
-    @builder
-    @bn.persist
-    @bn.protocol.frame()
-    def missing_index_descriptor_df():
-        return pd.DataFrame(columns=['one', 'two'], data=[[1, 2]])\
-            .rename_axis('index')
-
-    flow = builder.build()
-    with pytest.raises(AssertionError):
-        flow.get('bad_cols_df')
-    with pytest.raises(AssertionError):
-        flow.get('bad_index_df')
-    with pytest.raises(AssertionError):
-        flow.get('missing_index_descriptor_df')
