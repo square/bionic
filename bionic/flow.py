@@ -3,6 +3,8 @@ Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 '''
 
+import functools
+
 import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
@@ -24,6 +26,8 @@ DEFAULT_PROTOCOL = protos.CombinedProtocol(
 )
 
 
+# TODO I wonder if we could avoid using handles by implementing this class as a
+# persistent data structure using pyrsistent.
 class FlowState(object):
     '''
     Holds the internal state for a flow.  Flow and FlowBuilder instances access
@@ -357,6 +361,9 @@ class Flow(object):
         self._immutable_state_handle = immutable_state_handle
         self._resolver = ResourceResolver(immutable_state_handle)
 
+        self.get = ShortcutProxy(self.get)
+        self.setting = ShortcutProxy(self.setting)
+
     def _get_state(self):
         return self._immutable_state_handle.get()
 
@@ -371,6 +378,42 @@ class Flow(object):
         updated_handle = self._immutable_state_handle.updating(
             update_state, eager=True)
         return Flow(_official=True, immutable_state_handle=updated_handle)
+
+
+class ShortcutProxy(object):
+    '''
+    Wraps a method on a Flow object to allow it to be called via an alternative
+    style.
+
+    Original style:
+
+        flow.get('resource')
+        flow.setting('resource', 7)
+
+    Alternative style:
+
+        flow.get.resource()
+        flow.setting.resource(7)
+
+    The advantage of the alternative style is that it can be autocompleted in
+    IPython, Jupyter, etc.
+    '''
+
+    def __init__(self, wrapped_method):
+        self._wrapped_method = wrapped_method
+        self._flow = wrapped_method.im_self
+        assert isinstance(self._flow, Flow)
+
+        self.__doc__ = self._wrapped_method.__doc__
+
+    def __call__(self, *args, **kwargs):
+        return self._wrapped_method(*args, **kwargs)
+
+    def __dir__(self):
+        return self._flow.all_resource_names()
+
+    def __getattr__(self, name):
+        return functools.partial(self._wrapped_method, name)
 
 
 # Construct a default state object.
