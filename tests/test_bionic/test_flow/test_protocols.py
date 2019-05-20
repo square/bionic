@@ -6,6 +6,7 @@ import pandas.testing as pdt
 from helpers import count_calls, df_from_csv_str
 
 import bionic as bn
+from bionic.protocols import CombinedProtocol, PicklableProtocol
 
 
 @pytest.fixture(scope='function')
@@ -144,3 +145,98 @@ def test_dataframe_index_cols(builder):
 
     df = builder.build().get('counts_df')
     assert df.loc['Asia'].loc['Japan']['count'] == 2
+
+
+def test_type_protocol(builder):
+    builder.declare('int_val', bn.protocol.type(int))
+    builder.declare('float_val', bn.protocol.type(float))
+    builder.declare('str_val', bn.protocol.type(str))
+
+    builder.set('int_val', 1)
+    builder.set('float_val', 1.0)
+    builder.set('str_val', 'one')
+
+    with pytest.raises(AssertionError):
+        builder.set('int_val', 'one')
+    with pytest.raises(AssertionError):
+        builder.set('float_val', 1)
+    with pytest.raises(AssertionError):
+        builder.set('str_val', 1.0)
+
+    flow = builder.build()
+
+    assert flow.get('int_val') == 1
+    assert flow.get('float_val') == 1.0
+    assert flow.get('str_val') == 'one'
+
+
+def test_enum_protocol(builder):
+    builder.declare('color', bn.protocol.enum('red', 'blue'))
+
+    builder.set('color', 'red')
+    assert builder.build().get('color') == 'red'
+
+    builder.set('color', 'blue')
+    assert builder.build().get('color') == 'blue'
+
+    with pytest.raises(AssertionError):
+        builder.set('color', 'green')
+
+
+def test_combined_protocol(builder):
+    class WriteValueAsStringProtocol(PicklableProtocol):
+        def __init__(self, value, string_value):
+            super(WriteValueAsStringProtocol, self).__init__()
+
+            self._value = value
+            self._string_value = string_value
+
+        def validate(self, value):
+            assert value == self._value
+
+        def get_fixed_file_extension(self):
+            return self._string_value
+
+        def write(self, value, file_):
+            super(WriteValueAsStringProtocol, self).write(
+                self._string_value, file_)
+
+    one_protocol = WriteValueAsStringProtocol(1, 'one')
+    two_protocol = WriteValueAsStringProtocol(2, 'two')
+
+    builder.declare('value')
+
+    @builder
+    @bn.persist
+    @one_protocol
+    def must_be_one(value):
+        return value
+
+    @builder
+    @bn.persist
+    @two_protocol
+    def must_be_two(value):
+        return value
+
+    @builder
+    @bn.persist
+    @CombinedProtocol(one_protocol, two_protocol)
+    def must_be_one_or_two(value):
+        return value
+
+    flow = builder.build().setting('value', 1)
+
+    assert flow.get('must_be_one') == 'one'
+    with pytest.raises(AssertionError):
+        flow.get('must_be_two')
+    assert flow.get('must_be_one_or_two') == 'one'
+
+    flow = flow.setting('value', 2)
+    with pytest.raises(AssertionError):
+        flow.get('must_be_one')
+    assert flow.get('must_be_two') == 'two'
+    assert flow.get('must_be_one_or_two') == 'two'
+
+    flow = flow.setting('value', 3)
+    with pytest.raises(AssertionError):
+        flow.get('must_be_one_or_two')
