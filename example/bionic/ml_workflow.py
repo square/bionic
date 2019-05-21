@@ -17,7 +17,6 @@ builder.assign('test_frac', 0.3)
 
 
 @builder
-@bn.persist
 def raw_df():
     dataset = datasets.load_breast_cancer()
     df = pd.DataFrame(
@@ -30,7 +29,6 @@ def raw_df():
 # TODO Once we have a decorator that lets us generate multiple targets with
 # one function, we should combine this with test_df.
 @builder
-@bn.persist
 def train_df(raw_df, test_frac, random_seed):
     return model_selection.train_test_split(
         raw_df,
@@ -40,7 +38,6 @@ def train_df(raw_df, test_frac, random_seed):
 
 
 @builder
-@bn.persist
 def test_df(raw_df, test_frac, random_seed):
     return model_selection.train_test_split(
         raw_df,
@@ -50,7 +47,6 @@ def test_df(raw_df, test_frac, random_seed):
 
 
 @builder
-@bn.persist
 def model(train_df):
     m = linear_model.LogisticRegression()
     m.fit(train_df.drop('target', axis=1), train_df['target'])
@@ -58,7 +54,6 @@ def model(train_df):
 
 
 @builder
-@bn.persist
 def pr_df(model, test_df):
     predictions = model.predict_proba(test_df.drop('target', axis=1))[:, 1]
     precisions, recalls, thresholds = metrics.precision_recall_curve(

@@ -1,11 +1,4 @@
-import pytest
-
 import bionic as bn
-
-
-@pytest.fixture(scope='function')
-def builder():
-    return bn.FlowBuilder()
 
 
 def test_gather_direct_parent_no_siblings(builder):

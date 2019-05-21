@@ -9,13 +9,6 @@ import bionic as bn
 from bionic.protocols import CombinedProtocol, PicklableProtocol
 
 
-@pytest.fixture(scope='function')
-def builder(tmp_path):
-    builder = bn.FlowBuilder()
-    builder.set('core__storage_cache__dir_name', str(tmp_path))
-    return builder
-
-
 PICKLABLE_VALUES = [
     1,
     'string',
@@ -28,7 +21,6 @@ PICKLABLE_VALUES = [
 @pytest.mark.parametrize('value', PICKLABLE_VALUES)
 def test_picklable_value(builder, value):
     @builder
-    @bn.persist
     @bn.protocol.picklable()
     @count_calls
     def picklable_value():
@@ -42,7 +34,6 @@ def test_picklable_value(builder, value):
 @pytest.mark.parametrize('value', PICKLABLE_VALUES)
 def test_picklable_value_is_also_dillable(builder, value):
     @builder
-    @bn.persist
     @bn.protocol.dillable()
     @count_calls
     def dillable_value():
@@ -64,7 +55,6 @@ def test_dillable(builder):
     assert make_adder(3)(2) == 5
 
     @builder
-    @bn.persist
     @bn.protocol.dillable()
     @count_calls
     def add_two():
@@ -84,7 +74,6 @@ def test_simple_dataframe(builder):
     ''')
 
     @builder
-    @bn.persist
     @bn.protocol.frame()
     @count_calls
     def df():
@@ -107,7 +96,6 @@ def test_typed_dataframe(builder):
     ])
 
     @builder
-    @bn.persist
     @bn.protocol.frame()
     def df():
         return df_value
@@ -119,7 +107,6 @@ def test_typed_dataframe(builder):
 
 def test_dataframe_index_cols(builder):
     @builder
-    @bn.persist
     @bn.protocol.frame()
     def raw_df():
         return df_from_csv_str('''
@@ -137,7 +124,6 @@ def test_dataframe_index_cols(builder):
         ''')
 
     @builder
-    @bn.persist
     @bn.protocol.frame()
     def counts_df(raw_df):
         return raw_df.groupby(['continent', 'country']).size()\
@@ -207,19 +193,16 @@ def test_combined_protocol(builder):
     builder.declare('value')
 
     @builder
-    @bn.persist
     @one_protocol
     def must_be_one(value):
         return value
 
     @builder
-    @bn.persist
     @two_protocol
     def must_be_two(value):
         return value
 
     @builder
-    @bn.persist
     @CombinedProtocol(one_protocol, two_protocol)
     def must_be_one_or_two(value):
         return value

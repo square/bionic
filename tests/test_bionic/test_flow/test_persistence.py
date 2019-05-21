@@ -1,17 +1,8 @@
-import pytest
-
 import math
 
 from helpers import count_calls
 
 import bionic as bn
-
-
-@pytest.fixture(scope='function')
-def builder(tmp_path):
-    builder = bn.FlowBuilder()
-    builder.set('core__storage_cache__dir_name', str(tmp_path))
-    return builder
 
 
 # It would be nice to move the builder setup into fixtures, but since we need
@@ -25,18 +16,17 @@ def test_caching_and_invalidation(builder, tmp_path):
     builder.assign('z', 4)
 
     @builder
-    @bn.persist
     @count_calls
     def xy(x, y):
         return x * y
 
     @builder
+    @bn.persist(False)
     @count_calls
     def yz(y, z):
         return y * z
 
     @builder
-    @bn.persist
     @count_calls
     def xy_plus_yz(xy, yz):
         return xy + yz
@@ -145,7 +135,6 @@ def test_versioning(builder):
     builder.assign('y', 3)
 
     @builder
-    @bn.persist
     @count_calls
     def f(x, y):
         return x + y
@@ -157,7 +146,6 @@ def test_versioning(builder):
     builder.delete('f')
 
     @builder
-    @bn.persist
     @count_calls
     def f(x, y):
         return x * y
@@ -168,7 +156,6 @@ def test_versioning(builder):
     builder.delete('f')
 
     @builder
-    @bn.persist
     @bn.version(1)
     @count_calls
     def f(x, y):
@@ -180,7 +167,6 @@ def test_versioning(builder):
     builder.delete('f')
 
     @builder
-    @bn.persist
     @bn.version(1)
     @count_calls
     def f(x, y):
@@ -192,7 +178,6 @@ def test_versioning(builder):
     builder.delete('f')
 
     @builder
-    @bn.persist
     @bn.version(2)
     @count_calls
     def f(x, y):
@@ -214,7 +199,6 @@ def test_all_returned_results_are_deserialized(builder):
             return float(file_.read())
 
     @builder
-    @bn.persist
     @RoundingProtocol()
     @count_calls
     def pi():
@@ -231,7 +215,6 @@ def test_gather_cache_invalidation(builder):
     builder.assign('y', values=[2, 3])
 
     @builder
-    @bn.persist
     @bn.gather('x', 'x', 'df')
     @count_calls
     def z(df, y):
@@ -266,7 +249,6 @@ def test_complex_input_type(builder):
         return point.y
 
     @builder
-    @bn.persist
     @count_calls
     def x_plus_y(x, y):
         return x + y

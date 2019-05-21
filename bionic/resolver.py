@@ -7,18 +7,55 @@ from exception import UndefinedResourceError
 
 
 class ResourceResolver(object):
+    # --- Public API.
+
     def __init__(self, immutable_flow_state_handle):
         # TODO Do we need handle holders to distinguish between mutable and
         # immutable?  Can we just convert incoming handles to the type we want?
         self._immutable_flow_state_handle = immutable_flow_state_handle
 
-        self._is_ready = False
+        # This state is needed to do any resolution at all.  Once it's
+        # initialized, we can use it to bootstrap the requirements for "full"
+        # resolution below.
+        self._is_ready_for_bootstrap_resolution = False
         self._flow_state = None
         self._task_lists_by_resource_name = None
         self._task_states_by_key = None
 
+        # This state allows us to do full resolution for external callers.
+        self._is_ready_for_full_resolution = False
+        self._persistent_cache = None
+
     def get_ready(self):
-        if self._is_ready:
+        """
+        Make sure this Resolver is ready to resolve().  Calling this is not
+        necessary but allows errors to surface earlier.
+        """
+        self._get_ready_for_full_resolution()
+
+    def resolve(self, resource_name):
+        """
+        Given a resource name, computes and returns a ResultGroup containing
+        all values for that resource.
+        """
+        self.get_ready()
+        return self._compute_result_group_for_resource_name(resource_name)
+
+    # --- Private helpers.
+
+    def _get_ready_for_full_resolution(self):
+        if self._is_ready_for_full_resolution:
+            return
+
+        self._get_ready_for_bootstrap_resolution()
+
+        self._persistent_cache = self._bootstrap_singleton(
+            'core__persistent_cache')
+
+        self._is_ready_for_full_resolution = True
+
+    def _get_ready_for_bootstrap_resolution(self):
+        if self._is_ready_for_bootstrap_resolution:
             return
 
         self._flow_state = self._immutable_flow_state_handle.get()
@@ -40,7 +77,7 @@ class ResourceResolver(object):
                 task_state.parents.append(dep_state)
                 dep_state.children.append(task_state)
 
-        self._is_ready = True
+        self._is_ready_for_bootstrap_resolution = True
 
     def _populate_resource_info(self, resource_name):
         if resource_name in self._task_lists_by_resource_name:
@@ -79,9 +116,21 @@ class ResourceResolver(object):
         if resource_name in self._task_lists_by_resource_name:
             return
 
-    def compute_result_group_for_resource_name(self, resource_name):
-        self.get_ready()
+    def _bootstrap_singleton(self, resource_name):
+        result_group = self._compute_result_group_for_resource_name(
+            resource_name)
+        if len(result_group) == 0:
+            raise ValueError(
+                "No values were defined for internal bootstrap resource %r" %
+                resource_name)
+        if len(result_group) > 1:
+            values = [result.value for result in result_group]
+            raise ValueError(
+                "Bootstrap resource %r must have exactly one value; "
+                "got %d (%r)" % (resource_name, len(values), values))
+        return result_group[0].value
 
+    def _compute_result_group_for_resource_name(self, resource_name):
         tasks = self._task_lists_by_resource_name.get(resource_name)
         if tasks is None:
             raise UndefinedResourceError(
@@ -133,7 +182,6 @@ class ResourceResolver(object):
             self._task_states_by_key[dep_key].result
             for dep_key in dep_keys
         ]
-        dep_values = [dep_result.value for dep_result in dep_results]
 
         resource = self._flow_state.resources_by_name[task.key.resource_name]
         case_key = task.key.case_key
@@ -152,11 +200,32 @@ class ResourceResolver(object):
             provenance=provenance,
         )
 
-        task_value = task_state.task.compute(
-            query=query,
-            dep_values=dep_values,
-        )
-        task_state.result = Result(query, task_value)
+        should_persist = resource.attrs.should_persist
+        if should_persist:
+            if not self._is_ready_for_full_resolution:
+                raise AssertionError(
+                    "Can't apply persistent caching to bootstrap resource %r" %
+                    task.key.resource_name)
+            result = self._persistent_cache.load(query)
+        else:
+            result = None
+
+        if result is None:
+            dep_values = [dep_result.value for dep_result in dep_results]
+            task_value = task_state.task.compute(
+                query=query,
+                dep_values=dep_values,
+            )
+            result = Result(query, task_value)
+
+        if should_persist:
+            self._persistent_cache.save(result)
+            # We immediately reload the value and treat that as the real value.
+            # That way, if the serialized/deserialized value is not exactly the
+            # same as the original, we still always return the same value.
+            result = self._persistent_cache.load(query)
+
+        task_state.result = result
 
 
 class TaskState(object):

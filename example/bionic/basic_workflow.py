@@ -9,7 +9,6 @@ builder.assign('y', values=[5, 7])
 
 
 @builder
-@bn.persist
 def x_plus_y(x, y):
     return x + y
 
