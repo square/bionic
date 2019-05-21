@@ -432,3 +432,12 @@ def test_to_builder():
 
     assert flow.get('x') == 1
     assert builder.build().get('x') == 1
+
+
+def test_shortcuts():
+    builder = bn.FlowBuilder()
+    builder.assign('x', 1)
+    flow = builder.build()
+
+    assert flow.get.x() == 1
+    assert flow.setting.x(3).get.x() == 3
