@@ -71,9 +71,38 @@ class BaseProtocol(object):
         else:
             return tokenization.tokenize(value, self.write)
 
-    def __call__(self, func_or_resource):
-        wrapper = resource_wrapper(AttrUpdateResource, 'protocol', self)
-        return wrapper(func_or_resource)
+    # This lets a protocol object be used in two different ways:
+    # - called with a function or resource and used as a decorator
+    # - called with keyword arguments to construct a new instance
+    # The advantage is that later we can do something like:
+    #
+    #    frame = DataFrameProtocol()
+    #
+    # and then do either
+    #
+    #    @builder
+    #    @frame
+    #    def func(...):
+    #        ...
+    #
+    # OR
+    #
+    #    @builder
+    #    @frame(arg1=..., arg2=...)
+    #    def func(...):
+    #        ...
+    #
+    def __call__(self, func_or_resource=None, **kwargs):
+        if func_or_resource is not None:
+            if len(kwargs) > 0:
+                raise ValueError(
+                    "%s can't be called with both a function and keywords" %
+                    self)
+
+            wrapper = resource_wrapper(AttrUpdateResource, 'protocol', self)
+            return wrapper(func_or_resource)
+        else:
+            return self.__class__(**kwargs)
 
     def __repr__(self):
         return '%s(...)' % (self.__class__.__name__)

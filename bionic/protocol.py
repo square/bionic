@@ -1,5 +1,11 @@
-from protocols import PicklableProtocol as picklable  # noqa: F401
-from protocols import DillableProtocol as dillable  # noqa: F401
-from protocols import DataFrameProtocol as frame  # noqa: F401
-from protocols import EnumProtocol as enum  # noqa: F401
-from protocols import TypeProtocol as type  # noqa: F401
+import protocols
+
+# These are callable with or without arguments.  See BaseProtocol.__call__ for
+# why we instantiate them here.
+picklable = protocols.PicklableProtocol()  # noqa: F401
+dillable = protocols.DillableProtocol()  # noqa: F401
+frame = protocols.DataFrameProtocol()  # noqa: F401
+
+# These need to be called with arguments.
+enum = protocols.EnumProtocol  # noqa: F401
+type = protocols.TypeProtocol  # noqa: F401
