@@ -291,9 +291,9 @@ class FunctionResource(BaseResource):
         return '%s(%s)' % (self.__class__.__name__, self._func)
 
 
-class StorageCachedResource(WrappingResource):
-    def __init__(self, wrapped_resource, cache_name='core__storage_cache'):
-        super(StorageCachedResource, self).__init__(wrapped_resource)
+class PersistedResource(WrappingResource):
+    def __init__(self, wrapped_resource, cache_name='core__persistent_cache'):
+        super(PersistedResource, self).__init__(wrapped_resource)
         self._cache_name = cache_name
 
     def get_dependency_names(self):

@@ -11,7 +11,7 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 '''
 
 from resource import (
-    VersionedResource, GatherResource, StorageCachedResource, resource_wrapper)
+    VersionedResource, GatherResource, PersistedResource, resource_wrapper)
 import interpret
 
 
@@ -28,4 +28,4 @@ def gather(over, also, into='gather_df'):
     return resource_wrapper(GatherResource, over, also, into)
 
 
-persist = resource_wrapper(StorageCachedResource)
+persist = resource_wrapper(PersistedResource)

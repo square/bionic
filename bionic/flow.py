@@ -9,7 +9,7 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 import protocols as protos
-from cache import StorageCache
+from cache import PersistentCache
 from entity import CaseKey
 from exception import UndefinedResourceError
 from resource import ValueResource, multi_index_from_case_keys, as_resource
@@ -419,12 +419,12 @@ class ShortcutProxy(object):
 # Construct a default state object.
 
 default_builder = FlowBuilder(MutableHandle(mutable_value=FlowState()))
-default_builder.assign('core__storage_cache__dir_name', 'bndata')
+default_builder.assign('core__persistent_cache__dir_name', 'bndata')
 
 
 @default_builder.derive
-def core__storage_cache(core__storage_cache__dir_name):
-    return StorageCache(core__storage_cache__dir_name)
+def core__persistent_cache(core__persistent_cache__dir_name):
+    return PersistentCache(core__persistent_cache__dir_name)
 
 
 DEFAULT_IMMUTABLE_STATE_HANDLE = \

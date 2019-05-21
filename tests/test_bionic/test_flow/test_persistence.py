@@ -10,7 +10,7 @@ import bionic as bn
 @pytest.fixture(scope='function')
 def builder(tmp_path):
     builder = bn.FlowBuilder()
-    builder.set('core__storage_cache__dir_name', str(tmp_path))
+    builder.set('core__persistent_cache__dir_name', str(tmp_path))
     return builder
 
 

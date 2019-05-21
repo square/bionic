@@ -1,7 +1,7 @@
 '''
-Contains the StorageCache class, which handles persistent local caching.  This
-including artifact naming, invalidation, and saving/loading.  We may want to
-separate these concepts later.
+Contains the PersistentCache class, which handles persistent local caching.
+This including artifact naming, invalidation, and saving/loading.  We may want
+to separate these concepts later.
 '''
 
 import os
@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class StorageCache(object):
+class PersistentCache(object):
     def __init__(self, root_path_str):
         self._root_path = pl.Path(root_path_str)
         self._random = Random()
