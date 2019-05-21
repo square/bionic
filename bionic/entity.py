@@ -91,7 +91,7 @@ class CaseKeySpace(ImmutableSequence):
     @classmethod
     def union_all(cls, spaces):
         if not spaces:
-            raise ValueError("Can't take the union of zero spaces")
+            return CaseKeySpace([])
         names = set()
         for space in spaces:
             names = names.union(space)

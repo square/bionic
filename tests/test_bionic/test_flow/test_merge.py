@@ -1,12 +1,8 @@
 import pytest
 
-import bionic as bn
-
 
 @pytest.fixture(scope='function')
-def builder():
-    builder = bn.FlowBuilder()
-
+def preset_builder(builder):
     builder.declare('x')
     builder.declare('y')
     builder.declare('z')
@@ -26,7 +22,9 @@ def builder():
     return builder
 
 
-def test_simple(builder):
+def test_simple(preset_builder):
+    builder = preset_builder
+
     builder.set('x', 2)
     builder.set('y', 3)
     builder.set('z', 4)
@@ -38,7 +36,9 @@ def test_simple(builder):
     assert flow.get('xy_plus_yz') == 18
 
 
-def test_cartesian_product(builder):
+def test_cartesian_product(preset_builder):
+    builder = preset_builder
+
     builder.set('x', values=[2])
     builder.set('y', values=[3, 4])
     builder.set('z', values=[5, 6, 7])
@@ -51,7 +51,9 @@ def test_cartesian_product(builder):
         2*3+3*5, 2*3+3*6, 2*3+3*7, 2*4+4*5, 2*4+4*6, 2*4+4*7}  # noqa: E226
 
 
-def test_empty(builder):
+def test_empty(preset_builder):
+    builder = preset_builder
+
     builder.set('y', 3)
     builder.set('z', values=[4, 5])
 

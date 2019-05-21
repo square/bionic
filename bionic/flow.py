@@ -14,6 +14,7 @@ from entity import CaseKey
 from exception import UndefinedResourceError
 from resource import ValueResource, multi_index_from_case_keys, as_resource
 from resolver import ResourceResolver
+import decorators
 from handle import MutableHandle
 from util import group_pairs, check_exactly_one_present
 
@@ -171,6 +172,8 @@ class FlowBuilder(object):
         resource = as_resource(func_or_resource)
         if resource.attrs.protocol is None:
             resource = DEFAULT_PROTOCOL(resource)
+        if resource.attrs.should_persist is None:
+            resource = decorators.persist(True)(resource)
 
         self._check_resource_does_not_exist(resource.attrs.name)
 
@@ -298,8 +301,7 @@ class Flow(object):
             _mutable_state_handle=self._immutable_state_handle.as_mutable())
 
     def get(self, name, fmt=None):
-        result_group = self._resolver.compute_result_group_for_resource_name(
-            name)
+        result_group = self._resolver.resolve(name)
 
         if fmt is None or fmt is object:
             if len(result_group) == 0:
@@ -423,6 +425,7 @@ default_builder.assign('core__persistent_cache__dir_name', 'bndata')
 
 
 @default_builder.derive
+@decorators.immediate
 def core__persistent_cache(core__persistent_cache__dir_name):
     return PersistentCache(core__persistent_cache__dir_name)
 

@@ -180,6 +180,9 @@ class PersistentCache(object):
     def _random_str(self):
         return '%08x' % self._random.getrandbits(32)
 
+    def __repr__(self):
+        return 'PersistentCache(%r)' % self._root_path
+
 
 class ResourceEntry(object):
     VALUE_FILE_STEM = 'value.'

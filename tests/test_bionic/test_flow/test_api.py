@@ -10,9 +10,7 @@ from helpers import count_calls
 
 
 @pytest.fixture(scope='function')
-def builder():
-    builder = bn.FlowBuilder()
-
+def preset_builder(builder):
     builder.declare('x')
     builder.assign('y', 1)
     builder.assign('z', values=[2, 3])
@@ -33,13 +31,15 @@ def builder():
 
 
 @pytest.fixture(scope='function')
-def flow(builder):
-    return builder.build()
+def preset_flow(preset_builder):
+    return preset_builder.build()
 
 
 # -- Builder API tests.
 
-def test_declare(builder):
+def test_declare(preset_builder):
+    builder = preset_builder
+
     builder.declare('w')
     builder.set('w', 7)
 
@@ -59,7 +59,9 @@ def test_declare_protocol(builder):
     assert builder.build().resource_protocol('n') == protocol
 
 
-def test_set(builder):
+def test_set(preset_builder):
+    builder = preset_builder
+
     builder.set('x', 5)
     assert builder.build().get('x') == 5
 
@@ -73,7 +75,9 @@ def test_set(builder):
     assert builder.build().get('f') == 8
 
 
-def test_set_multiple(builder):
+def test_set_multiple(preset_builder):
+    builder = preset_builder
+
     builder.set('x', values=[5, 6])
     assert builder.build().get('x', set) == {5, 6}
 
@@ -87,7 +91,9 @@ def test_set_multiple(builder):
     assert builder.build().get('f', set) == {8, 9}
 
 
-def test_assign_single(builder):
+def test_assign_single(preset_builder):
+    builder = preset_builder
+
     builder.assign('w', 7)
     assert builder.build().get('w') == 7
 
@@ -101,7 +107,9 @@ def test_assign_single(builder):
         builder.assign('f', 7)
 
 
-def test_assign_multiple(builder):
+def test_assign_multiple(preset_builder):
+    builder = preset_builder
+
     builder.assign('w', values=[1, 2])
     assert builder.build().get('w', set) == {1, 2}
 
@@ -115,7 +123,9 @@ def test_assign_multiple(builder):
         builder.assign('f', values=[1, 2])
 
 
-def test_add_case(builder):
+def test_add_case(preset_builder):
+    builder = preset_builder
+
     builder.add_case('x', 7)
     assert builder.build().get('x', set) == {7}
 
@@ -148,7 +158,9 @@ def test_add_case(builder):
         builder.add_case('p', 1, 'q', 2, 'r', 3)
 
 
-def test_then_set(builder):
+def test_then_set(preset_builder):
+    builder = preset_builder
+
     builder.declare('a')
     builder.declare('b')
     builder.declare('c')
@@ -169,7 +181,9 @@ def test_then_set(builder):
         case.then_set('xxx', 1)
 
 
-def test_clear_cases(builder):
+def test_clear_cases(preset_builder):
+    builder = preset_builder
+
     builder.clear_cases('x')
     builder.set('x', 7)
     assert builder.build().get('x') == 7
@@ -195,7 +209,9 @@ def test_clear_cases(builder):
     builder.clear_cases('p', 'q')
 
 
-def test_delete(builder):
+def test_delete(preset_builder):
+    builder = preset_builder
+
     builder.delete('g')
     with raises(UndefinedResourceError):
         builder.build().get('g')
@@ -235,7 +251,9 @@ def test_derive(builder):
 # --- Flow API tests.
 
 
-def test_get_single(flow):
+def test_get_single(preset_flow):
+    flow = preset_flow
+
     with raises(ValueError):
         flow.get('x')
 
@@ -250,7 +268,9 @@ def test_get_single(flow):
     assert flow.get('q') == 5
 
 
-def test_get_multiple(flow):
+def test_get_multiple(preset_flow):
+    flow = preset_flow
+
     assert flow.get('x', set) == set()
     assert flow.get('y', set) == {1}
     assert flow.get('z', set) == {2, 3}
@@ -260,7 +280,9 @@ def test_get_multiple(flow):
     assert flow.get('q', set) == {5}
 
 
-def test_get_formats(flow):
+def test_get_formats(preset_flow):
+    flow = preset_flow
+
     for fmt in [list, 'list']:
         ys = flow.get('y', fmt)
         assert ys == [1]
@@ -300,7 +322,9 @@ def test_get_formats(flow):
         assert list(p_series_index_df['q']) == [5]
 
 
-def test_setting(flow):
+def test_setting(preset_flow):
+    flow = preset_flow
+
     assert flow.get('y') == 1
     assert flow.setting('y', 2).get('y') == 2
     assert flow.setting('y', values=[3, 4]).get('y', set) == {3, 4}
@@ -311,7 +335,9 @@ def test_setting(flow):
     assert flow.get('y') == 1
 
 
-def test_adding_case(flow):
+def test_adding_case(preset_flow):
+    flow = preset_flow
+
     assert flow.get('x', set) == set()
     assert flow.adding_case('x', 1).get('x', set) == {1}
 
@@ -362,8 +388,7 @@ def test_then_setting(builder):
     assert flow0.get('c', set) == set()
 
 
-def test_then_setting_too_soon():
-    builder = bn.FlowBuilder()
+def test_then_setting_too_soon(builder):
     builder.declare('c')
     flow = builder.build()
 
@@ -371,25 +396,26 @@ def test_then_setting_too_soon():
         flow.then_setting('c', 1)
 
 
-def test_clearing_cases(flow):
+def test_clearing_cases(preset_flow):
+    flow = preset_flow
+
     assert flow.get('z', set) == {2, 3}
     assert flow.clearing_cases('z').get('z', set) == set()
     assert flow.clearing_cases('z').setting('z', 1).get('z') == 1
 
 
-def test_all_resource_names(flow):
-    assert set(flow.all_resource_names()) == {
+def test_all_resource_names(preset_flow):
+    assert set(preset_flow.all_resource_names()) == {
         'x', 'y', 'z', 'f', 'g', 'p', 'q'
     }
 
 
-def test_caching():
-    builder = bn.FlowBuilder()
-
+def test_in_memory_caching(builder):
     builder.assign('x', 2)
     builder.assign('y', 3)
 
     @builder
+    @bn.persist(False)
     @count_calls
     def xy(x, y):
         return x * y
@@ -419,8 +445,7 @@ def test_caching():
     assert xy.times_called() == 0
 
 
-def test_to_builder():
-    builder = bn.FlowBuilder()
+def test_to_builder(builder):
     builder.assign('x', 1)
     flow = builder.build()
     assert flow.get('x') == 1
@@ -434,8 +459,7 @@ def test_to_builder():
     assert builder.build().get('x') == 1
 
 
-def test_shortcuts():
-    builder = bn.FlowBuilder()
+def test_shortcuts(builder):
     builder.assign('x', 1)
     flow = builder.build()
 

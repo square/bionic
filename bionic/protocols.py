@@ -97,7 +97,7 @@ class DillableProtocol(BaseProtocol):
     def __init__(self, suppress_dill_side_effects=True, **base_kwargs):
         super(DillableProtocol, self).__init__(**base_kwargs)
 
-        dill_already_imported = 'dill'in sys.modules
+        dill_already_imported = 'dill' in sys.modules
         import dill
         if not dill_already_imported and suppress_dill_side_effects:
             dill.extend(False)

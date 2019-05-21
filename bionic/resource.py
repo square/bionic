@@ -10,12 +10,11 @@ rethink.
 import inspect
 from copy import copy
 from collections import defaultdict
-from entity import Task, TaskKey
 import functools
 
 import pandas as pd
 
-from entity import CaseKey, CaseKeySpace, Result
+from entity import Task, TaskKey, CaseKey, CaseKeySpace
 from util import groups_dict
 
 import logging
@@ -23,10 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 class ResourceAttributes(object):
-    def __init__(self, name, protocol=None, code_version=None):
+    def __init__(
+            self, name, protocol=None, code_version=None, should_persist=None):
         self.name = name
         self.protocol = protocol
         self.code_version = code_version
+        self.should_persist = None
 
 
 class BaseResource(object):
@@ -119,7 +120,8 @@ class VersionedResource(WrappingResource):
 class ValueResource(BaseResource):
     def __init__(self, name, protocol):
         super(ValueResource, self).__init__(
-            attrs=ResourceAttributes(name=name, protocol=protocol),
+            attrs=ResourceAttributes(
+                name=name, protocol=protocol, should_persist=False),
             is_mutable=True,
         )
 
@@ -289,61 +291,6 @@ class FunctionResource(BaseResource):
 
     def __repr__(self):
         return '%s(%s)' % (self.__class__.__name__, self._func)
-
-
-class PersistedResource(WrappingResource):
-    def __init__(self, wrapped_resource, cache_name='core__persistent_cache'):
-        super(PersistedResource, self).__init__(wrapped_resource)
-        self._cache_name = cache_name
-
-    def get_dependency_names(self):
-        wrapped_dep_names = list(self.wrapped_resource.get_dependency_names())
-        # TODO In theory we could handle this gracefully, but I'm not sure it's
-        # likely to come up.
-        assert self._cache_name not in wrapped_dep_names
-        return [self._cache_name] + wrapped_dep_names
-
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
-        dep_task_key_lists_by_name = dict(dep_task_key_lists_by_name)
-        cache_task_keys = dep_task_key_lists_by_name.pop(self._cache_name)
-
-        inner_tasks = self.wrapped_resource.get_tasks(
-            dep_key_spaces_by_name,
-            dep_task_key_lists_by_name)
-
-        return [
-            Task(
-                key=TaskKey(
-                    task.key.resource_name,
-                    task.key.case_key.merge(cache_task_key.case_key)
-                ),
-                dep_keys=([cache_task_key] + task.dep_keys),
-                compute_func=functools.partial(
-                    self._compute_task_using_cache,
-                    task=task,
-                ),
-            )
-            for task in inner_tasks
-            for cache_task_key in cache_task_keys
-        ]
-
-    def _compute_task_using_cache(self, query, dep_values, task):
-        dep_values = list(dep_values)
-        cache = dep_values.pop(0)
-
-        result = cache.load(query)
-        if result is None:
-            value = task.compute(query, dep_values)
-            result = Result(query, value)
-            cache.save(result)
-
-            # We immediately reload the value and treat that as the real value.
-            # That way, if the serialized/deserialized value is not exactly the
-            # same as the original, we still always return the same value.
-            result = cache.load(query)
-            assert result is not None
-
-        return result.value
 
 
 # TODO Consider allowing multiple gathered_dep_names?
