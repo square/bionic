@@ -11,8 +11,10 @@ import inspect
 from copy import copy
 from collections import defaultdict
 import functools
+from io import BytesIO
 
 import pandas as pd
+from PIL import Image
 
 from entity import Task, TaskKey, CaseKey, CaseKeySpace
 from util import groups_dict
@@ -493,6 +495,92 @@ class GatherResource(WrappingResource):
         orig_tasks = self.wrapped_resource.get_tasks(
             inner_key_spaces_by_name, inner_dtkls)
         return [wrap_task(task) for task in orig_tasks]
+
+
+# TODO Matplotlib has global state, which means it may run differently and
+# produce different output (or errors) in Jupyter vs in a script.  I think this
+# may produce some annoying gotchas in the future.  Some possible solutions:
+# 1. Have all tasks run in a separate process, at least by default.
+# 2. Have special handling for certain tasks that need to run in a separate
+#    process.
+# 3. Try to make Bionic's matplotlib initialization identical to Jupyter's.
+class PyplotResource(WrappingResource):
+    def __init__(self, wrapped_resource, name='pyplot'):
+        super(PyplotResource, self).__init__(wrapped_resource)
+
+        self._pyplot_name = name
+
+        inner_dep_names = wrapped_resource.get_dependency_names()
+        self._pyplot_dep_ix = inner_dep_names.index(self._pyplot_name)
+        if self._pyplot_dep_ix == -1:
+            raise ValueError(
+                "When using %s, expected wrapped %s to have a dependency "
+                "named %r; only found %r" % (
+                    self.__class__.__name__, wrapped_resource, inner_dep_names)
+            )
+
+        self._outer_dep_names = list(inner_dep_names)
+        self._outer_dep_names.remove(self._pyplot_name)
+
+    def get_dependency_names(self):
+        return self._outer_dep_names
+
+    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+        outer_dkss = dep_key_spaces_by_name
+
+        inner_dkss = outer_dkss.copy()
+        inner_dkss[self._pyplot_name] = CaseKey([])
+
+        outer_dtkls = dep_task_key_lists_by_name
+
+        inner_dtkls = outer_dtkls.copy()
+        inner_dtkls[self._pyplot_name] = [
+            TaskKey(
+                resource_name=self._pyplot_name,
+                case_key=CaseKey([]),
+            )
+        ]
+
+        inner_tasks = self.wrapped_resource.get_tasks(inner_dkss, inner_dtkls)
+
+        def wrap_task(task):
+            def wrapped_compute_func(query, dep_values):
+                import matplotlib
+                if matplotlib.get_backend() == 'MacOSX':
+                    matplotlib.use('TkAgg')
+                from matplotlib import pyplot as plt
+
+                outer_dep_values = dep_values
+
+                inner_dep_values = list(outer_dep_values)
+                inner_dep_values.insert(self._pyplot_dep_ix, plt)
+
+                value = task.compute(query, inner_dep_values)
+                if value is not None:
+                    raise ValueError(
+                        "Resources wrapped by %s should not return values; "
+                        "got value %r" % (self.__class__.__name__, value))
+
+                bio = BytesIO()
+                plt.savefig(bio, format='png')
+                plt.close()
+                bio.seek(0)
+                image = Image.open(bio)
+
+                return image
+
+            return Task(
+                key=task.key,
+                dep_keys=[
+                    dep_key
+                    for dep_key in task.dep_keys
+                    if dep_key.resource_name != self._pyplot_name
+                ],
+                compute_func=wrapped_compute_func,
+            )
+
+        outer_tasks = [wrap_task(task) for task in inner_tasks]
+        return outer_tasks
 
 
 def multi_index_from_case_keys(case_keys, ordered_key_names):

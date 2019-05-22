@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
     protos.DataFrameProtocol(),
+    protos.ImageProtocol(),
     protos.PicklableProtocol(),
 )
 
