@@ -44,8 +44,9 @@ def test_df(raw_df, test_frac, random_seed):
 
 
 @builder
-def model(train_df):
-    m = linear_model.LogisticRegression()
+def model(train_df, random_seed):
+    m = linear_model.LogisticRegression(
+        solver='liblinear', random_state=random_seed)
     m.fit(train_df.drop('target', axis=1), train_df['target'])
     return m
 
