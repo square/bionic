@@ -218,12 +218,13 @@ class ResourceResolver(object):
             )
             result = Result(query, task_value)
 
-        if should_persist:
-            self._persistent_cache.save(result)
-            # We immediately reload the value and treat that as the real value.
-            # That way, if the serialized/deserialized value is not exactly the
-            # same as the original, we still always return the same value.
-            result = self._persistent_cache.load(query)
+            if should_persist:
+                self._persistent_cache.save(result)
+                # We immediately reload the value and treat that as the real
+                # value.  That way, if the serialized/deserialized value is not
+                # exactly the same as the original, we still always return the
+                # same value.
+                result = self._persistent_cache.load(query)
 
         task_state.result = result
 
