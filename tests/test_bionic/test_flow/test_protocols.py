@@ -2,6 +2,7 @@ import pytest
 
 import pandas as pd
 import pandas.testing as pdt
+from PIL import Image
 
 from helpers import count_calls, df_from_csv_str
 
@@ -143,6 +144,18 @@ def test_dataframe_index_cols(builder):
 
     df = builder.build().get('counts_df')
     assert df.loc['Asia'].loc['Japan']['count'] == 2
+
+
+def test_image_protocol(builder):
+    @builder
+    @bn.protocol.image
+    def blue_rect():
+        return Image.new('RGB', (4, 2), color='blue')
+
+    image = builder.build().get('blue_rect')
+    assert image.width == 4
+    assert image.height == 2
+    assert image.tobytes().encode('hex') == ('0000ff' * 8)
 
 
 def test_type_protocol(builder):

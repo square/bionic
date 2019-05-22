@@ -2,13 +2,10 @@
 A toy ML workflow intended to test basic Bionic features.
 '''
 
-
 from sklearn import datasets, model_selection, linear_model, metrics
 import pandas as pd
 
 import bionic as bn
-
-bn.util.init_basic_logging()
 
 builder = bn.FlowBuilder()
 
@@ -47,8 +44,9 @@ def test_df(raw_df, test_frac, random_seed):
 
 
 @builder
-def model(train_df):
-    m = linear_model.LogisticRegression()
+def model(train_df, random_seed):
+    m = linear_model.LogisticRegression(
+        solver='liblinear', random_state=random_seed)
     m.fit(train_df.drop('target', axis=1), train_df['target'])
     return m
 
@@ -67,6 +65,16 @@ def pr_df(model, test_df):
     return df
 
 
+@builder
+@bn.pyplot('plt')
+def pr_plot(pr_df, plt):
+    ax = plt.subplot()
+    pr_df.plot(x='recall', y='precision', ax=ax)
+
+
 flow = builder.build()
 
-print flow.get('pr_df')
+if __name__ == '__main__':
+    bn.util.init_basic_logging()
+    flow.get('pr_plot')
+    print flow.get('pr_df')

@@ -5,6 +5,7 @@ import protocols
 picklable = protocols.PicklableProtocol()  # noqa: F401
 dillable = protocols.DillableProtocol()  # noqa: F401
 frame = protocols.DataFrameProtocol()  # noqa: F401
+image = protocols.ImageProtocol()  # noqa: F401
 
 # These need to be called with arguments.
 enum = protocols.EnumProtocol  # noqa: F401

@@ -14,6 +14,7 @@ import sys
 
 from pyarrow import parquet, Table
 import pandas as pd
+from PIL import Image
 
 from resource import resource_wrapper, AttrUpdateResource
 import tokenization
@@ -123,8 +124,8 @@ class DillableProtocol(BaseProtocol):
     def get_fixed_file_extension(self):
         return 'dill'
 
-    def __init__(self, suppress_dill_side_effects=True, **base_kwargs):
-        super(DillableProtocol, self).__init__(**base_kwargs)
+    def __init__(self, suppress_dill_side_effects=True):
+        super(DillableProtocol, self).__init__()
 
         dill_already_imported = 'dill' in sys.modules
         import dill
@@ -141,9 +142,6 @@ class DillableProtocol(BaseProtocol):
 
 
 class DataFrameProtocol(BaseProtocol):
-    def __init__(self):
-        super(DataFrameProtocol, self).__init__()
-
     def get_fixed_file_extension(self):
         return 'pq'
 
@@ -155,6 +153,24 @@ class DataFrameProtocol(BaseProtocol):
 
     def write(self, df, file_):
         parquet.write_table(Table.from_pandas(df), file_)
+
+
+class ImageProtocol(BaseProtocol):
+    def get_fixed_file_extension(self):
+        return 'png'
+
+    def validate(self, value):
+        assert isinstance(value, Image.Image)
+
+    def read(self, file_, extension):
+        image = Image.open(file_)
+        # Image.open() is lazy; if we don't call load() now, the file can be
+        # closed or possibly invalidated before it actually gets read.
+        image.load()
+        return image
+
+    def write(self, image, file_):
+        image.save(file_)
 
 
 class CombinedProtocol(BaseProtocol):
