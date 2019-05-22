@@ -21,7 +21,7 @@ PICKLABLE_VALUES = [
 @pytest.mark.parametrize('value', PICKLABLE_VALUES)
 def test_picklable_value(builder, value):
     @builder
-    @bn.protocol.picklable()
+    @bn.protocol.picklable
     @count_calls
     def picklable_value():
         return value
@@ -31,10 +31,22 @@ def test_picklable_value(builder, value):
     assert picklable_value.times_called() == 1
 
 
+def test_picklable_with_parens(builder):
+    @builder
+    @bn.protocol.picklable()
+    @count_calls
+    def picklable_value():
+        return 1
+
+    assert builder.build().get('picklable_value') == 1
+    assert builder.build().get('picklable_value') == 1
+    assert picklable_value.times_called() == 1
+
+
 @pytest.mark.parametrize('value', PICKLABLE_VALUES)
 def test_picklable_value_is_also_dillable(builder, value):
     @builder
-    @bn.protocol.dillable()
+    @bn.protocol.dillable
     @count_calls
     def dillable_value():
         return value
@@ -55,7 +67,7 @@ def test_dillable(builder):
     assert make_adder(3)(2) == 5
 
     @builder
-    @bn.protocol.dillable()
+    @bn.protocol.dillable
     @count_calls
     def add_two():
         return make_adder(2)
@@ -74,7 +86,7 @@ def test_simple_dataframe(builder):
     ''')
 
     @builder
-    @bn.protocol.frame()
+    @bn.protocol.frame
     @count_calls
     def df():
         return df_value
@@ -96,7 +108,7 @@ def test_typed_dataframe(builder):
     ])
 
     @builder
-    @bn.protocol.frame()
+    @bn.protocol.frame
     def df():
         return df_value
 
@@ -107,7 +119,7 @@ def test_typed_dataframe(builder):
 
 def test_dataframe_index_cols(builder):
     @builder
-    @bn.protocol.frame()
+    @bn.protocol.frame
     def raw_df():
         return df_from_csv_str('''
         city,country,continent,metro_pop_mil
@@ -124,7 +136,7 @@ def test_dataframe_index_cols(builder):
         ''')
 
     @builder
-    @bn.protocol.frame()
+    @bn.protocol.frame
     def counts_df(raw_df):
         return raw_df.groupby(['continent', 'country']).size()\
             .to_frame('count')
