@@ -16,6 +16,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '_helpers'))
 # to use a temporary directory rather than the default one.
 @pytest.fixture(scope='function')
 def builder(tmp_path):
-    builder = bn.FlowBuilder()
-    builder.set('core__persistent_cache__dir_name', str(tmp_path))
+    builder = bn.FlowBuilder('test')
+    builder.set('core__persistent_cache__flow_dir', str(tmp_path))
     return builder

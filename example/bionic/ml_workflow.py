@@ -7,7 +7,7 @@ import pandas as pd
 
 import bionic as bn
 
-builder = bn.FlowBuilder()
+builder = bn.FlowBuilder('ml_workflow')
 
 builder.assign('random_seed', 0)
 builder.assign('test_frac', 0.3)
