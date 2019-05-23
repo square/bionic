@@ -548,6 +548,8 @@ class PyplotResource(WrappingResource):
                 import matplotlib
                 if matplotlib.get_backend() == 'MacOSX':
                     matplotlib.use('TkAgg')
+                else:
+                    matplotlib.use('Agg')
                 from matplotlib import pyplot as plt
 
                 outer_dep_values = dep_values
