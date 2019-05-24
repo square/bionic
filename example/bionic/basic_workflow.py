@@ -1,6 +1,6 @@
 import bionic as bn
 
-builder = bn.FlowBuilder()
+builder = bn.FlowBuilder('basic_workflow')
 
 builder.assign('x', values=[2, 3])
 builder.assign('y', values=[5, 7])

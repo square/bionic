@@ -3,6 +3,7 @@ Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 '''
 
+import os
 import functools
 
 import pandas as pd
@@ -61,10 +62,18 @@ class FlowBuilder(object):
 
     # --- Public API.
 
-    def __init__(self, _mutable_state_handle=None):
+    def __init__(self, name, _mutable_state_handle=None):
         if _mutable_state_handle is None:
-            _mutable_state_handle = DEFAULT_IMMUTABLE_STATE_HANDLE.as_mutable()
-        self._mutable_state_handle = _mutable_state_handle
+            if name is None:
+                raise ValueError("A name must be provided")
+
+            self._mutable_state_handle = DEFAULT_IMMUTABLE_STATE_HANDLE\
+                .as_mutable()
+
+            self._set_name(name)
+
+        else:
+            self._mutable_state_handle = _mutable_state_handle
 
     def build(self):
         flow = Flow._from_builder(self)
@@ -191,6 +200,13 @@ class FlowBuilder(object):
 
     # --- Private helpers.
 
+    @classmethod
+    def _from_mutable_handle(cls, handle):
+        return cls(name=None, _mutable_state_handle=handle)
+
+    def _set_name(self, name):
+        self.set('core__flow_name', name)
+
     def _get_state(self):
         return self._mutable_state_handle.get()
 
@@ -298,8 +314,8 @@ class Flow(object):
         return resource.attrs.protocol
 
     def to_builder(self):
-        return FlowBuilder(
-            _mutable_state_handle=self._immutable_state_handle.as_mutable())
+        return FlowBuilder._from_mutable_handle(
+            self._immutable_state_handle.as_mutable())
 
     def get(self, name, fmt=None):
         result_group = self._resolver.resolve(name)
@@ -373,8 +389,8 @@ class Flow(object):
     def _updating(self, builder_update_func):
         def update_state(state):
             # Create a new builder that will update this value.
-            builder = FlowBuilder(
-                _mutable_state_handle=MutableHandle(mutable_value=state))
+            builder = FlowBuilder._from_mutable_handle(
+                MutableHandle(mutable_value=state))
             builder_update_func(builder)
             return builder._get_state()
 
@@ -421,14 +437,24 @@ class ShortcutProxy(object):
 
 # Construct a default state object.
 
-default_builder = FlowBuilder(MutableHandle(mutable_value=FlowState()))
-default_builder.assign('core__persistent_cache__dir_name', 'bndata')
+default_builder = FlowBuilder._from_mutable_handle(
+    MutableHandle(mutable_value=FlowState()),
+)
+default_builder.declare('core__flow_name')
+default_builder.assign('core__persistent_cache__global_dir', 'bndata')
 
 
 @default_builder.derive
 @decorators.immediate
-def core__persistent_cache(core__persistent_cache__dir_name):
-    return PersistentCache(core__persistent_cache__dir_name)
+def core__persistent_cache__flow_dir(
+        core__persistent_cache__global_dir, core__flow_name):
+    return os.path.join(core__persistent_cache__global_dir, core__flow_name)
+
+
+@default_builder.derive
+@decorators.immediate
+def core__persistent_cache(core__persistent_cache__flow_dir):
+    return PersistentCache(core__persistent_cache__flow_dir)
 
 
 DEFAULT_IMMUTABLE_STATE_HANDLE = \
