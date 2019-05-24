@@ -547,7 +547,9 @@ class PyplotResource(WrappingResource):
             def wrapped_compute_func(query, dep_values):
                 import matplotlib
                 if matplotlib.get_backend() == 'MacOSX':
-                    matplotlib.use('TkAgg')
+                    matplotlib.use('TkAgg', warn=False)
+                else:
+                    matplotlib.use('Agg', warn=False)
                 from matplotlib import pyplot as plt
 
                 outer_dep_values = dep_values
