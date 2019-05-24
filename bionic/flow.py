@@ -6,6 +6,7 @@ construction and execution APIs (respectively).
 import os
 import functools
 
+import pyrsistent as pyrs
 import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
@@ -16,7 +17,6 @@ from exception import UndefinedResourceError
 from resource import ValueResource, multi_index_from_case_keys, as_resource
 from resolver import ResourceResolver
 import decorators
-from handle import MutableHandle
 from util import group_pairs, check_exactly_one_present
 
 import logging
@@ -29,28 +29,92 @@ DEFAULT_PROTOCOL = protos.CombinedProtocol(
 )
 
 
-# TODO I wonder if we could avoid using handles by implementing this class as a
-# persistent data structure using pyrsistent.
-class FlowState(object):
+# We use an immutable persistent data structure to represent our state.  This
+# has several advantages:
+# 1. We can provide both a mutable (FlowBuilder) and immutable (Flow) interface
+# to the state without worrying about the mutable interface breaking the
+# immutable one.
+# 2. It's easy to provide exception safety: when FlowBuilder is performing an
+# update, it only adopts the new state at the very end.  If something fails
+# and throws an exception partway through, the state remains unchanged.
+# 3. I think this will make it easier to provide helpers for reloading.
+class FlowState(pyrs.PClass):
     '''
-    Holds the internal state for a flow.  Flow and FlowBuilder instances access
-    these via handles to minimize copying as we move between mutable and
-    immutable interfaces.
+    Contains the state for a Flow or FlowBuilder object.  This is a
+    "pyrsistent" class, which means it's immutable, but a modified copy can be
+    efficiently created with the set() method.
     '''
-    def __init__(self, state=None):
-        if state is None:
-            self.resources_by_name = {}
-            self.last_added_case_key = None
+    resources_by_name = pyrs.field(initial=pyrs.pmap())
+    last_added_case_key = pyrs.field(initial=None)
 
-        else:
-            self.resources_by_name = {
-                name: resource.copy_if_mutable()
-                for name, resource in state.resources_by_name.iteritems()
-            }
-            self.last_added_case_key = state.last_added_case_key
+    def get_resource(self, name):
+        if name not in self.resources_by_name:
+            raise UndefinedResourceError("Resource %r is not defined" % name)
+        return self.resources_by_name[name]
 
-    def copy(self):
-        return FlowState(self)
+    def has_resource(self, name):
+        return name in self.resources_by_name
+
+    def create_resource(self, name, protocol):
+        if name in self.resources_by_name:
+            raise ValueError("Resource %r already exists" % name)
+
+        resource = ValueResource(name, protocol)
+        return self._set_resource(resource)
+
+    def update_resource(self, resource, create_if_not_set=False):
+        name = resource.attrs.name
+        if name not in self.resources_by_name and not create_if_not_set:
+                raise ValueError("Resource %r doesn't exist" % name)
+        return self._set_resource(resource)
+
+    def add_case(self, name, case_key, value):
+        resource = self.get_resource(name).copy_if_mutable()
+        if not isinstance(resource, ValueResource):
+            raise ValueError("Can't add case to function resource %r" % name)
+        resource.check_can_add_case(case_key, value)
+        resource.add_case(case_key, value)
+
+        return self._set_resource(resource)
+
+    def clear_resources(self, names):
+        state = self
+
+        for name in names:
+            if not state.has_resource(name):
+                continue
+            resource = self.get_resource(name)
+
+            if isinstance(resource, ValueResource):
+                for related_name in resource.key_space:
+                    if related_name not in names:
+                        raise ValueError(
+                            "Can't remove cases for resource %r without also "
+                            "removing resources %r" % (
+                                name, list(resource.key_space)))
+
+            state = state._delete_resource(name)
+            state = state.create_resource(name, resource.attrs.protocol)
+
+        return state
+
+        # TODO Consider checking downstream resources too.
+
+    def delete_resources(self, names):
+        state = self
+        state = state.clear_resources(names)
+        for name in names:
+            state = state._delete_resource(name)
+
+        return state
+
+    def _set_resource(self, resource):
+        name = resource.attrs.name
+        return self.set(
+            resources_by_name=self.resources_by_name.set(name, resource))
+
+    def _delete_resource(self, name):
+        return self.set(resources_by_name=self.resources_by_name.remove(name))
 
 
 class FlowBuilder(object):
@@ -62,21 +126,20 @@ class FlowBuilder(object):
 
     # --- Public API.
 
-    def __init__(self, name, _mutable_state_handle=None):
-        if _mutable_state_handle is None:
+    def __init__(self, name, _state=None):
+        if _state is None:
             if name is None:
                 raise ValueError("A name must be provided")
 
-            self._mutable_state_handle = DEFAULT_IMMUTABLE_STATE_HANDLE\
-                .as_mutable()
-
+            self._state = DEFAULT_STATE
             self._set_name(name)
 
         else:
-            self._mutable_state_handle = _mutable_state_handle
+            assert name is None
+            self._state = _state
 
     def build(self):
-        flow = Flow._from_builder(self)
+        flow = Flow._from_state(self._state)
         flow._resolver.get_ready()
         return flow
 
@@ -84,8 +147,7 @@ class FlowBuilder(object):
         if protocol is None:
             protocol = DEFAULT_PROTOCOL
 
-        self._check_resource_does_not_exist(name)
-        self._create_resource(name, protocol)
+        self._state = self._state.create_resource(name, protocol)
 
     def assign(self, name, value=None, values=None, protocol=None):
         check_exactly_one_present(value=value, values=values)
@@ -98,31 +160,33 @@ class FlowBuilder(object):
         for value in values:
             protocol.validate(value)
 
-        self._check_resource_does_not_exist(name)
+        state = self._state
 
-        resource = self._create_resource(name, protocol)
+        state = state.create_resource(name, protocol)
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
-            resource.add_case(case_key, value)
+            state = state.add_case(name, case_key, value)
+
+        self._state = state
 
     def set(self, name, value=None, values=None):
         check_exactly_one_present(value=value, values=values)
         if value is not None:
             values = [value]
 
-        self._check_resource_exists(name)
-        self._check_is_safe_to_clear([name])
+        state = self._state
 
-        state = self._get_state()
-        resource = state.resources_by_name[name]
+        state = state.clear_resources([name])
+        resource = state.get_resource(name)
         protocol = resource.attrs.protocol
 
         protocol.validate(value)
 
-        resource = self._clear_resource(resource)
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
-            resource.add_case(case_key, value)
+            state = state.add_case(name, case_key, value)
+
+        self._state = state
 
     # TODO Should we allow undeclared names?  Having to declare them first is
     # basically always clunky and annoying, but should we allow add_case to
@@ -133,50 +197,34 @@ class FlowBuilder(object):
     def add_case(self, *name_values):
         name_value_pairs = group_pairs(name_values)
 
-        state = self._get_state()
-        case_nvtr_tuples = []
+        state = self._state
+
+        case_nvt_tuples = []
         for name, value in name_value_pairs:
-            self._check_resource_exists(name)
-            resource = state.resources_by_name[name]
+            resource = state.get_resource(name)
             protocol = resource.attrs.protocol
             protocol.validate(value)
             token = protocol.tokenize(value)
 
-            case_nvtr_tuples.append((name, value, token, resource))
+            case_nvt_tuples.append((name, value, token))
 
-        case_key = CaseKey([
-            (name, value, token)
-            for (name, value, token, _) in case_nvtr_tuples  # noqa: F812
-        ])
-        for name, value, _, _ in case_nvtr_tuples:
-            self._check_can_add_case(name, case_key, value)
+        case_key = CaseKey(case_nvt_tuples)
 
-        for name, value, _, resource in case_nvtr_tuples:
-            resource.add_case(case_key, value)
+        for name, value, _ in case_nvt_tuples:
+            state = state.add_case(name, case_key, value)
 
         case = FlowCase(self, case_key)
-        state.last_added_case_key = case.key
+        state = state.set(last_added_case_key=case.key)
+
+        self._state = state
+
         return case
 
     def clear_cases(self, *names):
-        state = self._get_state()
-
-        for name in names:
-            if name not in state.resources_by_name:
-                raise ValueError(
-                    "Can't clear cases for nonexistent resource %r" % name)
-        self._check_is_safe_to_clear(names)
-
-        for name in names:
-            resource = state.resources_by_name[name]
-            self._clear_resource(resource)
+        self._state = self._state.clear_resources(names)
 
     def delete(self, *names):
-        self._check_is_safe_to_clear(names)
-
-        state = self._get_state()
-        for name in names:
-            del state.resources_by_name[name]
+        self._state = self._state.delete_resources(names)
 
     def derive(self, func_or_resource):
         resource = as_resource(func_or_resource)
@@ -185,10 +233,8 @@ class FlowBuilder(object):
         if resource.attrs.should_persist is None:
             resource = decorators.persist(True)(resource)
 
-        self._check_resource_does_not_exist(resource.attrs.name)
-
-        state = self._get_state()
-        state.resources_by_name[resource.attrs.name] = resource
+        self._state = self._state.update_resource(
+            resource, create_if_not_set=True)
 
         return resource.get_source_func()
 
@@ -201,79 +247,21 @@ class FlowBuilder(object):
     # --- Private helpers.
 
     @classmethod
-    def _from_mutable_handle(cls, handle):
-        return cls(name=None, _mutable_state_handle=handle)
+    def _from_state(cls, state):
+        return cls(name=None, _state=state)
+
+    @classmethod
+    def _with_empty_state(cls):
+        return cls(name=None, _state=FlowState())
 
     def _set_name(self, name):
         self.set('core__flow_name', name)
 
-    def _get_state(self):
-        return self._mutable_state_handle.get()
-
-    def _check_resource_exists(self, name):
-        state = self._get_state()
-        if name not in state.resources_by_name:
-            raise ValueError("Resource %r doesn't exist" % name)
-
-    def _check_resource_does_not_exist(self, name):
-        state = self._get_state()
-        if name in state.resources_by_name:
-            raise ValueError("Resource %r already exists" % name)
-
-    def _check_can_add_case(self, name, case_key, value):
-        state = self._get_state()
-
-        resource = state.resources_by_name[name]
-        if not isinstance(resource, ValueResource):
-            raise ValueError("Can't add case to function resource %r" % name)
-        resource.check_can_add_case(case_key, value)
-
-    def _check_is_safe_to_clear(self, names):
-        state = self._get_state()
-
-        for name in names:
-            resource = state.resources_by_name.get(name)
-            if resource is None:
-                continue
-
-            if not isinstance(resource, ValueResource):
-                continue
-
-            for related_name in resource.key_space:
-                if related_name not in names:
-                    raise ValueError(
-                        "Can't remove cases for resource %r without also "
-                        "removing resources %r" % (
-                            name, list(resource.key_space)))
-
-        # TODO Consider checking downstream resources too.
-
-    def _clear_resource(self, resource):
-        if isinstance(resource, ValueResource):
-            resource.clear_cases()
-            return resource
-        else:
-            return self._create_resource(
-                resource.attrs.name, resource.attrs.protocol)
-
-    def _create_resource(self, name, protocol):
-        state = self._get_state()
-        resource = ValueResource(name, protocol)
-        state.resources_by_name[name] = resource
-        return resource
-
     def _set_for_case_key(self, case_key, name, value):
-        self._check_resource_exists(name)
-        self._check_can_add_case(name, case_key, value)
-
-        state = self._get_state()
-        resource = state.resources_by_name[name]
-        resource.add_case(case_key, value)
+        self._state = self._state.add_case(name, case_key, value)
 
     def _set_for_last_case(self, name, value):
-        state = self._get_state()
-
-        last_case_key = state.last_added_case_key
+        last_case_key = self._state.last_added_case_key
         if last_case_key is None:
             raise ValueError(
                 "A case must have been added before calling this method")
@@ -303,19 +291,15 @@ class Flow(object):
     def all_resource_names(self, include_core=False):
         return [
             name
-            for name in self._get_state().resources_by_name.keys()
+            for name in self._state.resources_by_name.iterkeys()
             if include_core or not name.startswith('core__')
         ]
 
     def resource_protocol(self, name):
-        resource = self._get_state().resources_by_name.get(name)
-        if resource is None:
-            raise UndefinedResourceError("Resource %r is not defined" % name)
-        return resource.attrs.protocol
+        return self._state.get_resource(name).attrs.protocol
 
     def to_builder(self):
-        return FlowBuilder._from_mutable_handle(
-            self._immutable_state_handle.as_mutable())
+        return FlowBuilder._from_state(self._state)
 
     def get(self, name, fmt=None):
         result_group = self._resolver.resolve(name)
@@ -364,39 +348,25 @@ class Flow(object):
     # --- Private helpers.
 
     @classmethod
-    def _from_builder(self, builder):
-        return Flow(
-            _official=True,
-            immutable_state_handle=(
-                builder._mutable_state_handle.as_immutable()),
-        )
+    def _from_state(self, state):
+        return Flow(_official=True, state=state)
 
-    def __init__(self, immutable_state_handle, _official=False):
+    def __init__(self, state, _official=False):
         if not _official:
             raise ValueError(
                 "Don't construct this class directly; "
                 "use one of the classmethod constructors")
 
-        self._immutable_state_handle = immutable_state_handle
-        self._resolver = ResourceResolver(immutable_state_handle)
+        self._state = state
+        self._resolver = ResourceResolver(state)
 
         self.get = ShortcutProxy(self.get)
         self.setting = ShortcutProxy(self.setting)
 
-    def _get_state(self):
-        return self._immutable_state_handle.get()
-
     def _updating(self, builder_update_func):
-        def update_state(state):
-            # Create a new builder that will update this value.
-            builder = FlowBuilder._from_mutable_handle(
-                MutableHandle(mutable_value=state))
-            builder_update_func(builder)
-            return builder._get_state()
-
-        updated_handle = self._immutable_state_handle.updating(
-            update_state, eager=True)
-        return Flow(_official=True, immutable_state_handle=updated_handle)
+        builder = FlowBuilder._from_state(self._state)
+        builder_update_func(builder)
+        return Flow._from_state(builder._state)
 
 
 class ShortcutProxy(object):
@@ -437,9 +407,7 @@ class ShortcutProxy(object):
 
 # Construct a default state object.
 
-default_builder = FlowBuilder._from_mutable_handle(
-    MutableHandle(mutable_value=FlowState()),
-)
+default_builder = FlowBuilder._with_empty_state()
 default_builder.declare('core__flow_name')
 default_builder.assign('core__persistent_cache__global_dir', 'bndata')
 
@@ -457,5 +425,4 @@ def core__persistent_cache(core__persistent_cache__flow_dir):
     return PersistentCache(core__persistent_cache__flow_dir)
 
 
-DEFAULT_IMMUTABLE_STATE_HANDLE = \
-    default_builder._mutable_state_handle.as_immutable()
+DEFAULT_STATE = default_builder._state
