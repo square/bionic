@@ -170,6 +170,9 @@ class ValueResource(BaseResource):
     def get_code_id(self, case_key):
         return self._code_ids_by_key[case_key]
 
+    def get_source_func(self):
+        return None
+
     def get_key_space(self, dep_key_spaces_by_name):
         assert not dep_key_spaces_by_name
         return self.key_space

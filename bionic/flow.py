@@ -37,7 +37,8 @@ DEFAULT_PROTOCOL = protos.CombinedProtocol(
 # 2. It's easy to provide exception safety: when FlowBuilder is performing an
 # update, it only adopts the new state at the very end.  If something fails
 # and throws an exception partway through, the state remains unchanged.
-# 3. I think this will make it easier to provide helpers for reloading.
+# 3. We can maintain a single "blessed" state object that's eligible for
+# reloading.
 class FlowState(pyrs.PClass):
     '''
     Contains the state for a Flow or FlowBuilder object.  This is a
@@ -46,6 +47,24 @@ class FlowState(pyrs.PClass):
     '''
     resources_by_name = pyrs.field(initial=pyrs.pmap())
     last_added_case_key = pyrs.field(initial=None)
+
+    # These are used to keep track of whether a flow state is safe to reload.
+    # To keep things sane, we try to ensure that there is at most one flow
+    # with a given name that's eligible for reload.  This is the first flow
+    # created by a builder, and it's marked as "blessed".  Any modified
+    # versions of the flow are ineligible for blessing, as are any other flows
+    # created by the same builder.
+    # This reloading behavior is pretty finicky and magical, but thankfully
+    # it shouldn't have much effect on code that doesn't use it.
+    can_be_blessed = pyrs.field(initial=True)
+    is_blessed = pyrs.field(initial=False)
+
+    def bless(self):
+        assert self.can_be_blessed and not self.is_blessed
+        return self.set(is_blessed=True, can_be_blessed=False)
+
+    def touch(self):
+        return self.set(is_blessed=False)
 
     def get_resource(self, name):
         if name not in self.resources_by_name:
@@ -60,13 +79,13 @@ class FlowState(pyrs.PClass):
             raise ValueError("Resource %r already exists" % name)
 
         resource = ValueResource(name, protocol)
-        return self._set_resource(resource)
+        return self._set_resource(resource).touch()
 
     def update_resource(self, resource, create_if_not_set=False):
         name = resource.attrs.name
         if name not in self.resources_by_name and not create_if_not_set:
-                raise ValueError("Resource %r doesn't exist" % name)
-        return self._set_resource(resource)
+            raise ValueError("Resource %r doesn't exist" % name)
+        return self._set_resource(resource).touch()
 
     def add_case(self, name, case_key, value):
         resource = self.get_resource(name).copy_if_mutable()
@@ -75,7 +94,7 @@ class FlowState(pyrs.PClass):
         resource.check_can_add_case(case_key, value)
         resource.add_case(case_key, value)
 
-        return self._set_resource(resource)
+        return self._set_resource(resource).touch()
 
     def clear_resources(self, names):
         state = self
@@ -96,7 +115,7 @@ class FlowState(pyrs.PClass):
             state = state._delete_resource(name)
             state = state.create_resource(name, resource.attrs.protocol)
 
-        return state
+        return state.touch()
 
         # TODO Consider checking downstream resources too.
 
@@ -106,7 +125,7 @@ class FlowState(pyrs.PClass):
         for name in names:
             state = state._delete_resource(name)
 
-        return state
+        return state.touch()
 
     def _set_resource(self, resource):
         name = resource.attrs.name
@@ -131,7 +150,7 @@ class FlowBuilder(object):
             if name is None:
                 raise ValueError("A name must be provided")
 
-            self._state = DEFAULT_STATE
+            self._state = create_default_flow_state()
             self._set_name(name)
 
         else:
@@ -139,8 +158,14 @@ class FlowBuilder(object):
             self._state = _state
 
     def build(self):
-        flow = Flow._from_state(self._state)
+        state = self._state
+        if state.can_be_blessed:
+            state = state.bless()
+
+        flow = Flow._from_state(state)
         flow._resolver.get_ready()
+
+        self._state = state.touch()
         return flow
 
     def declare(self, name, protocol=None):
@@ -345,6 +370,97 @@ class Flow(object):
     def clearing_cases(self, *names):
         return self._updating(lambda builder: builder.clear_cases(*names))
 
+    @property
+    def name(self):
+        return self.get('core__flow_name')
+
+    def reloading(self):
+        '''
+        Attempts to reload all modules used directly by this Flow.  For safety,
+        this only works if this flow meets the following requirements:
+        - is the first Flow built by its FlowBuilder
+        - has never been modified (i.e., isn't derived from another Flow)
+        - is assigned to a top-level variable in a module that one of its
+          functions is defined in
+
+        The most straightforward way to meet these requirements is to define
+        your flow in a module as:
+
+            builder = ...
+
+            @builder
+            def ...
+
+            ...
+
+            flow = builder.build()
+
+        and then import in the notebook like so:
+
+            from mymodule import flow
+            ...
+            flow.reloading().get('myresource')
+
+        This will reload the modules and use the most recent version of the
+        flow before doing the get().
+        '''
+        # TODO If we wanted, I think we could support reloading on modified
+        # versions of flows by keeping a copy of the original blessed flow,
+        # plus all the operations performed to get to the current version.
+        # Then if we want to reload, we reload the blessed flow and re-apply
+        # those operations.
+
+        from sys import modules as module_registry
+
+        state = self._state
+
+        if not state.is_blessed:
+            raise ValueError(
+                "A flow can only be reloaded if it's the first flow built "
+                "from its builder and it hasn't been modified")
+
+        self_name = self.name
+
+        module_names = set()
+        for resource in state.resources_by_name.itervalues():
+            source_func = resource.get_source_func()
+            if source_func is None:
+                continue
+            module_names.add(source_func.__module__)
+
+        blessed_candidate_flows = []
+        unblessed_candidate_flows = []
+        for module_name in module_names:
+            module = reload(module_registry[module_name])
+            for key in dir(module):
+                element = getattr(module, key)
+                if not isinstance(element, Flow):
+                    continue
+                flow = element
+                if flow.name != self_name:
+                    continue
+                if not flow._state.is_blessed:
+                    unblessed_candidate_flows.append(flow)
+                else:
+                    blessed_candidate_flows.append(flow)
+
+        if len(blessed_candidate_flows) == 0:
+            if len(unblessed_candidate_flows) > 0:
+                raise Exception(
+                    "Found a matching flow, but it had been modified" %
+                    self_name)
+            else:
+                raise Exception(
+                    "Couldn't find any flow named %r in modules %r" % (
+                        self_name, module_names))
+        if len(blessed_candidate_flows) > 1:
+            raise Exception(
+                "Too many flows named %r in modules %r; found %d, wanted 1" % (
+                    self_name, module_names, len(blessed_candidate_flows)))
+        flow, = blessed_candidate_flows
+
+        return flow
+
     # --- Private helpers.
 
     @classmethod
@@ -406,23 +522,21 @@ class ShortcutProxy(object):
 
 
 # Construct a default state object.
+def create_default_flow_state():
+    builder = FlowBuilder._with_empty_state()
+    builder.declare('core__flow_name')
+    builder.assign('core__persistent_cache__global_dir', 'bndata')
 
-default_builder = FlowBuilder._with_empty_state()
-default_builder.declare('core__flow_name')
-default_builder.assign('core__persistent_cache__global_dir', 'bndata')
+    @builder.derive
+    @decorators.immediate
+    def core__persistent_cache__flow_dir(
+            core__persistent_cache__global_dir, core__flow_name):
+        return os.path.join(
+            core__persistent_cache__global_dir, core__flow_name)
 
+    @builder.derive
+    @decorators.immediate
+    def core__persistent_cache(core__persistent_cache__flow_dir):
+        return PersistentCache(core__persistent_cache__flow_dir)
 
-@default_builder.derive
-@decorators.immediate
-def core__persistent_cache__flow_dir(
-        core__persistent_cache__global_dir, core__flow_name):
-    return os.path.join(core__persistent_cache__global_dir, core__flow_name)
-
-
-@default_builder.derive
-@decorators.immediate
-def core__persistent_cache(core__persistent_cache__flow_dir):
-    return PersistentCache(core__persistent_cache__flow_dir)
-
-
-DEFAULT_STATE = default_builder._state
+    return builder._state
