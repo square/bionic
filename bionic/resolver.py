@@ -5,6 +5,13 @@ Contains the core logic for resolving Resources by executing Tasks.
 from entity import Provenance, Query, Result, ResultGroup
 from exception import UndefinedResourceError
 
+import logging
+# TODO At some point it might be good to have the option of Bionic handling its
+# own logging.  Probably it would manage its own logger instances and inject
+# them into tasks, while providing the option of either handling the output
+# itself or routing it back to the global logging system.
+logger = logging.getLogger(__name__)
+
 
 class ResourceResolver(object):
     # --- Public API.
@@ -191,6 +198,13 @@ class ResourceResolver(object):
             provenance=provenance,
         )
 
+        loggable_task_str = '%s(%s)' % (
+           task.key.resource_name,
+           ', '.join(
+               '%s=%s' % (name, value)
+               for name, value in task.key.case_key.iteritems())
+        )
+
         should_persist = resource.attrs.should_persist
         if should_persist:
             if not self._is_ready_for_full_resolution:
@@ -201,12 +215,17 @@ class ResourceResolver(object):
         else:
             result = None
 
-        if result is None:
+        if result is not None:
+            logger.info('Loaded    %s from cache', loggable_task_str)
+        else:
+            logger.info('Computing %s ...', loggable_task_str)
+
             dep_values = [dep_result.value for dep_result in dep_results]
             task_value = task_state.task.compute(
                 query=query,
                 dep_values=dep_values,
             )
+
             result = Result(query, task_value)
 
             if should_persist:
@@ -216,6 +235,8 @@ class ResourceResolver(object):
                 # exactly the same as the original, we still always return the
                 # same value.
                 result = self._persistent_cache.load(query)
+
+            logger.info('Computed  %s', loggable_task_str)
 
         task_state.result = result
 
