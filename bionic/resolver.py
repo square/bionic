@@ -9,16 +9,13 @@ from exception import UndefinedResourceError
 class ResourceResolver(object):
     # --- Public API.
 
-    def __init__(self, immutable_flow_state_handle):
-        # TODO Do we need handle holders to distinguish between mutable and
-        # immutable?  Can we just convert incoming handles to the type we want?
-        self._immutable_flow_state_handle = immutable_flow_state_handle
+    def __init__(self, flow_state):
+        self._flow_state = flow_state
 
         # This state is needed to do any resolution at all.  Once it's
         # initialized, we can use it to bootstrap the requirements for "full"
         # resolution below.
         self._is_ready_for_bootstrap_resolution = False
-        self._flow_state = None
         self._task_lists_by_resource_name = None
         self._task_states_by_key = None
 
@@ -58,8 +55,6 @@ class ResourceResolver(object):
         if self._is_ready_for_bootstrap_resolution:
             return
 
-        self._flow_state = self._immutable_flow_state_handle.get()
-
         self._key_spaces_by_resource_name = {}
         self._task_lists_by_resource_name = {}
         for name in self._flow_state.resources_by_name.iterkeys():
@@ -83,11 +78,7 @@ class ResourceResolver(object):
         if resource_name in self._task_lists_by_resource_name:
             return
 
-        resource = self._flow_state.resources_by_name.get(resource_name)
-        if resource is None:
-            # TODO Consider adding some more context here?
-            raise UndefinedResourceError(
-                "Resource %r is not defined" % resource_name)
+        resource = self._flow_state.get_resource(resource_name)
 
         dep_names = resource.get_dependency_names()
         for dep_name in dep_names:
@@ -183,7 +174,7 @@ class ResourceResolver(object):
             for dep_key in dep_keys
         ]
 
-        resource = self._flow_state.resources_by_name[task.key.resource_name]
+        resource = self._flow_state.get_resource(task.key.resource_name)
         case_key = task.key.case_key
         provenance = Provenance.from_computation(
             code_id=resource.get_code_id(case_key),

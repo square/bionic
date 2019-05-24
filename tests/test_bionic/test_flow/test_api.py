@@ -141,7 +141,7 @@ def test_add_case(preset_builder):
     with raises(ValueError):
         builder.add_case('f', 7)
 
-    with raises(ValueError):
+    with raises(UndefinedResourceError):
         builder.add_case('xxx', 7)
 
     builder.add_case('p', 4, 'q', 6)
@@ -177,7 +177,7 @@ def test_then_set(preset_builder):
         case.then_set('c', 1)
     with raises(ValueError):
         case.then_set('a', 1)
-    with raises(ValueError):
+    with raises(UndefinedResourceError):
         case.then_set('xxx', 1)
 
 
@@ -329,7 +329,7 @@ def test_setting(preset_flow):
     assert flow.setting('y', 2).get('y') == 2
     assert flow.setting('y', values=[3, 4]).get('y', set) == {3, 4}
 
-    with raises(ValueError):
+    with raises(UndefinedResourceError):
         flow.setting('xxx', 1)
 
     assert flow.get('y') == 1
