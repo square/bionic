@@ -8,6 +8,8 @@ rethink.
 '''
 from __future__ import absolute_import
 
+from builtins import zip
+from builtins import object
 import inspect
 from copy import copy
 from collections import defaultdict
@@ -194,7 +196,7 @@ class ValueResource(BaseResource):
                     case_key=case_key,
                 ),
             )
-            for case_key in self._values_by_case_key.iterkeys()
+            for case_key in self._values_by_case_key.keys()
         ]
 
     def _compute(self, query, dep_values, case_key):
@@ -222,7 +224,7 @@ class FunctionResource(BaseResource):
         return self._func
 
     def get_key_space(self, dep_key_spaces_by_name):
-        return CaseKeySpace.union_all(dep_key_spaces_by_name.values())
+        return CaseKeySpace.union_all(list(dep_key_spaces_by_name.values()))
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
         dep_case_key_lists = [
@@ -280,7 +282,7 @@ class FunctionResource(BaseResource):
             # new and already-merged keys.
             merged_case_keys = []
             for common_key, merged_keys in\
-                    merged_key_lists_by_common_key.iteritems():
+                    merged_key_lists_by_common_key.items():
                 for cur_key in cur_key_lists_by_common_key.get(common_key, []):
                     for merged_key in merged_keys:
                         new_merged_key = merged_key.merge(cur_key)
@@ -388,7 +390,7 @@ class GatherResource(WrappingResource):
                 resource_name=self._inner_gathered_dep_name,
                 case_key=case_key,
             )
-            for case_key in primary_tkls_by_outer_case_key.iterkeys()
+            for case_key in primary_tkls_by_outer_case_key.keys()
         ]
         full_gathered_key_space = \
             outer_key_spaces_by_name[self._outer_gathered_dep_name]
@@ -456,8 +458,8 @@ class GatherResource(WrappingResource):
                 prepended_values = dep_values[:len(prepended_keys)]
                 passthrough_values = dep_values[len(prepended_keys):]
 
-                values_by_task_key = dict(zip(
-                    prepended_keys, prepended_values))
+                values_by_task_key = dict(list(zip(
+                    prepended_keys, prepended_values)))
 
                 # Gather the prepended values into a single frame.
                 df_row_case_keys = [

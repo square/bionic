@@ -10,6 +10,7 @@ This module contains a BaseProtocol class and various subclasses.
 '''
 from __future__ import absolute_import
 
+from builtins import object
 import pickle
 import sys
 
@@ -63,8 +64,8 @@ class BaseProtocol(object):
 
     SIMPLE_TYPES = {
         bool,
-        str, bytes, unicode,
-        int, long, float,
+        str, bytes, str,
+        int, int, float,
     }
 
     def tokenize(self, value):

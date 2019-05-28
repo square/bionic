@@ -3,6 +3,7 @@ Contains various data structures used by Bionic's infrastructure.
 '''
 from __future__ import absolute_import
 
+from builtins import object
 from collections import namedtuple
 import yaml
 
@@ -131,7 +132,7 @@ class CaseKey(ImmutableMapping):
         super(CaseKey, self).__init__(tokens_by_name)
         self._nvt_triples = name_value_token_triples
         self.values = values_by_name
-        self.space = CaseKeySpace(values_by_name.keys())
+        self.space = CaseKeySpace(list(values_by_name.keys()))
 
     def project(self, key_space):
         return CaseKey([
@@ -161,13 +162,13 @@ class CaseKey(ImmutableMapping):
 
         return CaseKey([
             (name, value, token)
-            for name, (value, token) in vt_pairs_by_name.iteritems()
+            for name, (value, token) in vt_pairs_by_name.items()
         ])
 
     def __repr__(self):
         return 'CaseKey(%s)' % ', '.join(
             name + '=' + token
-            for name, token in self.iteritems())
+            for name, token in self.items())
 
 
 class ResultGroup(ImmutableSequence):
@@ -196,7 +197,7 @@ class Provenance(object):
             case_key=dict(case_key),
             deps={
                 name: provenance.hashed_value
-                for name, provenance in dep_provenances_by_name.iteritems()
+                for name, provenance in dep_provenances_by_name.items()
             },
         ))
 

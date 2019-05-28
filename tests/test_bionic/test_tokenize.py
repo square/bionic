@@ -1,3 +1,5 @@
+from builtins import range
+from builtins import object
 import pickle
 
 from bionic.tokenization import tokenize
@@ -30,8 +32,8 @@ def test_tokenize_complex_type():
 def test_tokenize_no_collisions():
     points = [
         Point(x, y)
-        for x in xrange(100)
-        for y in xrange(100)
+        for x in range(100)
+        for y in range(100)
     ]
     tokens = [
         tokenize(point, pickle.dump)

@@ -1,7 +1,11 @@
 '''
 Miscellaneous utility functions.
 '''
+from __future__ import division
 
+from builtins import zip
+from builtins import object
+from past.utils import old_div
 import logging
 
 from collections import defaultdict
@@ -58,12 +62,12 @@ def n_present(*items):
 
 
 def check_exactly_one_present(**kwargs):
-    if not n_present(kwargs.values()) == 1:
+    if not n_present(list(kwargs.values())) == 1:
         raise ValueError("Exactly one of %s should be present; got %s" % (
             tuple(kwargs.keys()),
             ', '.join(
                 '%s=%r' % (name, value)
-                for name, value in kwargs.iteritems())
+                for name, value in kwargs.items())
         ))
 
 
@@ -71,7 +75,7 @@ def group_pairs(items):
     "Groups an even-sized list into contiguous pairs."
     if len(items) % 2 != 0:
         raise ValueError("Expected even number of items, got %r" % (items,))
-    return zip(items[::2], items[1::2])
+    return list(zip(items[::2], items[1::2]))
 
 
 def groups_dict(values, keyfunc):
@@ -99,7 +103,7 @@ def hash_to_hex(string, n_bytes=None):
         available_chars = len(hex_str)
         if n_chars > available_chars:
             raise ValueError("Can't keep %d bytes; we only have %d" % (
-                n_bytes, available_chars / 2))
+                n_bytes, old_div(available_chars, 2)))
         hex_str = hex_str[:n_chars]
 
     return hex_str
@@ -169,22 +173,22 @@ class ImmutableMapping(ImmutableSequence):
         return self.__values_by_key.get(key)
 
     def keys(self):
-        return self.__values_by_key.keys()
+        return list(self.__values_by_key.keys())
 
     def values(self):
-        return self.__values_by_key.values()
+        return list(self.__values_by_key.values())
 
     def items(self):
-        return self.__values_by_key.items()
+        return list(self.__values_by_key.items())
 
     def iterkeys(self):
-        return self.__values_by_key.iterkeys()
+        return iter(self.__values_by_key.keys())
 
     def itervalues(self):
-        return self.__values_by_key.itervalues()
+        return iter(self.__values_by_key.values())
 
     def iteritems(self):
-        return self.__values_by_key.iteritems()
+        return iter(self.__values_by_key.items())
 
     def __eq__(self, seq):
         if not isinstance(seq, ImmutableMapping):

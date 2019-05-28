@@ -11,6 +11,7 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 '''
 from __future__ import absolute_import
 
+from past.builtins import basestring
 from .resource import (
     VersionedResource, GatherResource, AttrUpdateResource, PyplotResource,
     resource_wrapper)

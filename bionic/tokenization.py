@@ -3,15 +3,22 @@ Contains a tokenize() function which can be used to convert arbitrary values
 into nice strings, suitable for use as filenames.
 '''
 from __future__ import absolute_import
+from __future__ import division
 
-from StringIO import StringIO
+from future import standard_library
+standard_library.install_aliases() # NOQA
+from builtins import str
+from builtins import chr
+from builtins import range
+from past.utils import old_div
+from io import StringIO
 
 from .util import hash_to_hex
 
 
 def char_range(first, last):
     "Return a list of all the characters from first to last, inclusive."
-    return [chr(i) for i in xrange(ord(first), ord(last) + 1)]
+    return [chr(i) for i in range(ord(first), ord(last) + 1)]
 
 
 CLEAN_CHARs = set(
@@ -25,7 +32,7 @@ def clean_str(string):
     cleaned = ''.join((c if c in CLEAN_CHARs else '.') for c in string)
     cleaned = cleaned.lower()
     if len(cleaned) > MAX_CLEAN_STR_LEN:
-        head_len = (MAX_CLEAN_STR_LEN / 2) - 1
+        head_len = (old_div(MAX_CLEAN_STR_LEN, 2)) - 1
         tail_len = MAX_CLEAN_STR_LEN - (head_len + 3)
         cleaned = cleaned[:head_len] + '...' + cleaned[-tail_len:]
     return cleaned

@@ -1,3 +1,5 @@
+from builtins import str
+from builtins import object
 import math
 
 from helpers import count_calls

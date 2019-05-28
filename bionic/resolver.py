@@ -3,6 +3,7 @@ Contains the core logic for resolving Resources by executing Tasks.
 '''
 from __future__ import absolute_import
 
+from builtins import object
 from .entity import Provenance, Query, Result, ResultGroup
 from .exception import UndefinedResourceError
 
@@ -65,15 +66,15 @@ class ResourceResolver(object):
 
         self._key_spaces_by_resource_name = {}
         self._task_lists_by_resource_name = {}
-        for name in self._flow_state.resources_by_name.iterkeys():
+        for name in self._flow_state.resources_by_name.keys():
             self._populate_resource_info(name)
 
         self._task_states_by_key = {
             task.key: TaskState(task)
-            for tasks in self._task_lists_by_resource_name.itervalues()
+            for tasks in self._task_lists_by_resource_name.values()
             for task in tasks
         }
-        for task_state in self._task_states_by_key.itervalues():
+        for task_state in self._task_states_by_key.values():
             for dep_key in task_state.task.dep_keys:
                 dep_state = self._task_states_by_key[dep_key]
 
@@ -203,7 +204,7 @@ class ResourceResolver(object):
            task.key.resource_name,
            ', '.join(
                '%s=%s' % (name, value)
-               for name, value in task.key.case_key.iteritems())
+               for name, value in task.key.case_key.items())
         )
 
         should_persist = resource.attrs.should_persist

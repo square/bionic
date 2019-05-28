@@ -78,4 +78,4 @@ if __name__ == '__main__':
     bn.util.init_basic_logging()
     flow.get('pr_plot')
     with pd.option_context("display.max_rows", 10):
-        print flow.get('pr_df')
+        print(flow.get('pr_df'))

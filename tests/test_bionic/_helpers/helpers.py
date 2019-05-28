@@ -1,4 +1,6 @@
-from StringIO import StringIO
+from future import standard_library
+standard_library.install_aliases() # NOQA
+from io import StringIO
 from textwrap import dedent
 
 import pandas as pd
