@@ -9,7 +9,6 @@ from __future__ import division
 from builtins import str
 from builtins import range
 from builtins import object
-from functools import reduce
 import os
 from random import Random
 import errno
