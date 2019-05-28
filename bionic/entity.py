@@ -210,12 +210,12 @@ class Provenance(object):
 
         if body_dict is not None:
             self._body_dict = body_dict
-            self._yaml_str = yaml.dump(body_dict, default_flow_style=False)
+            self._yaml_str = yaml.dump(body_dict, default_flow_style=False, encoding=None)
         else:
             self._body_dict = yaml.full_load(yaml_str)
             self._yaml_str = yaml_str
 
-        self.hashed_value = hash_to_hex(self._yaml_str)
+        self.hashed_value = hash_to_hex(self._yaml_str.encode('utf-8'))
 
     def to_yaml(self):
         return self._yaml_str

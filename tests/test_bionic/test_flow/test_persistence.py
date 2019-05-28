@@ -195,7 +195,7 @@ def test_all_returned_results_are_deserialized(builder):
             return 'round'
 
         def write(self, value, file_):
-            file_.write(str(round(value)))
+            file_.write(str(round(value)).encode('utf-8'))
 
         def read(self, file_, extension):
             return float(file_.read())

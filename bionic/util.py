@@ -10,6 +10,7 @@ import logging
 
 from collections import defaultdict
 from hashlib import sha256
+from binascii import hexlify
 
 import pandas as pd
 
@@ -93,10 +94,10 @@ def color(code, text):
     return '\033[%sm%s\033[0m' % (code, text)
 
 
-def hash_to_hex(string, n_bytes=None):
+def hash_to_hex(bytestring, n_bytes=None):
     hash_ = sha256()
-    hash_.update(string)
-    hex_str = hash_.digest().encode('hex')
+    hash_.update(bytestring)
+    hex_str = hexlify(hash_.digest()).decode('utf-8')
 
     if n_bytes is not None:
         n_chars = n_bytes * 2
@@ -189,6 +190,9 @@ class ImmutableMapping(ImmutableSequence):
 
     def iteritems(self):
         return iter(self.__values_by_key.items())
+
+    def __hash__(self):
+        return super(ImmutableMapping, self).__hash__()
 
     def __eq__(self, seq):
         if not isinstance(seq, ImmutableMapping):

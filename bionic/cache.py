@@ -9,12 +9,10 @@ from __future__ import division
 from builtins import str
 from builtins import range
 from builtins import object
-from past.utils import old_div
 from functools import reduce
 import os
 from random import Random
 import errno
-import operator
 
 import pathlib2 as pl
 
@@ -48,13 +46,13 @@ class PersistentCache(object):
             with value_path.open('wb') as f:
                 query.protocol.write(result.value, f)
 
-            with new_content_entry.provenance_path.open('wb') as f:
+            with new_content_entry.provenance_path.open('w') as f:
                 f.write(query.provenance.to_yaml())
 
             n_attempts = 3
             for i in range(n_attempts):
-                tmp_symlink_path = old_div(new_content_entry.dir_path.parent, (
-                    'tmp_symlink_' + self._random_str()))
+                tmp_symlink_path = new_content_entry.dir_path.parent / (
+                    'tmp_symlink_' + self._random_str())
                 try:
                     # We need to make this an absolute path; symlinking to
                     # a relative path will leave the link in a broken state!
@@ -126,7 +124,7 @@ class PersistentCache(object):
 
     def _load_provenance(self, query):
         entry = self._entry_for_query(query)
-        with entry.provenance_path.open('rb') as f:
+        with entry.provenance_path.open('r') as f:
             return Provenance.from_yaml(f.read())
 
     def _load_value(self, query):
@@ -143,27 +141,21 @@ class PersistentCache(object):
             entry.dir_path.rmdir()
 
     def _path_for_query(self, query):
-        dir_names = [
-            item
-            for name, token in sorted(query.case_key.items())
-            for item in (name, token)
-        ]
-
-        return reduce(
-            operator.div,
-            dir_names,
-            old_div(self._root_path, query.name),
-        )
+        path = self._root_path / query.name
+        for name, token in query.case_key.iteritems():
+            for item in (name, token):
+                path = path / item
+        return path
 
     def _entry_for_query(self, query):
-        return ResourceEntry(old_div(self._path_for_query(query), 'cur'))
+        return ResourceEntry(self._path_for_query(query) / 'cur')
 
     def _candidate_entry_for_query(self, query):
         query_path = self._path_for_query(query)
         n_attempts = 3
         for i in range(n_attempts):
             tmp_name = self._random_str()
-            entry = ResourceEntry(old_div(query_path, tmp_name))
+            entry = ResourceEntry(query_path / tmp_name)
 
             try:
                 entry.dir_path.mkdir(parents=True)
@@ -197,12 +189,12 @@ class ResourceEntry(object):
     def __init__(self, path):
         self.dir_path = path
 
-        self.provenance_path = old_div(self.dir_path, 'provenance.yaml')
+        self.provenance_path = self.dir_path / 'provenance.yaml'
 
     def value_path_for_result(self, result):
         extension = result.query.protocol.file_extension_for_value(
             result.value)
-        return old_div(self.dir_path, (self.VALUE_FILE_STEM + extension))
+        return self.dir_path / (self.VALUE_FILE_STEM + extension)
 
     def existing_value_path(self):
         value_filenames = [
@@ -216,7 +208,7 @@ class ResourceEntry(object):
             raise AssertionError('Found too many value files in %s: %r' % (
                 self.dir_path, value_filenames))
         filename, = value_filenames
-        return old_div(self.dir_path, filename)
+        return self.dir_path / filename
 
     def existing_value_extension(self):
         filename = self.existing_value_path().name

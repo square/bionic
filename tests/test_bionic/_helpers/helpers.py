@@ -29,7 +29,8 @@ def assert_frames_equal_when_sorted(df1, df2):
 
 
 def df_from_csv_str(string):
-    return pd.read_csv(BytesIO(dedent(string)))
+    bytestring = dedent(string).encode('utf-8')
+    return pd.read_csv(BytesIO(bytestring))
 
 
 def count_calls(func):

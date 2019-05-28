@@ -67,6 +67,6 @@ def tokenize(value, serialize_func=None):
         value_str = str(value)
         token = clean_str(value_str)
         if token != value_str:
-            token += '_' + hash_to_hex(value_str, HASH_LEN)
+            token += '_' + hash_to_hex(value_str.encode('utf-8'), HASH_LEN)
 
     return token

@@ -10,6 +10,8 @@ from __future__ import absolute_import
 
 from builtins import zip
 from builtins import object
+
+import six
 import inspect
 from copy import copy
 from collections import defaultdict
@@ -210,12 +212,22 @@ class FunctionResource(BaseResource):
 
         self._func = func
 
-        argspec = inspect.getargspec(func)
-        if argspec.varargs:
+        if six.PY2:
+            argspec = inspect.getargspec(func)
+            args = argspec.args
+            varargs = argspec.varargs
+            varkw = argspec.keywords
+        else:
+            argspec = inspect.getfullargspec(func)
+            args = argspec.args
+            varargs = argspec.varargs
+            varkw = argspec.varkw
+
+        if varargs:
             raise ValueError('Functions with varargs are not supported')
-        if argspec.keywords:
+        if varkw:
             raise ValueError('Functions with keyword args are not supported')
-        self._dep_names = list(argspec.args)
+        self._dep_names = list(args)
 
     def get_dependency_names(self):
         return self._dep_names
