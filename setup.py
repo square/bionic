@@ -7,7 +7,21 @@ with open('README.md') as readme_file:
     readme = readme_file.read()
 
 requirements = [
-    # TODO: put package requirements here
+    'six',
+    'pyrsistent',
+    'pathlib2',
+    'PyYAML',
+    'dill',
+    'Pillow',
+    'pyarrow',
+    'pandas',
+    'ipython',
+    'sklearn',
+    'matplotlib',
+    'future',
+    'jupyter',
+    'jupyterlab',
+    'ipdb',
 ]
 
 extras_require = {
