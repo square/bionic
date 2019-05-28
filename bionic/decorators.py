@@ -9,11 +9,12 @@ These are the decorators we expose to Bionic users.  They are used as follows:
         ...
 
 '''
+from __future__ import absolute_import
 
-from resource import (
+from .resource import (
     VersionedResource, GatherResource, AttrUpdateResource, PyplotResource,
     resource_wrapper)
-import interpret
+from . import interpret
 
 
 # TODO Consider making this an argument to the persist decorator?

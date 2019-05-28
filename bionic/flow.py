@@ -2,6 +2,7 @@
 Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 '''
+from __future__ import absolute_import
 
 import os
 import functools
@@ -10,14 +11,14 @@ import pyrsistent as pyrs
 import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
-import protocols as protos
-from cache import PersistentCache
-from entity import CaseKey
-from exception import UndefinedResourceError
-from resource import ValueResource, multi_index_from_case_keys, as_resource
-from resolver import ResourceResolver
-import decorators
-from util import group_pairs, check_exactly_one_present
+from . import protocols as protos
+from .cache import PersistentCache
+from .entity import CaseKey
+from .exception import UndefinedResourceError
+from .resource import ValueResource, multi_index_from_case_keys, as_resource
+from .resolver import ResourceResolver
+from . import decorators
+from .util import group_pairs, check_exactly_one_present
 
 import logging
 logger = logging.getLogger(__name__)
@@ -509,7 +510,7 @@ class ShortcutProxy(object):
 
     def __init__(self, wrapped_method):
         self._wrapped_method = wrapped_method
-        self._flow = wrapped_method.im_self
+        self._flow = wrapped_method.__self__
         assert isinstance(self._flow, Flow)
 
         self.__doc__ = self._wrapped_method.__doc__

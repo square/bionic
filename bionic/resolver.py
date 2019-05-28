@@ -1,9 +1,10 @@
 '''
 Contains the core logic for resolving Resources by executing Tasks.
 '''
+from __future__ import absolute_import
 
-from entity import Provenance, Query, Result, ResultGroup
-from exception import UndefinedResourceError
+from .entity import Provenance, Query, Result, ResultGroup
+from .exception import UndefinedResourceError
 
 import logging
 # TODO At some point it might be good to have the option of Bionic handling its
