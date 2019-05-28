@@ -7,10 +7,7 @@ from __future__ import division
 
 from future import standard_library
 standard_library.install_aliases() # NOQA
-from builtins import str
-from builtins import chr
-from builtins import range
-from past.utils import old_div
+from builtins import str, chr, range
 from io import BytesIO
 
 from .util import hash_to_hex
@@ -32,7 +29,7 @@ def clean_str(string):
     cleaned = ''.join((c if c in CLEAN_CHARs else '.') for c in string)
     cleaned = cleaned.lower()
     if len(cleaned) > MAX_CLEAN_STR_LEN:
-        head_len = (old_div(MAX_CLEAN_STR_LEN, 2)) - 1
+        head_len = (MAX_CLEAN_STR_LEN // 2) - 1
         tail_len = MAX_CLEAN_STR_LEN - (head_len + 3)
         cleaned = cleaned[:head_len] + '...' + cleaned[-tail_len:]
     return cleaned

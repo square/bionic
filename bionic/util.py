@@ -3,9 +3,7 @@ Miscellaneous utility functions.
 '''
 from __future__ import division
 
-from builtins import zip
-from builtins import object
-from past.utils import old_div
+from builtins import zip, object
 import logging
 
 from collections import defaultdict
@@ -104,7 +102,7 @@ def hash_to_hex(bytestring, n_bytes=None):
         available_chars = len(hex_str)
         if n_chars > available_chars:
             raise ValueError("Can't keep %d bytes; we only have %d" % (
-                n_bytes, old_div(available_chars, 2)))
+                n_bytes, available_chars // 2))
         hex_str = hex_str[:n_chars]
 
     return hex_str

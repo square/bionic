@@ -6,9 +6,7 @@ to separate these concepts later.
 from __future__ import absolute_import
 from __future__ import division
 
-from builtins import str
-from builtins import range
-from builtins import object
+from builtins import str, range, object
 import os
 from random import Random
 import errno
