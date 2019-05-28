@@ -374,6 +374,9 @@ class Flow(object):
     def name(self):
         return self.get('core__flow_name')
 
+    # TODO Should we offer an in-place version of this?  It's contrary to the
+    # idea of an immutable API, but it might be more natural for the user, and
+    # reloading is already updating global state....
     def reloading(self):
         '''
         Attempts to reload all modules used directly by this Flow.  For safety,

@@ -23,7 +23,7 @@ class PersistentCache(object):
         self._random = Random()
 
     def save(self, result):
-        logger.info('Saving result for %r', result.query)
+        logger.debug('Saving result for %r', result.query)
 
         query = result.query
 
@@ -88,20 +88,20 @@ class PersistentCache(object):
             self._erase_entry(old_content_entry)
 
     def load(self, query):
-        logger.info('Loading %r ...', query)
+        logger.debug('Loading %r ...', query)
 
         if not self._query_is_cached(query):
-            logger.info('... Query is not cached')
+            logger.debug('... Query is not cached')
             return None
 
         cached_provenance = self._load_provenance(query)
 
         if cached_provenance.hashed_value != query.provenance.hashed_value:
-            logger.info('... Query is cached but not up to date')
+            logger.debug('... Query is cached but not up to date')
             return None
 
         value = self._load_value(query)
-        logger.info('... Query successfully retrieved from cache')
+        logger.debug('... Query successfully retrieved from cache')
         return Result(
             query=query,
             value=value,
