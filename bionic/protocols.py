@@ -8,6 +8,7 @@ handles.  Protocols specify how to serialize, deserialize, and validate data.
 
 This module contains a BaseProtocol class and various subclasses.
 '''
+from __future__ import absolute_import
 
 import pickle
 import sys
@@ -16,8 +17,8 @@ from pyarrow import parquet, Table
 import pandas as pd
 from PIL import Image
 
-from resource import resource_wrapper, AttrUpdateResource
-import tokenization
+from .resource import resource_wrapper, AttrUpdateResource
+from . import tokenization
 
 
 def check_is_like_protocol(obj):

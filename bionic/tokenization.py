@@ -2,10 +2,11 @@
 Contains a tokenize() function which can be used to convert arbitrary values
 into nice strings, suitable for use as filenames.
 '''
+from __future__ import absolute_import
 
 from StringIO import StringIO
 
-from util import hash_to_hex
+from .util import hash_to_hex
 
 
 def char_range(first, last):

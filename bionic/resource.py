@@ -6,6 +6,7 @@ includes a BaseResource class and various subclasses.
 The whole architecture is a bit of a mess and probably needs a substantial
 rethink.
 '''
+from __future__ import absolute_import
 
 import inspect
 from copy import copy
@@ -16,8 +17,8 @@ from io import BytesIO
 import pandas as pd
 from PIL import Image
 
-from entity import Task, TaskKey, CaseKey, CaseKeySpace
-from util import groups_dict
+from .entity import Task, TaskKey, CaseKey, CaseKeySpace
+from .util import groups_dict
 
 import logging
 logger = logging.getLogger(__name__)
@@ -203,7 +204,7 @@ class ValueResource(BaseResource):
 class FunctionResource(BaseResource):
     def __init__(self, func):
         super(FunctionResource, self).__init__(attrs=ResourceAttributes(
-            name=func.func_name))
+            name=func.__name__))
 
         self._func = func
 

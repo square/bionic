@@ -1,11 +1,12 @@
 '''
 Contains various data structures used by Bionic's infrastructure.
 '''
+from __future__ import absolute_import
 
 from collections import namedtuple
 import yaml
 
-from util import (
+from .util import (
     ImmutableSequence, ImmutableMapping, check_exactly_one_present, hash_to_hex
 )
 

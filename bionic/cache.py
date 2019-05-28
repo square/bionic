@@ -3,6 +3,7 @@ Contains the PersistentCache class, which handles persistent local caching.
 This including artifact naming, invalidation, and saving/loading.  We may want
 to separate these concepts later.
 '''
+from __future__ import absolute_import
 
 import os
 from random import Random
@@ -11,7 +12,7 @@ import operator
 
 import pathlib2 as pl
 
-from entity import Result, Provenance
+from .entity import Result, Provenance
 
 import logging
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ class PersistentCache(object):
                     abs_content_path = new_content_entry.dir_path.resolve()
                     tmp_symlink_path.symlink_to(abs_content_path)
                     break
-                except OSError, e:
+                except OSError as e:
                     if e.errno != errno.EEXIST:
                         raise
                     logger.warning(
@@ -160,7 +161,7 @@ class PersistentCache(object):
 
             try:
                 entry.dir_path.mkdir(parents=True)
-            except OSError, e:
+            except OSError as e:
                 if e.errno != errno.EEXIST:
                     raise
                 logger.warn(
