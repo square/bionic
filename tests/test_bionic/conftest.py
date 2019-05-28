@@ -1,4 +1,7 @@
-from builtins import str
+# FIXME We should have this import in order to move towards compatibility with
+# Python 3, but unfortunately pathlib2 breaks when passed an instance of this
+# new version of str.  I'm not sure what the best fix is here.
+# from builtins import str
 import sys
 import os
 

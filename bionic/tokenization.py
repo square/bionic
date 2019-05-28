@@ -11,7 +11,7 @@ from builtins import str
 from builtins import chr
 from builtins import range
 from past.utils import old_div
-from io import StringIO
+from io import BytesIO
 
 from .util import hash_to_hex
 
@@ -60,7 +60,7 @@ def tokenize(value, serialize_func=None):
     '''
 
     if serialize_func is not None:
-        buf = StringIO()
+        buf = BytesIO()
         serialize_func(value, buf)
         token = hash_to_hex(buf.getvalue(), HASH_LEN)
     else:

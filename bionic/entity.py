@@ -212,12 +212,7 @@ class Provenance(object):
             self._body_dict = body_dict
             self._yaml_str = yaml.dump(body_dict, default_flow_style=False)
         else:
-            # I don't think we emit any complicated YAML, so we might as well
-            # use safe_load, which should be able to handle untrusted input
-            # safely.  However, I'm not sure we really need to worry about
-            # untrusted input, so it might be reasonable to switch to
-            # full_load() later if necessary.
-            self._body_dict = yaml.safe_load(yaml_str)
+            self._body_dict = yaml.full_load(yaml_str)
             self._yaml_str = yaml_str
 
         self.hashed_value = hash_to_hex(self._yaml_str)

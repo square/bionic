@@ -1,6 +1,6 @@
 from future import standard_library
 standard_library.install_aliases() # NOQA
-from io import StringIO
+from io import BytesIO
 from textwrap import dedent
 
 import pandas as pd
@@ -29,7 +29,7 @@ def assert_frames_equal_when_sorted(df1, df2):
 
 
 def df_from_csv_str(string):
-    return pd.read_csv(StringIO(dedent(string)))
+    return pd.read_csv(BytesIO(dedent(string)))
 
 
 def count_calls(func):

@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class PersistentCache(object):
-    def __init__(self, rooth_path_str):
-        self._root_path = pl.Path(rooth_path_str)
+    def __init__(self, root_path_str):
+        self._root_path = pl.Path(root_path_str)
         self._random = Random()
 
     def save(self, result):

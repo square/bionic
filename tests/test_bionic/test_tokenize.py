@@ -24,7 +24,7 @@ class Point(object):
 
 
 def test_tokenize_complex_type():
-    token = tokenize(Point(1, 2), pickle.dumps)
+    token = tokenize(Point(1, 2), pickle.dump)
     assert isinstance(token, str)
     assert len(token) == 10
 
