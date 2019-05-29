@@ -3,6 +3,7 @@ Contains various data structures used by Bionic's infrastructure.
 '''
 from __future__ import absolute_import
 
+from builtins import object
 from collections import namedtuple
 import yaml
 
@@ -131,7 +132,7 @@ class CaseKey(ImmutableMapping):
         super(CaseKey, self).__init__(tokens_by_name)
         self._nvt_triples = name_value_token_triples
         self.values = values_by_name
-        self.space = CaseKeySpace(values_by_name.keys())
+        self.space = CaseKeySpace(list(values_by_name.keys()))
 
     def project(self, key_space):
         return CaseKey([
@@ -161,13 +162,13 @@ class CaseKey(ImmutableMapping):
 
         return CaseKey([
             (name, value, token)
-            for name, (value, token) in vt_pairs_by_name.iteritems()
+            for name, (value, token) in vt_pairs_by_name.items()
         ])
 
     def __repr__(self):
         return 'CaseKey(%s)' % ', '.join(
             name + '=' + token
-            for name, token in self.iteritems())
+            for name, token in self.items())
 
 
 class ResultGroup(ImmutableSequence):
@@ -196,7 +197,7 @@ class Provenance(object):
             case_key=dict(case_key),
             deps={
                 name: provenance.hashed_value
-                for name, provenance in dep_provenances_by_name.iteritems()
+                for name, provenance in dep_provenances_by_name.items()
             },
         ))
 
@@ -209,17 +210,12 @@ class Provenance(object):
 
         if body_dict is not None:
             self._body_dict = body_dict
-            self._yaml_str = yaml.dump(body_dict, default_flow_style=False)
+            self._yaml_str = yaml.dump(body_dict, default_flow_style=False, encoding=None)
         else:
-            # I don't think we emit any complicated YAML, so we might as well
-            # use safe_load, which should be able to handle untrusted input
-            # safely.  However, I'm not sure we really need to worry about
-            # untrusted input, so it might be reasonable to switch to
-            # full_load() later if necessary.
-            self._body_dict = yaml.safe_load(yaml_str)
+            self._body_dict = yaml.full_load(yaml_str)
             self._yaml_str = yaml_str
 
-        self.hashed_value = hash_to_hex(self._yaml_str)
+        self.hashed_value = hash_to_hex(self._yaml_str.encode('utf-8'))
 
     def to_yaml(self):
         return self._yaml_str

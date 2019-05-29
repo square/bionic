@@ -1,11 +1,14 @@
 '''
 Miscellaneous utility functions.
 '''
+from __future__ import division
 
+from builtins import zip, object
 import logging
 
 from collections import defaultdict
 from hashlib import sha256
+from binascii import hexlify
 
 import pandas as pd
 
@@ -58,12 +61,12 @@ def n_present(*items):
 
 
 def check_exactly_one_present(**kwargs):
-    if not n_present(kwargs.values()) == 1:
+    if not n_present(list(kwargs.values())) == 1:
         raise ValueError("Exactly one of %s should be present; got %s" % (
             tuple(kwargs.keys()),
             ', '.join(
                 '%s=%r' % (name, value)
-                for name, value in kwargs.iteritems())
+                for name, value in kwargs.items())
         ))
 
 
@@ -71,7 +74,7 @@ def group_pairs(items):
     "Groups an even-sized list into contiguous pairs."
     if len(items) % 2 != 0:
         raise ValueError("Expected even number of items, got %r" % (items,))
-    return zip(items[::2], items[1::2])
+    return list(zip(items[::2], items[1::2]))
 
 
 def groups_dict(values, keyfunc):
@@ -89,17 +92,17 @@ def color(code, text):
     return '\033[%sm%s\033[0m' % (code, text)
 
 
-def hash_to_hex(string, n_bytes=None):
+def hash_to_hex(bytestring, n_bytes=None):
     hash_ = sha256()
-    hash_.update(string)
-    hex_str = hash_.digest().encode('hex')
+    hash_.update(bytestring)
+    hex_str = hexlify(hash_.digest()).decode('utf-8')
 
     if n_bytes is not None:
         n_chars = n_bytes * 2
         available_chars = len(hex_str)
         if n_chars > available_chars:
             raise ValueError("Can't keep %d bytes; we only have %d" % (
-                n_bytes, available_chars / 2))
+                n_bytes, available_chars // 2))
         hex_str = hex_str[:n_chars]
 
     return hex_str
@@ -169,22 +172,25 @@ class ImmutableMapping(ImmutableSequence):
         return self.__values_by_key.get(key)
 
     def keys(self):
-        return self.__values_by_key.keys()
+        return list(self.__values_by_key.keys())
 
     def values(self):
-        return self.__values_by_key.values()
+        return list(self.__values_by_key.values())
 
     def items(self):
-        return self.__values_by_key.items()
+        return list(self.__values_by_key.items())
 
     def iterkeys(self):
-        return self.__values_by_key.iterkeys()
+        return iter(self.__values_by_key.keys())
 
     def itervalues(self):
-        return self.__values_by_key.itervalues()
+        return iter(self.__values_by_key.values())
 
     def iteritems(self):
-        return self.__values_by_key.iteritems()
+        return iter(self.__values_by_key.items())
+
+    def __hash__(self):
+        return super(ImmutableMapping, self).__hash__()
 
     def __eq__(self, seq):
         if not isinstance(seq, ImmutableMapping):

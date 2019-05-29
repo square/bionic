@@ -226,12 +226,12 @@ def test_immutable_mapping():
 
     assert equal_when_sorted(list(mapping), ['a', 'b'])
     assert dict(mapping) == {'a': 1, 'b': 2}
-    assert equal_when_sorted(mapping.keys(), ['a', 'b'])
-    assert equal_when_sorted(mapping.values(), [1, 2])
-    assert equal_when_sorted(mapping.items(), [('a', 1), ('b', 2)])
-    assert equal_when_sorted(list(mapping.iterkeys()), ['a', 'b'])
-    assert equal_when_sorted(list(mapping.itervalues()), [1, 2])
-    assert equal_when_sorted(list(mapping.iteritems()), [('a', 1), ('b', 2)])
+    assert equal_when_sorted(list(mapping.keys()), ['a', 'b'])
+    assert equal_when_sorted(list(mapping.values()), [1, 2])
+    assert equal_when_sorted(list(mapping.items()), [('a', 1), ('b', 2)])
+    assert equal_when_sorted(list(mapping.keys()), ['a', 'b'])
+    assert equal_when_sorted(list(mapping.values()), [1, 2])
+    assert equal_when_sorted(list(mapping.items()), [('a', 1), ('b', 2)])
 
     assert mapping == Mapping({'a': 1, 'b': 2})
     assert mapping != {'a': 1, 'b': 2}

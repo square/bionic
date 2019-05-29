@@ -4,11 +4,12 @@ This including artifact naming, invalidation, and saving/loading.  We may want
 to separate these concepts later.
 '''
 from __future__ import absolute_import
+from __future__ import division
 
+from builtins import str, range, object
 import os
 from random import Random
 import errno
-import operator
 
 import pathlib2 as pl
 
@@ -19,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class PersistentCache(object):
-    def __init__(self, rooth_path_str):
-        self._root_path = pl.Path(rooth_path_str)
+    def __init__(self, root_path_str):
+        self._root_path = pl.Path(root_path_str)
         self._random = Random()
 
     def save(self, result):
@@ -42,11 +43,11 @@ class PersistentCache(object):
             with value_path.open('wb') as f:
                 query.protocol.write(result.value, f)
 
-            with new_content_entry.provenance_path.open('wb') as f:
+            with new_content_entry.provenance_path.open('w') as f:
                 f.write(query.provenance.to_yaml())
 
             n_attempts = 3
-            for i in xrange(n_attempts):
+            for i in range(n_attempts):
                 tmp_symlink_path = new_content_entry.dir_path.parent / (
                     'tmp_symlink_' + self._random_str())
                 try:
@@ -120,7 +121,7 @@ class PersistentCache(object):
 
     def _load_provenance(self, query):
         entry = self._entry_for_query(query)
-        with entry.provenance_path.open('rb') as f:
+        with entry.provenance_path.open('r') as f:
             return Provenance.from_yaml(f.read())
 
     def _load_value(self, query):
@@ -137,17 +138,11 @@ class PersistentCache(object):
             entry.dir_path.rmdir()
 
     def _path_for_query(self, query):
-        dir_names = [
-            item
-            for name, token in sorted(query.case_key.iteritems())
-            for item in (name, token)
-        ]
-
-        return reduce(
-            operator.div,
-            dir_names,
-            self._root_path / query.name,
-        )
+        path = self._root_path / query.name
+        for name, token in query.case_key.iteritems():
+            for item in (name, token):
+                path = path / item
+        return path
 
     def _entry_for_query(self, query):
         return ResourceEntry(self._path_for_query(query) / 'cur')
@@ -155,7 +150,7 @@ class PersistentCache(object):
     def _candidate_entry_for_query(self, query):
         query_path = self._path_for_query(query)
         n_attempts = 3
-        for i in xrange(n_attempts):
+        for i in range(n_attempts):
             tmp_name = self._random_str()
             entry = ResourceEntry(query_path / tmp_name)
 

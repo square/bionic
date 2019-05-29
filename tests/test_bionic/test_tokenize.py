@@ -1,4 +1,7 @@
+from builtins import range
+from builtins import object
 import pickle
+from six import string_types
 
 from bionic.tokenization import tokenize
 
@@ -22,16 +25,16 @@ class Point(object):
 
 
 def test_tokenize_complex_type():
-    token = tokenize(Point(1, 2), pickle.dumps)
-    assert isinstance(token, str)
+    token = tokenize(Point(1, 2), pickle.dump)
+    assert isinstance(token, string_types)
     assert len(token) == 10
 
 
 def test_tokenize_no_collisions():
     points = [
         Point(x, y)
-        for x in xrange(100)
-        for y in xrange(100)
+        for x in range(100)
+        for y in range(100)
     ]
     tokens = [
         tokenize(point, pickle.dump)

@@ -1,5 +1,7 @@
 import pytest
 
+from binascii import hexlify
+
 import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
@@ -155,7 +157,7 @@ def test_image_protocol(builder):
     image = builder.build().get('blue_rect')
     assert image.width == 4
     assert image.height == 2
-    assert image.tobytes().encode('hex') == ('0000ff' * 8)
+    assert hexlify(image.tobytes()) == (b'0000ff' * 8)
 
 
 def test_type_protocol(builder):

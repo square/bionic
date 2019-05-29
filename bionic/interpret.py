@@ -5,6 +5,9 @@ of strings.
 '''
 
 
+from past.builtins import basestring
+
+
 def none_or_seq_or_obj_as_list(value):
     if value is None:
         return []

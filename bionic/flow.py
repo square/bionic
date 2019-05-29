@@ -4,9 +4,10 @@ construction and execution APIs (respectively).
 '''
 from __future__ import absolute_import
 
+from builtins import object
 import os
 import functools
-
+import importlib
 import pyrsistent as pyrs
 import pandas as pd
 
@@ -317,7 +318,7 @@ class Flow(object):
     def all_resource_names(self, include_core=False):
         return [
             name
-            for name in self._state.resources_by_name.iterkeys()
+            for name in self._state.resources_by_name.keys()
             if include_core or not name.startswith('core__')
         ]
 
@@ -426,7 +427,7 @@ class Flow(object):
         self_name = self.name
 
         module_names = set()
-        for resource in state.resources_by_name.itervalues():
+        for resource in state.resources_by_name.values():
             source_func = resource.get_source_func()
             if source_func is None:
                 continue
@@ -435,7 +436,7 @@ class Flow(object):
         blessed_candidate_flows = []
         unblessed_candidate_flows = []
         for module_name in module_names:
-            module = reload(module_registry[module_name])
+            module = importlib.reload(module_registry[module_name])
             for key in dir(module):
                 element = getattr(module, key)
                 if not isinstance(element, Flow):
