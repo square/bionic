@@ -12,7 +12,7 @@ requirements = [
     'pathlib2',
     'PyYAML',
     'dill',
-    'Pillow',
+    'Pillow==5.4.1',
     'pyarrow',
     'pandas',
     'ipython',
