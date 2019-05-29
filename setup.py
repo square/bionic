@@ -12,7 +12,7 @@ requirements = [
     'pathlib2',
     'PyYAML',
     'dill',
-    'Pillow==5.4.1',
+    'Pillow',
     'pyarrow',
     'pandas',
     'ipython',
@@ -22,6 +22,7 @@ requirements = [
     'jupyter',
     'jupyterlab',
     'ipdb',
+    'Cython'
 ]
 
 extras_require = {
