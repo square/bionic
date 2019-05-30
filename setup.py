@@ -22,7 +22,8 @@ requirements = [
     'jupyter',
     'jupyterlab',
     'ipdb',
-    'Cython'
+    'Cython',
+    'networkx'
 ]
 
 extras_require = {
