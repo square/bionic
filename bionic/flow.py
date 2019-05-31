@@ -5,6 +5,7 @@ construction and execution APIs (respectively).
 from __future__ import absolute_import
 
 from builtins import object
+from collections import OrderedDict
 import os
 import functools
 import importlib
@@ -19,7 +20,7 @@ from .exception import UndefinedResourceError
 from .resource import ValueResource, multi_index_from_case_keys, as_resource
 from .resolver import ResourceResolver
 from . import decorators
-from .util import group_pairs, check_exactly_one_present
+from .util import group_pairs, check_exactly_one_present, view_dag
 
 import logging
 logger = logging.getLogger(__name__)
@@ -328,9 +329,23 @@ class Flow(object):
     def to_builder(self):
         return FlowBuilder._from_state(self._state)
 
+    def plot_dag(self, path=None):
+        dag = OrderedDict()
+        task_states = self._resolver._task_states_by_key.values()
+        for state in task_states:
+            tasks = []
+            for child_state in state.children:
+                tasks.append(child_state.task.key.resource_name)
+            dag[state.task.key.resource_name] = tasks
+        dag = {
+            key: value
+            for key, value in dag.iteritems()
+            if not key.startswith('core__')
+        }
+        view_dag(dag, path)
+
     def get(self, name, fmt=None):
         result_group = self._resolver.resolve(name)
-
         if fmt is None or fmt is object:
             if len(result_group) == 0:
                 raise ValueError("Resource %s has no defined values" % name)
