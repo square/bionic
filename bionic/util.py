@@ -263,6 +263,22 @@ def init_basic_logging(level=logging.INFO):
     )
 
 
+def init_matplotlib():
+    '''
+    Attempts to safely set up an appropriate matplotlib backend.  (The default
+    backend on OS X will crash on Python 2 if you aren't using the system
+    Python.)
+
+    This only has an effect if you call it before matplotlib.pyplot is
+    imported.
+    '''
+    import matplotlib
+    if matplotlib.get_backend() == 'MacOSX':
+        matplotlib.use('TkAgg', warn=False)
+    else:
+        matplotlib.use('Agg', warn=False)
+
+
 def view_dag(dag, path=None):
     import matplotlib.pyplot as plt
     import networkx as nx

@@ -21,7 +21,7 @@ import pandas as pd
 from PIL import Image
 
 from .entity import Task, TaskKey, CaseKey, CaseKeySpace
-from .util import groups_dict
+from .util import groups_dict, init_matplotlib
 
 import logging
 logger = logging.getLogger(__name__)
@@ -562,11 +562,7 @@ class PyplotResource(WrappingResource):
 
         def wrap_task(task):
             def wrapped_compute_func(query, dep_values):
-                import matplotlib
-                if matplotlib.get_backend() == 'MacOSX':
-                    matplotlib.use('TkAgg', warn=False)
-                else:
-                    matplotlib.use('Agg', warn=False)
+                init_matplotlib()
                 from matplotlib import pyplot as plt
 
                 outer_dep_values = dep_values
