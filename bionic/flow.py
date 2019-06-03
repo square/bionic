@@ -339,7 +339,7 @@ class Flow(object):
             dag[state.task.key.resource_name] = tasks
         dag = {
             key: value
-            for key, value in dag.iteritems()
+            for key, value in dag.items()
             if not key.startswith('core__')
         }
         view_dag(dag, path)

@@ -75,12 +75,16 @@ def pr_plot(pr_df, plt):
 flow = builder.build()
 
 if __name__ == '__main__':
+    from pathlib2 import Path
+
     bn.util.init_basic_logging()
     bn.util.init_matplotlib()
 
-    flow.plot_dag(path='dag_test.png')
+    dag_path = Path('example_output')
+    if not dag_path.exists():
+        dag_path.mkdir()
+    flow.plot_dag(path=str(dag_path / 'dag_test.png'))
 
     flow.get('pr_plot')
     with pd.option_context("display.max_rows", 10):
         print(flow.get('pr_df'))
-        print(flow.get('random_seed'))

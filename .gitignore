@@ -81,3 +81,6 @@ target/
 
 # Bionic cache files
 bndata
+
+# Output for example scripts
+example_output
