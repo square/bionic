@@ -562,6 +562,7 @@ class PyplotResource(WrappingResource):
 
         def wrap_task(task):
             def wrapped_compute_func(query, dep_values):
+                # Make sure matplotlib is set up.
                 init_matplotlib()
                 from matplotlib import pyplot as plt
 
@@ -570,16 +571,25 @@ class PyplotResource(WrappingResource):
                 inner_dep_values = list(outer_dep_values)
                 inner_dep_values.insert(self._pyplot_dep_ix, plt)
 
+                # Create a new figure so our task has a blank canvas to work
+                # with.
+                plt.figure()
+
+                # Run the task, which will do the plotting.
                 value = task.compute(query, inner_dep_values)
                 if value is not None:
                     raise ValueError(
                         "Resources wrapped by %s should not return values; "
                         "got value %r" % (self.__class__.__name__, value))
 
+                # Save the plot into a buffer.
                 bio = BytesIO()
                 plt.savefig(bio, format='png')
                 plt.close()
+                # Reset the buffer's position so that when we read from it, we
+                # read from the beginning.
                 bio.seek(0)
+                # Load the buffer into an Image object.
                 image = Image.open(bio)
 
                 return image
