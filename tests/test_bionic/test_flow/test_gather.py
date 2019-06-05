@@ -101,10 +101,9 @@ def test_gather_non_ancestor(builder):
     @builder
     @bn.gather('y', 'x_plus_one', 'df')
     def sum_x_plus_one_over_all_y(df):
-        assert df['y'].isnull().all()
         return df['x_plus_one'].sum()
 
-    assert builder.build().get('sum_x_plus_one_over_all_y', set) == {2, 3}
+    assert builder.build().get('sum_x_plus_one_over_all_y', set) == {4, 6}
 
     @builder
     @bn.gather('y', 'x_plus_one', 'df')
@@ -113,7 +112,7 @@ def test_gather_non_ancestor(builder):
 
     assert (
         builder.build().get('y_times_sum_x_plus_one_over_all_y', set) ==
-        {4, 6, 6, 9})
+        {8, 12, 18})
 
 
 def test_gather_self(builder):
@@ -125,7 +124,7 @@ def test_gather_self(builder):
         return x + y
 
     @builder
-    @bn.gather('x_plus_y', 'x_plus_y', 'df')
+    @bn.gather('x_plus_y', [], 'df')
     def sum_x_plus_ys(df):
         return df['x_plus_y'].sum()
 
@@ -182,6 +181,32 @@ def test_gather_multiple_resources(builder):
     assert (
         builder.build().get('sum_x_plus_y_plus_z_over_all_x_y', set) ==
         {28, 32})
+
+
+def test_gather_multiple_dependent_resources(builder):
+    builder.assign('x', values=[1, 2])
+    builder.assign('y', values=[2, 3])
+    builder.assign('z', values=[3, 4])
+
+    @builder
+    def xy(x, y):
+        return x * y
+
+    @builder
+    def yz(y, z):
+        return y * z
+
+    @builder
+    @bn.gather(['x', 'y'], ['xy', 'yz'], 'df')
+    def prod_xy_plus_yz_over_all_x_y(df):
+        return (df['xy'] + df['yz']).product()
+
+    assert (
+        builder.build().get('prod_xy_plus_yz_over_all_x_y', set) ==
+        {
+            (1*2+2*3)*(1*3+3*3)*(2*2+2*3)*(2*3+3*3),  # noqa: E226
+            (1*2+2*4)*(1*3+3*4)*(2*2+2*4)*(2*3+3*4),  # noqa: E226
+        })
 
 
 def test_gather_no_name_specified(builder):
