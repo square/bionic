@@ -1,261 +1,230 @@
+import pytest
+
 import bionic as bn
 
 
-def test_gather_direct_parent_no_siblings(builder):
-    builder.assign('x', values=[1, 2])
+@pytest.fixture(scope='function')
+def preset_builder(builder):
+    builder.assign('w', values=['w', 'W'])
+    builder.assign('x', values=['x', 'X'])
+    builder.assign('y', values=['y', 'Y'])
+    builder.assign('z', values=['z', 'Z'])
 
     @builder
-    def x_plus_one(x):
-        return x + 1
-
-    @builder
-    @bn.gather('x', 'x_plus_one', 'df')
-    def sum_x_plus_one_over_all_x(df):
-        return df['x_plus_one'].sum()
-
-    assert builder.build().get('sum_x_plus_one_over_all_x') == 5
-
-
-def test_gather_direct_parent_with_sibling(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-
-    @builder
-    def x_plus_y(x, y):
-        return x + y
-
-    @builder
-    @bn.gather('x', 'x_plus_y', 'df')
-    def sum_x_plus_y_over_all_x(df):
-        return df['x_plus_y'].sum()
-
-    flow = builder.build()
-    assert flow.get('sum_x_plus_y_over_all_x', set) == {7, 9}
-    assert (
-        list(flow.get('sum_x_plus_y_over_all_x', 'series').sort_values()) ==
-        [7, 9])
-
-
-def test_gather_ancestor_with_sibling(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-
-    @builder
-    def x_plus_one(x):
-        return x + 1
-
-    @builder
-    def x_plus_two(x_plus_one):
-        return x_plus_one + 1
-
-    @builder
-    def x_plus_two_plus_y(x_plus_two, y):
-        return x_plus_two + y
-
-    @builder
-    @bn.gather(
-        'x_plus_one', 'x_plus_two_plus_y', 'df')
-    def sum_x_plus_two_plus_y_over_all_x_plus_one(df):
-        return df['x_plus_two_plus_y'].sum()
-
-    values = builder.build()\
-        .get('sum_x_plus_two_plus_y_over_all_x_plus_one', set)
-    assert values == {11, 13}
-
-
-def test_gather_ancestor_with_mixed_sibling(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-    builder.assign('z', values=[3, 4])
-
-    @builder
-    def x_plus_y(x, y):
-        return x + y
-
-    @builder
-    def y_plus_z(y, z):
-        return y + z
-
-    @builder
-    def x_plus_y_times_y_plus_z(x_plus_y, y_plus_z):
-        return x_plus_y * y_plus_z
-
-    @builder
-    @bn.gather('x_plus_y', 'x_plus_y_times_y_plus_z', 'df')
-    def sum_products_over_all_x_plus_y(df):
-        return df['x_plus_y_times_y_plus_z'].sum()
-
-    assert (
-        builder.build().get('sum_products_over_all_x_plus_y', set) ==
-        {89, 105})
-
-
-def test_gather_non_ancestor(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-
-    @builder
-    def x_plus_one(x):
-        return x + 1
-
-    @builder
-    @bn.gather('y', 'x_plus_one', 'df')
-    def sum_x_plus_one_over_all_y(df):
-        return df['x_plus_one'].sum()
-
-    assert builder.build().get('sum_x_plus_one_over_all_y', set) == {4, 6}
-
-    @builder
-    @bn.gather('y', 'x_plus_one', 'df')
-    def y_times_sum_x_plus_one_over_all_y(y, df):
-        return y * df['x_plus_one'].sum()
-
-    assert (
-        builder.build().get('y_times_sum_x_plus_one_over_all_y', set) ==
-        {8, 12, 18})
-
-
-def test_gather_self(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-
-    @builder
-    def x_plus_y(x, y):
-        return x + y
-
-    @builder
-    @bn.gather('x_plus_y', [], 'df')
-    def sum_x_plus_ys(df):
-        return df['x_plus_y'].sum()
-
-    assert builder.build().get('sum_x_plus_ys') == 16
-
-
-def test_gather_using_key_values(builder):
-    builder.assign('x', values=[1, 2])
-
-    @builder
-    def x_plus_one(x):
-        return x + 1
-
-    @builder
-    @bn.gather('x', 'x_plus_one', 'df')
-    def sum_x_plus_one_times_x(df):
-        return (df['x'] * df['x_plus_one']).sum()
-
-    assert builder.build().get('sum_x_plus_one_times_x') == 8
-
-
-def test_gather_multipart_key(builder):
-    builder.declare('x')
-    builder.declare('y')
-    builder.add_case('x', 1, 'y', 2)
-    builder.add_case('x', 2, 'y', 3)
-
-    @builder
-    def x_plus_y(x, y):
-        return x + y
-
-    @builder
-    @bn.gather('x', 'x_plus_y', 'df')
-    def sum_x_plus_y_over_all_x(df):
-        return df['x_plus_y'].sum()
-
-    assert builder.build().get('sum_x_plus_y_over_all_x') == 8
-
-
-def test_gather_multiple_resources(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-    builder.assign('z', values=[3, 4])
-
-    @builder
-    def x_plus_y_plus_z(x, y, z):
-        return x + y + z
-
-    @builder
-    @bn.gather(['x', 'y'], 'x_plus_y_plus_z', 'df')
-    def sum_x_plus_y_plus_z_over_all_x_y(df):
-        return df['x_plus_y_plus_z'].sum()
-
-    assert (
-        builder.build().get('sum_x_plus_y_plus_z_over_all_x_y', set) ==
-        {28, 32})
-
-
-def test_gather_multiple_dependent_resources(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-    builder.assign('z', values=[3, 4])
+    def wx(w, x):
+        return w + x
 
     @builder
     def xy(x, y):
-        return x * y
-
-    @builder
-    def yz(y, z):
-        return y * z
-
-    @builder
-    @bn.gather(['x', 'y'], ['xy', 'yz'], 'df')
-    def prod_xy_plus_yz_over_all_x_y(df):
-        return (df['xy'] + df['yz']).product()
-
-    assert (
-        builder.build().get('prod_xy_plus_yz_over_all_x_y', set) ==
-        {
-            (1*2+2*3)*(1*3+3*3)*(2*2+2*3)*(2*3+3*3),  # noqa: E226
-            (1*2+2*4)*(1*3+3*4)*(2*2+2*4)*(2*3+3*4),  # noqa: E226
-        })
-
-
-def test_gather_no_name_specified(builder):
-    builder.assign('x', values=[1, 2])
-
-    @builder
-    def x_plus_one(x):
-        return x + 1
-
-    @builder
-    @bn.gather('x', 'x_plus_one')
-    def sum_x_plus_one_over_all_x(gather_df):
-        return gather_df['x_plus_one'].sum()
-
-    assert builder.build().get('sum_x_plus_one_over_all_x') == 5
-
-
-def test_multiple_gathers(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-
-    @builder
-    @bn.gather('x', 'x', 'x_df')
-    @bn.gather('y', 'y', 'y_df')
-    def sum_xs_times_sum_ys(x_df, y_df):
-        return x_df['x'].sum() * y_df['y'].sum()
-
-    assert builder.build().get('sum_xs_times_sum_ys') == 15
-
-
-def test_all_gathered_columns(builder):
-    builder.assign('x', values=[1, 2])
-    builder.assign('y', values=[2, 3])
-
-    @builder
-    def x_plus_y(x, y):
         return x + y
 
     @builder
-    @bn.gather(['x', 'y'], 'x_plus_y', 'df')
-    def zero(df):
-        # TODO We have to rename the axis before we can sort because we're
-        # reusing the names 'x' and 'y' in both the index and the columns,
-        # which confuses recent versions of pandas.  This reuse is a bit
-        # annoying -- it'd be nice if we could fix it.
-        df = df.rename_axis(['a', 'b']).sort_values(['x', 'y'])
-        assert list(df['x']) == [1, 1, 2, 2]
-        assert list(df['y']) == [2, 3, 2, 3]
-        assert list(df['x_plus_y']) == [3, 4, 4, 5]
-        return 0
+    def yz(y, z):
+        return y + z
 
-    assert builder.build().get('zero') == 0
+    return builder
+
+
+def summarize(df):
+    return ' '.join(
+        '.'.join(list(row))
+        for _, row in df.sort_values(list(df.columns)).iterrows())
+
+
+def test_x(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('x')
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get('summary', set) == {
+        'X x',
+    }
+
+
+def test_x__y(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('x', 'y')
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get('summary', set) == {
+        'X.Y x.Y',
+        'X.y x.y',
+    }
+
+
+def test_x__xy(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('x', 'xy')
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get('summary', set) == {
+        'X.XY x.xY',
+        'X.Xy x.xy',
+    }
+
+
+def test_xy__yz(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('xy', 'yz')
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get('summary', set) == {
+        'XY.YZ Xy.yZ xY.YZ xy.yZ',
+        'XY.Yz Xy.yz xY.Yz xy.yz',
+    }
+
+
+def test_x_y__z(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather(['x', 'y'], 'z')
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get('summary', set) == {
+        'X.Y.Z X.y.Z x.Y.Z x.y.Z',
+        'X.Y.z X.y.z x.Y.z x.y.z',
+    }
+
+
+def test_wx_xy__yz(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather(['wx', 'xy'], 'yz')
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get('summary', set) == {
+        'WX.XY.YZ WX.Xy.yZ Wx.xY.YZ Wx.xy.yZ wX.XY.YZ wX.Xy.yZ wx.xY.YZ wx.xy.yZ',
+        'WX.XY.Yz WX.Xy.yz Wx.xY.Yz Wx.xy.yz wX.XY.Yz wX.Xy.yz wx.xY.Yz wx.xy.yz',
+    }
+
+
+def test_wx__xy_yz(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('wx', ['xy', 'yz'])
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get('summary', set) == {
+        'WX.XY.YZ Wx.xY.YZ wX.XY.YZ wx.xY.YZ',
+        'WX.XY.Yz Wx.xY.Yz wX.XY.Yz wx.xY.Yz',
+        'WX.Xy.yZ Wx.xy.yZ wX.Xy.yZ wx.xy.yZ',
+        'WX.Xy.yz Wx.xy.yz wX.Xy.yz wx.xy.yz',
+    }
+
+
+def test_wx__xy__z(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('wx', 'xy')
+    def summary(gather_df, z):
+        return summarize(gather_df) + ' -- ' + z
+
+    assert builder.build().get('summary', set) == {
+        'WX.XY Wx.xY wX.XY wx.xY -- Z',
+        'WX.Xy Wx.xy wX.Xy wx.xy -- Z',
+        'WX.XY Wx.xY wX.XY wx.xY -- z',
+        'WX.Xy Wx.xy wX.Xy wx.xy -- z',
+    }
+
+
+def test_wx__xy__yz(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('wx', 'xy')
+    def summary(gather_df, yz):
+        return summarize(gather_df) + ' -- ' + yz
+
+    assert builder.build().get('summary', set) == {
+        'WX.XY Wx.xY wX.XY wx.xY -- YZ',
+        'WX.Xy Wx.xy wX.Xy wx.xy -- yZ',
+        'WX.XY Wx.xY wX.XY wx.xY -- Yz',
+        'WX.Xy Wx.xy wX.Xy wx.xy -- yz',
+    }
+
+
+def test_xy__yz__wx(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('xy', 'yz')
+    def summary(gather_df, wx):
+        return summarize(gather_df) + ' -- ' + wx
+
+    assert builder.build().get('summary', set) == {
+        'XY.YZ Xy.yZ xY.YZ xy.yZ -- WX',
+        'XY.YZ Xy.yZ xY.YZ xy.yZ -- Wx',
+        'XY.YZ Xy.yZ xY.YZ xy.yZ -- wX',
+        'XY.YZ Xy.yZ xY.YZ xy.yZ -- wx',
+        'XY.Yz Xy.yz xY.Yz xy.yz -- WX',
+        'XY.Yz Xy.yz xY.Yz xy.yz -- Wx',
+        'XY.Yz Xy.yz xY.Yz xy.yz -- wX',
+        'XY.Yz Xy.yz xY.Yz xy.yz -- wx',
+    }
+
+
+def test_rename_frame(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('xy', 'yz', 'my_df')
+    def summary(my_df):
+        return summarize(my_df)
+
+    assert builder.build().get('summary', set) == {
+        'XY.YZ Xy.yZ xY.YZ xy.yZ',
+        'XY.Yz Xy.yz xY.Yz xy.yz',
+    }
+
+
+def test_multiple_gathers(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('w', 'wx', 'df1')
+    @bn.gather('y', 'yz', 'df2')
+    def summary(df1, df2):
+        return summarize(df1) + ' -- ' + summarize(df2)
+
+    assert builder.build().get('summary', set) == {
+        'W.WX w.wX -- Y.YZ y.yZ',
+        'W.WX w.wX -- Y.Yz y.yz',
+        'W.Wx w.wx -- Y.YZ y.yZ',
+        'W.Wx w.wx -- Y.Yz y.yz',
+    }
+
+
+def test_multiple_gathers_complex(preset_builder):
+    builder = preset_builder
+
+    @builder
+    @bn.gather('w', 'wx', 'df1')
+    @bn.gather('x', 'wx', 'df2')
+    def summary(df1, df2):
+        return summarize(df1) + ' -- ' + summarize(df2)
+
+    assert builder.build().get('summary', set) == {
+        'W.WX w.wX -- X.WX x.Wx',
+        'W.WX w.wX -- X.wX x.wx',
+        'W.Wx w.wx -- X.WX x.Wx',
+        'W.Wx w.wx -- X.wX x.wx',
+    }

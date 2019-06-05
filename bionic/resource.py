@@ -428,22 +428,7 @@ class GatherResource(WrappingResource):
                 row_case_keys =\
                     gather_case_key_lists_by_delta_case_key[delta_case_key]
 
-                primary_case_keys = [
-                    case_key.project(key_spaces.primary)
-                    for case_key in row_case_keys
-                ]
-
-                if len(key_spaces.primary) > 0:
-                    # TODO Is it actually valuable to include an index of the
-                    # case keys?  I wonder if we should just use a simple
-                    # index, and have users explicitly request the values they
-                    # want using secondary_names.
-                    df_index = multi_index_from_case_keys(
-                        case_keys=primary_case_keys,
-                        ordered_key_names=list(key_spaces.primary))
-                else:
-                    df_index = None
-                gathered_df = pd.DataFrame(index=df_index)
+                gathered_df = pd.DataFrame()
                 for name in self._gather_names:
                     key_space = dep_key_spaces_by_name[name]
                     gathered_df[name] = [
