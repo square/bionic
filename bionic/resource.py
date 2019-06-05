@@ -245,10 +245,7 @@ class FunctionResource(BaseResource):
             ]
             for name in self._dep_names
         ]
-        out_case_keys = self._merge_case_key_lists(dep_case_key_lists)
-
-        if len(out_case_keys) == 0:
-            return []
+        out_case_keys = merge_case_key_lists(dep_case_key_lists)
 
         return [
             Task(
@@ -264,44 +261,6 @@ class FunctionResource(BaseResource):
             )
             for case_key in out_case_keys
         ]
-
-    def _merge_case_key_lists(self, case_key_lists):
-        merged_case_keys = [CaseKey([])]
-        merged_key_space = CaseKeySpace()
-
-        for cur_case_keys in case_key_lists:
-            # If any dependency has no keys, the entire Cartesian product must
-            # be empty.
-            if len(cur_case_keys) == 0:
-                return []
-
-            # Find the key space of the current dependency's keys.
-            cur_key_space = cur_case_keys[0].space
-
-            # Identify the names shared with already-merged keys.
-            common_key_space = cur_key_space.intersection(merged_key_space)
-
-            # Group the current keys by their common parts.
-            cur_key_lists_by_common_key = groups_dict(
-                cur_case_keys, common_key_space.select)
-
-            # Likewise, group the already-merged keys.
-            merged_key_lists_by_common_key = groups_dict(
-                merged_case_keys, common_key_space.select)
-
-            # For each distinct common key, take the Cartesian product of the
-            # new and already-merged keys.
-            merged_case_keys = []
-            for common_key, merged_keys in\
-                    merged_key_lists_by_common_key.items():
-                for cur_key in cur_key_lists_by_common_key.get(common_key, []):
-                    for merged_key in merged_keys:
-                        new_merged_key = merged_key.merge(cur_key)
-                        merged_case_keys.append(new_merged_key)
-
-            merged_key_space = merged_key_space.union(cur_key_space)
-
-        return merged_case_keys
 
     def _apply(self, query, dep_values):
         value = self._func(*dep_values)
@@ -596,6 +555,45 @@ class PyplotResource(WrappingResource):
 
         outer_tasks = [wrap_task(task) for task in inner_tasks]
         return outer_tasks
+
+
+def merge_case_key_lists(case_key_lists):
+    merged_case_keys = [CaseKey([])]
+    merged_key_space = CaseKeySpace()
+
+    for cur_case_keys in case_key_lists:
+        # If any dependency has no keys, the entire Cartesian product must
+        # be empty.
+        if len(cur_case_keys) == 0:
+            return []
+
+        # Find the key space of the current dependency's keys.
+        cur_key_space = cur_case_keys[0].space
+
+        # Identify the names shared with already-merged keys.
+        common_key_space = cur_key_space.intersection(merged_key_space)
+
+        # Group the current keys by their common parts.
+        cur_key_lists_by_common_key = groups_dict(
+            cur_case_keys, common_key_space.select)
+
+        # Likewise, group the already-merged keys.
+        merged_key_lists_by_common_key = groups_dict(
+            merged_case_keys, common_key_space.select)
+
+        # For each distinct common key, take the Cartesian product of the
+        # new and already-merged keys.
+        merged_case_keys = []
+        for common_key, merged_keys in\
+                merged_key_lists_by_common_key.items():
+            for cur_key in cur_key_lists_by_common_key.get(common_key, []):
+                for merged_key in merged_keys:
+                    new_merged_key = merged_key.merge(cur_key)
+                    merged_case_keys.append(new_merged_key)
+
+        merged_key_space = merged_key_space.union(cur_key_space)
+
+    return merged_case_keys
 
 
 def multi_index_from_case_keys(case_keys, ordered_key_names):
