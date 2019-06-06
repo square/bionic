@@ -8,15 +8,6 @@ of strings.
 from past.builtins import basestring
 
 
-def none_or_seq_or_obj_as_list(value):
-    if value is None:
-        return []
-    elif is_iterable(value):
-        return list(value)
-    else:
-        return [value]
-
-
 def str_or_seq_as_list(value):
     if isinstance(value, basestring):
         return [value]
@@ -24,6 +15,18 @@ def str_or_seq_as_list(value):
         return list(value)
     else:
         raise TypeError('Expected a string or sequence; got %r' % value)
+
+
+def str_or_seq_or_none_as_list(value):
+    if isinstance(value, basestring):
+        return [value]
+    elif is_iterable(value):
+        return list(value)
+    elif value is None:
+        return []
+    else:
+        raise TypeError(
+            'Expected a string or sequence or None; got %r' % value)
 
 
 def is_iterable(x):

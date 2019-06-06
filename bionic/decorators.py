@@ -43,13 +43,24 @@ def persist(enabled):
     return resource_wrapper(AttrUpdateResource, 'should_persist', enabled)
 
 
-def gather(over, also, into='gather_df'):
+def gather(over, also=None, into='gather_df'):
     '''
     Gathers all values of the `over` resources along with associated values of
-    the `also` dependency into a single dataframe argument with name `into`.
+    the `also` resources into a single dataframe argument with name `into`.
+
+    Example usage:
+
+    @builder
+    @gather('hyperparameters', ['model', 'error'])
+    def best_model(gather_df):
+        best_row = gather_df.sort_values('error').iloc[0]
+        return best_row.model
     '''
     over = interpret.str_or_seq_as_list(over)
-    return resource_wrapper(GatherResource, over, also, into)
+    also = interpret.str_or_seq_or_none_as_list(also)
+    return resource_wrapper(
+        GatherResource,
+        primary_names=over, secondary_names=also, gathered_dep_name=into)
 
 
 def pyplot(name=None):

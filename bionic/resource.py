@@ -245,10 +245,7 @@ class FunctionResource(BaseResource):
             ]
             for name in self._dep_names
         ]
-        out_case_keys = self._merge_case_key_lists(dep_case_key_lists)
-
-        if len(out_case_keys) == 0:
-            return []
+        out_case_keys = merge_case_key_lists(dep_case_key_lists)
 
         return [
             Task(
@@ -265,44 +262,6 @@ class FunctionResource(BaseResource):
             for case_key in out_case_keys
         ]
 
-    def _merge_case_key_lists(self, case_key_lists):
-        merged_case_keys = [CaseKey([])]
-        merged_key_space = CaseKeySpace()
-
-        for cur_case_keys in case_key_lists:
-            # If any dependency has no keys, the entire Cartesian product must
-            # be empty.
-            if len(cur_case_keys) == 0:
-                return []
-
-            # Find the key space of the current dependency's keys.
-            cur_key_space = cur_case_keys[0].space
-
-            # Identify the names shared with already-merged keys.
-            common_key_space = cur_key_space.intersection(merged_key_space)
-
-            # Group the current keys by their common parts.
-            cur_key_lists_by_common_key = groups_dict(
-                cur_case_keys, common_key_space.select)
-
-            # Likewise, group the already-merged keys.
-            merged_key_lists_by_common_key = groups_dict(
-                merged_case_keys, common_key_space.select)
-
-            # For each distinct common key, take the Cartesian product of the
-            # new and already-merged keys.
-            merged_case_keys = []
-            for common_key, merged_keys in\
-                    merged_key_lists_by_common_key.items():
-                for cur_key in cur_key_lists_by_common_key.get(common_key, []):
-                    for merged_key in merged_keys:
-                        new_merged_key = merged_key.merge(cur_key)
-                        merged_case_keys.append(new_merged_key)
-
-            merged_key_space = merged_key_space.union(cur_key_space)
-
-        return merged_case_keys
-
     def _apply(self, query, dep_values):
         value = self._func(*dep_values)
         query.protocol.validate(value)
@@ -312,103 +271,98 @@ class FunctionResource(BaseResource):
         return '%s(%s)' % (self.__class__.__name__, self._func)
 
 
-# TODO Consider allowing multiple gathered_dep_names?
 class GatherResource(WrappingResource):
     def __init__(
             self, wrapped_resource,
-            gather_over_names, gathered_dep_name, new_gathered_dep_name):
+            primary_names, secondary_names, gathered_dep_name):
+        # TODO This is still pretty confusing, I think.
+        '''
+        This a very involved wrapper implementing the "gather" decorator.  It
+        collects multiple dependencies into a single DataFrame argument, which
+        is accessible to the wrapped resource along with its other arguments.
+        Multiple instances of these dependencies may be grouped in a single
+        DataFrame rather than being passed to separate instances of this
+        resource.
+
+        The gathered dependencies are provided in two groups: "primary" and
+        "secondary"; putting dependencies in one group or the other will change
+        how the grouping happens.  If a dependency is "primary", then any
+        variation caused by it (i.e., variation from its ancestors) will be
+        collapsed into a single frame.  Secondary dependencies do not affect
+        the grouping; any variation due to them will result in multiple
+        instances of this resource, as normal.
+        '''
 
         super(GatherResource, self).__init__(wrapped_resource)
 
-        self._gather_over_names = gather_over_names
-        self._outer_gathered_dep_name = gathered_dep_name
-        self._inner_gathered_dep_name = new_gathered_dep_name
+        self._primary_names = primary_names
+        self._secondary_names = secondary_names
+        self._inner_gathered_dep_name = gathered_dep_name
 
         self._inner_dep_names = self.wrapped_resource.get_dependency_names()
 
-        self._all_outer_deps_to_gather = list(self._gather_over_names)
-        if self._outer_gathered_dep_name not in self._all_outer_deps_to_gather:
-            self._all_outer_deps_to_gather.append(
-                self._outer_gathered_dep_name)
+        self._gather_names = (
+            list(self._primary_names) + list(self._secondary_names))
 
-        gather_dep_ix = self._inner_dep_names.index(
+        inner_gathered_dep_ix = self._inner_dep_names.index(
             self._inner_gathered_dep_name)
-        if gather_dep_ix < 0:
+        if inner_gathered_dep_ix < 0:
             raise ValueError(
                 "Expected wrapped %r to have dependency name %r, but "
                 "only found names %r" % (
                     self.wrapped_resource, self._inner_gathered_dep_name,
                     self._inner_dep_names))
 
-        modified_inner_dep_names = list(self._inner_dep_names)
-        modified_inner_dep_names[gather_dep_ix] = self._outer_gathered_dep_name
+        self._passthrough_dep_names = list(self._inner_dep_names)
+        self._passthrough_dep_names.pop(inner_gathered_dep_ix)
+        assert self._inner_gathered_dep_name not in self._passthrough_dep_names
 
         extra_dep_names = [
-            name for name in self._gather_over_names
-            if name not in modified_inner_dep_names
+            name for name in self._gather_names
+            if name not in self._passthrough_dep_names
         ]
-
-        self._outer_dep_names = \
-            extra_dep_names + modified_inner_dep_names
+        self._outer_dep_names = extra_dep_names + self._passthrough_dep_names
 
     def get_dependency_names(self):
         return self._outer_dep_names
 
     def get_key_space(self, dep_key_spaces_by_name):
-        unmodified_dep_spaces = [
-            dep_key_spaces_by_name[name]
-            for name in self._inner_dep_names
-            if name != self._inner_gathered_dep_name
-        ]
-        gathering_key_spaces = [
-            dep_key_spaces_by_name[name]
-            for name in self._gather_over_names
-        ]
-        full_gathered_key_space = dep_key_spaces_by_name[
-            self._outer_gathered_dep_name]
-
-        total_gathering_key_space = CaseKeySpace.union_all(
-            gathering_key_spaces)
-        collapsed_gathered_key_space = full_gathered_key_space.difference(
-            total_gathering_key_space)
-
-        return CaseKeySpace.union_all(
-            unmodified_dep_spaces + [collapsed_gathered_key_space])
+        return self._compute_key_spaces(dep_key_spaces_by_name).outer
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
         # These are the key spaces and task keys that the outside world sees.
         outer_key_spaces_by_name = dep_key_spaces_by_name
         outer_dtkls = dep_task_key_lists_by_name
 
-        gathering_key_space = CaseKeySpace.union_all(
-            dep_key_spaces_by_name[name]
-            for name in self._gather_over_names
-        )
+        # We'll need to derive some useful key spaces.
+        key_spaces = self._compute_key_spaces(dep_key_spaces_by_name)
 
-        # Take the primary dependency task keys, and group them by their outer
-        # case keys.  (Keys in the same group will be gathered into the same
-        # task.)
-        gathering_dep_task_keys = outer_dtkls[self._outer_gathered_dep_name]
-        primary_tkls_by_outer_case_key = defaultdict(list)
-        for task_key in gathering_dep_task_keys:
-            outer_case_key = task_key.case_key.drop(gathering_key_space)
-            primary_tkls_by_outer_case_key[outer_case_key].append(task_key)
+        # Identify the full case keys that will be partitioned into
+        # gathered frames.
+        gather_case_key_lists = [
+            [task_key.case_key for task_key in outer_dtkls[dep_name]]
+            for dep_name in self._gather_names
+        ]
+        gather_case_keys = merge_case_key_lists(gather_case_key_lists)
+
+        gather_case_key_lists_by_delta_case_key = defaultdict(list)
+        for gather_case_key in gather_case_keys:
+            delta_case_key = gather_case_key.project(key_spaces.delta)
+            gather_case_key_lists_by_delta_case_key[delta_case_key].append(
+                gather_case_key)
+
+        delta_case_keys = gather_case_key_lists_by_delta_case_key.keys()
 
         # Create new task keys for the gathered values that the inner resource
         # will consume.
+        inner_gathered_key_space = key_spaces.delta
         inner_gathered_dep_task_keys = [
             TaskKey(
                 resource_name=self._inner_gathered_dep_name,
                 case_key=case_key,
             )
-            for case_key in primary_tkls_by_outer_case_key.keys()
+            for case_key in delta_case_keys
         ]
-        full_gathered_key_space = \
-            outer_key_spaces_by_name[self._outer_gathered_dep_name]
-        inner_gathered_key_space = full_gathered_key_space\
-            .difference(gathering_key_space)
-        active_gathering_key_space = gathering_key_space\
-            .intersection(full_gathered_key_space)
 
         # Now we can construct the dicts of key spaces and task keys that the
         # wrapper resource will see.
@@ -444,24 +398,22 @@ class GatherResource(WrappingResource):
             passthrough_dep_keys = list(inner_dep_keys)
             inner_gather_case_key = passthrough_dep_keys\
                 .pop(gather_task_key_ix).case_key
+            delta_case_key = inner_gather_case_key
 
-            outer_gather_case_key = inner_gather_case_key\
-                .drop(gathering_key_space)
-
-            # Assemble the primary dep keys for this particular case key.
-            primary_gathered_task_keys = \
-                primary_tkls_by_outer_case_key[outer_gather_case_key]
-
-            all_gather_over_keys = [
-                task_key
-                for dep_name in self._all_outer_deps_to_gather
-                for task_key in outer_dtkls[dep_name]
-            ]
+            # Find the task keys that need to be gathered together.
+            unique_gather_task_keys = set()
+            for dep_name in self._gather_names:
+                dep_key_space = dep_key_spaces_by_name[dep_name]
+                for gather_case_key in gather_case_keys:
+                    unique_gather_task_keys.add(TaskKey(
+                        resource_name=dep_name,
+                        case_key=gather_case_key.project(dep_key_space),
+                    ))
+            prepended_keys = list(unique_gather_task_keys)
 
             # Combine the gathering task keys with the keys expected by the
             # wrapped task (except the one key we removed, since we'll be
             # synthesizing it ourselves).
-            prepended_keys = all_gather_over_keys + primary_gathered_task_keys
             wrapped_dep_keys = prepended_keys + passthrough_dep_keys
 
             def wrapped_compute_func(query, dep_values):
@@ -473,24 +425,16 @@ class GatherResource(WrappingResource):
                     prepended_keys, prepended_values)))
 
                 # Gather the prepended values into a single frame.
-                df_row_case_keys = [
-                    task_key.case_key
-                    for task_key in primary_gathered_task_keys
-                ]
+                row_case_keys =\
+                    gather_case_key_lists_by_delta_case_key[delta_case_key]
 
-                if len(active_gathering_key_space) > 0:
-                    df_index = multi_index_from_case_keys(
-                        case_keys=df_row_case_keys,
-                        ordered_key_names=list(active_gathering_key_space))
-                else:
-                    df_index = None
-                gathered_df = pd.DataFrame(index=df_index)
-                for name in self._all_outer_deps_to_gather:
+                gathered_df = pd.DataFrame()
+                for name in self._gather_names:
                     key_space = dep_key_spaces_by_name[name]
                     gathered_df[name] = [
                         values_by_task_key.get(
                             TaskKey(name, case_key.project(key_space)), None)
-                        for case_key in df_row_case_keys
+                        for case_key in row_case_keys
                     ]
 
                 # Construct the final values to pass to the wrapped task.
@@ -512,6 +456,43 @@ class GatherResource(WrappingResource):
         orig_tasks = self.wrapped_resource.get_tasks(
             inner_key_spaces_by_name, inner_dtkls)
         return [wrap_task(task) for task in orig_tasks]
+
+    def _compute_key_spaces(self, dep_key_spaces_by_name):
+        return self._KeySpaces(self, dep_key_spaces_by_name)
+
+    class _KeySpaces(object):
+        def __init__(self, gather_resource, dep_key_spaces_by_name):
+            # The combined keyspace of all the non-gathered dependencies of the
+            # wrapped resource.
+            self.passthrough = CaseKeySpace.union_all(
+                dep_key_spaces_by_name[name]
+                for name in gather_resource._passthrough_dep_names
+            )
+
+            # The combined keyspace of the all the primary gathered
+            # dependencies.  This corresponds to the index of the gathered
+            # frame.
+            self.primary = CaseKeySpace.union_all(
+                dep_key_spaces_by_name[name]
+                for name in gather_resource._primary_names
+            )
+
+            # The combined keyspace of the all the secondary gathered
+            # dependencies.
+            self.secondary = CaseKeySpace.union_all(
+                dep_key_spaces_by_name[name]
+                for name in gather_resource._secondary_names
+            )
+
+            # The difference between the secondary and primary key spaces.
+            # This is the key space of the gathered frame resource that the
+            # wrapped resource sees.
+            self.delta = self.secondary.difference(self.primary)
+
+            # The combination of the passthrough and delta key spaces -- i.e.,
+            # the combined key space of all the dependencies seen by the
+            # wrapped resource.  This is also the key space of this resource.
+            self.outer = self.passthrough.union(self.delta)
 
 
 # TODO Matplotlib has global state, which means it may run differently and
@@ -606,6 +587,45 @@ class PyplotResource(WrappingResource):
 
         outer_tasks = [wrap_task(task) for task in inner_tasks]
         return outer_tasks
+
+
+def merge_case_key_lists(case_key_lists):
+    merged_case_keys = [CaseKey([])]
+    merged_key_space = CaseKeySpace()
+
+    for cur_case_keys in case_key_lists:
+        # If any dependency has no keys, the entire Cartesian product must
+        # be empty.
+        if len(cur_case_keys) == 0:
+            return []
+
+        # Find the key space of the current dependency's keys.
+        cur_key_space = cur_case_keys[0].space
+
+        # Identify the names shared with already-merged keys.
+        common_key_space = cur_key_space.intersection(merged_key_space)
+
+        # Group the current keys by their common parts.
+        cur_key_lists_by_common_key = groups_dict(
+            cur_case_keys, common_key_space.select)
+
+        # Likewise, group the already-merged keys.
+        merged_key_lists_by_common_key = groups_dict(
+            merged_case_keys, common_key_space.select)
+
+        # For each distinct common key, take the Cartesian product of the
+        # new and already-merged keys.
+        merged_case_keys = []
+        for common_key, merged_keys in\
+                merged_key_lists_by_common_key.items():
+            for cur_key in cur_key_lists_by_common_key.get(common_key, []):
+                for merged_key in merged_keys:
+                    new_merged_key = merged_key.merge(cur_key)
+                    merged_case_keys.append(new_merged_key)
+
+        merged_key_space = merged_key_space.union(cur_key_space)
+
+    return merged_case_keys
 
 
 def multi_index_from_case_keys(case_keys, ordered_key_names):
