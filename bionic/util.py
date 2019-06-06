@@ -5,7 +5,6 @@ from __future__ import division
 
 from builtins import zip, object
 import logging
-import random
 from collections import defaultdict
 from hashlib import sha256
 from binascii import hexlify
@@ -277,32 +276,3 @@ def init_matplotlib():
         matplotlib.use('TkAgg', warn=False)
     else:
         matplotlib.use('Agg', warn=False)
-
-
-def view_dag(dag, path=None):
-    import matplotlib.pyplot as plt
-    import networkx as nx
-    connections = []
-    pos_start = {}
-    i = 0
-    for parent in dag:
-        i += 1
-        pos_start[parent] = (i, random.random())
-        for value in dag[parent]:
-            connections.append((parent, value))
-
-    fig = plt.figure(num=None, figsize=(10, 10), dpi=120, facecolor='w', edgecolor='k')
-    G = nx.DiGraph()
-    G.add_edges_from(connections)
-    pos = nx.layout.spring_layout(G, iterations=200, pos=pos_start, k=1, scale=2)
-
-    nx.draw_networkx_nodes(
-        G, pos, node_size=4000, node_color='blue', alpha=.3, node_shape='s', linewidths=2)
-    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, width=2, alpha=.2)
-
-    nx.draw_networkx_labels(G, pos, font_size=14)
-    ax = plt.gca()
-    ax.set_axis_off()
-    if path:
-        plt.savefig(path)
-    return fig

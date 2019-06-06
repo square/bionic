@@ -11,6 +11,7 @@ builder = bn.FlowBuilder('ml_workflow')
 
 builder.assign('random_seed', 0)
 builder.assign('test_frac', 0.3)
+builder.assign('hyperparams_dict', {'C': 1})
 
 
 @builder
@@ -44,9 +45,10 @@ def test_df(raw_df, test_frac, random_seed):
 
 
 @builder
-def model(train_df, random_seed):
+def model(train_df, random_seed, hyperparams_dict):
     m = linear_model.LogisticRegression(
-        solver='liblinear', random_state=random_seed)
+        solver='liblinear', random_state=random_seed,
+        **hyperparams_dict)
     m.fit(train_df.drop('target', axis=1), train_df['target'])
     return m
 
@@ -83,7 +85,8 @@ if __name__ == '__main__':
     dag_path = Path('example_output')
     if not dag_path.exists():
         dag_path.mkdir()
-    flow.plot_dag(path=str(dag_path / 'dag_test.png'))
+    fig = flow.plot_dag()
+    fig.savefig(str(dag_path / 'dag_test.png'))
 
     flow.get('pr_plot')
     with pd.option_context("display.max_rows", 10):

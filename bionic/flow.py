@@ -5,7 +5,6 @@ construction and execution APIs (respectively).
 from __future__ import absolute_import
 
 from builtins import object
-from collections import OrderedDict
 import os
 import functools
 
@@ -22,7 +21,8 @@ from .exception import UndefinedResourceError
 from .resource import ValueResource, multi_index_from_case_keys, as_resource
 from .resolver import ResourceResolver
 from . import decorators
-from .util import group_pairs, check_exactly_one_present, view_dag
+from .util import group_pairs, check_exactly_one_present
+from .dagviz import render_dag_tiers
 
 import logging
 logger = logging.getLogger(__name__)
@@ -322,7 +322,7 @@ class Flow(object):
         return [
             name
             for name in self._state.resources_by_name.keys()
-            if include_core or not name.startswith('core__')
+            if include_core or not self._resource_is_core(name)
         ]
 
     def resource_protocol(self, name):
@@ -330,21 +330,6 @@ class Flow(object):
 
     def to_builder(self):
         return FlowBuilder._from_state(self._state)
-
-    def plot_dag(self, path=None):
-        dag = OrderedDict()
-        task_states = self._resolver._task_states_by_key.values()
-        for state in task_states:
-            tasks = []
-            for child_state in state.children:
-                tasks.append(child_state.task.key.resource_name)
-            dag[state.task.key.resource_name] = tasks
-        dag = {
-            key: value
-            for key, value in dag.items()
-            if not key.startswith('core__')
-        }
-        view_dag(dag, path)
 
     def get(self, name, fmt=None):
         result_group = self._resolver.resolve(name)
@@ -392,6 +377,42 @@ class Flow(object):
     @property
     def name(self):
         return self.get('core__flow_name')
+
+    def plot_dag(self, figsize=None):
+        names_by_task_key = {}
+        clusters_by_node = {}
+        for resource_name, tasks in (
+                self._resolver._task_lists_by_resource_name.items()):
+            if self._resource_is_core(resource_name):
+                continue
+
+            if len(tasks) == 1:
+                name_template = '{resource_name}'
+            else:
+                name_template = '{resource_name}[{ix}]'
+
+            for ix, task in enumerate(tasks):
+                name = name_template.format(resource_name=resource_name, ix=ix)
+                names_by_task_key[task.key] = name
+                clusters_by_node[name] = resource_name
+
+        child_lists_by_parent = {}
+        for state in self._resolver._task_states_by_key.values():
+            if self._resource_is_core(state.task.key.resource_name):
+                continue
+            name = names_by_task_key[state.task.key]
+
+            child_names = list()
+            for child_state in state.children:
+                child_name = names_by_task_key[child_state.task.key]
+                if self._resource_is_core(child_name):
+                    continue
+                child_names.append(child_name)
+
+            child_lists_by_parent[name] = child_names
+
+        return render_dag_tiers(
+            child_lists_by_parent, clusters_by_node, figsize)
 
     # TODO Should we offer an in-place version of this?  It's contrary to the
     # idea of an immutable API, but it might be more natural for the user, and
@@ -505,6 +526,9 @@ class Flow(object):
         builder = FlowBuilder._from_state(self._state)
         builder_update_func(builder)
         return Flow._from_state(builder._state)
+
+    def _resource_is_core(self, resource_name):
+        return resource_name.startswith('core__')
 
 
 class ShortcutProxy(object):
