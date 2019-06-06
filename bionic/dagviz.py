@@ -25,7 +25,8 @@ def structure(flow):
     names_by_task_key = {}
     clusters_by_node = {}
     flow._resolver.get_ready()
-    for resource_name, tasks in (flow._resolver._task_lists_by_resource_name.items()):
+    for resource_name, tasks in (
+            flow._resolver._task_lists_by_resource_name.items()):
         if flow._resource_is_core(resource_name):
             continue
 
@@ -36,23 +37,27 @@ def structure(flow):
 
         for ix, task in enumerate(tasks):
             name = name_template.format(resource_name=resource_name, ix=ix)
-            names_by_task_key[task.key] = name
+            task_key = task.key_for_resource_name(resource_name)
+            names_by_task_key[task_key] = name
             clusters_by_node[name] = resource_name
 
     child_lists_by_parent = {}
     for state in flow._resolver._task_states_by_key.values():
-        if flow._resource_is_core(state.task.key.resource_name):
-            continue
-        name = names_by_task_key[state.task.key]
-
-        child_names = list()
-        for child_state in state.children:
-            child_name = names_by_task_key[child_state.task.key]
-            if flow._resource_is_core(child_name):
+        for task_key in state.task.keys:
+            if flow._resource_is_core(task_key.resource_name):
                 continue
-            child_names.append(child_name)
 
-        child_lists_by_parent[name] = child_names
+            name = names_by_task_key[task_key]
+
+            child_names = list()
+            for child_state in state.children:
+                for child_task_key in child_state.task.keys:
+                    child_name = names_by_task_key[child_task_key]
+                    if flow._resource_is_core(child_name):
+                        continue
+                    child_names.append(child_name)
+
+            child_lists_by_parent[name] = child_names
     return child_lists_by_parent, clusters_by_node
 
 

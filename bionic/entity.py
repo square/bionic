@@ -29,13 +29,22 @@ class Task(object):
     A unit of work.  Can have dependencies, which are referred to via their
     TaskKeys.
     '''
-    def __init__(self, key, dep_keys, compute_func):
-        self.key = key
-        self.dep_keys = dep_keys
+    def __init__(self, keys, dep_keys, compute_func):
+        self.keys = tuple(keys)
+        self.dep_keys = tuple(dep_keys)
         self.compute = compute_func
 
+    def key_for_resource_name(self, name):
+        matching_keys = [
+            task_key
+            for task_key in self.keys
+            if task_key.resource_name == name
+        ]
+        key, = matching_keys
+        return key
+
     def __repr__(self):
-        return 'Task(%r, %r)' % (self.key, self.dep_keys)
+        return 'Task(%r, %r)' % (self.keys, self.dep_keys)
 
 
 class Query(object):

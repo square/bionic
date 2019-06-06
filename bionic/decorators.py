@@ -14,7 +14,8 @@ from __future__ import absolute_import
 from past.builtins import basestring
 from .resource import (
     VersionedResource, GatherResource, AttrUpdateResource, PyplotResource,
-    resource_wrapper)
+    RenamingResource, NameSplittingResource, resource_wrapper,
+)
 from . import interpret
 
 
@@ -41,6 +42,26 @@ def persist(enabled):
         raise ValueError("Argument must be a boolean; got %r" % enabled)
 
     return resource_wrapper(AttrUpdateResource, 'should_persist', enabled)
+
+
+def output(name):
+    '''
+    Renames a resource.  The resource must have a single value.
+    '''
+    return resource_wrapper(RenamingResource, name)
+
+
+def outputs(*names):
+    '''
+    Indicates that a result produces a (fixed-size) collection of values, and
+    assigns a name to each value.
+    '''
+    return resource_wrapper(NameSplittingResource, names)
+
+
+# TODO I'd like to put a @protocols decorator here that exposes the
+# MultiProtocolUpdateResource class, but that would collide with the
+# protocols.py module.  Let's do this in a later PR.
 
 
 def gather(over, also=None, into='gather_df'):
