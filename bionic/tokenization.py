@@ -18,7 +18,7 @@ def char_range(first, last):
     return [chr(i) for i in range(ord(first), ord(last) + 1)]
 
 
-CLEAN_CHARs = set(
+CLEAN_CHARS = set(
     char_range('a', 'z') + char_range('A', 'Z') + char_range('0', '9') +
     ['_', '-', '.'])
 MAX_CLEAN_STR_LEN = 32
@@ -26,8 +26,14 @@ MAX_CLEAN_STR_LEN = 32
 
 def clean_str(string):
     "Converts an arbitary string to one that could be used as a filename."
-    cleaned = ''.join((c if c in CLEAN_CHARs else '.') for c in string)
+    cleaned = ''.join((c if c in CLEAN_CHARS else '.') for c in string)
+    # Some filesystems are case insensitive, so we don't want uppercase
+    # letters.
     cleaned = cleaned.lower()
+    # Some filesystems treat files differently if they start with a period, so
+    # let's avoid that.
+    if cleaned.startswith('.'):
+        cleaned = '_' + cleaned
     if len(cleaned) > MAX_CLEAN_STR_LEN:
         head_len = (MAX_CLEAN_STR_LEN // 2) - 1
         tail_len = MAX_CLEAN_STR_LEN - (head_len + 3)
