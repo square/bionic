@@ -22,7 +22,7 @@ from .resource import ValueResource, multi_index_from_case_keys, as_resource
 from .resolver import ResourceResolver
 from . import decorators
 from .util import group_pairs, check_exactly_one_present
-from .dagviz import render_dag_tiers
+from . import dagviz
 
 import logging
 logger = logging.getLogger(__name__)
@@ -379,40 +379,10 @@ class Flow(object):
         return self.get('core__flow_name')
 
     def plot_dag(self, figsize=None):
-        names_by_task_key = {}
-        clusters_by_node = {}
-        for resource_name, tasks in (
-                self._resolver._task_lists_by_resource_name.items()):
-            if self._resource_is_core(resource_name):
-                continue
+        return dagviz.visualize_dag_matplotlib(self, figsize=figsize)
 
-            if len(tasks) == 1:
-                name_template = '{resource_name}'
-            else:
-                name_template = '{resource_name}[{ix}]'
-
-            for ix, task in enumerate(tasks):
-                name = name_template.format(resource_name=resource_name, ix=ix)
-                names_by_task_key[task.key] = name
-                clusters_by_node[name] = resource_name
-
-        child_lists_by_parent = {}
-        for state in self._resolver._task_states_by_key.values():
-            if self._resource_is_core(state.task.key.resource_name):
-                continue
-            name = names_by_task_key[state.task.key]
-
-            child_names = list()
-            for child_state in state.children:
-                child_name = names_by_task_key[child_state.task.key]
-                if self._resource_is_core(child_name):
-                    continue
-                child_names.append(child_name)
-
-            child_lists_by_parent[name] = child_names
-
-        return render_dag_tiers(
-            child_lists_by_parent, clusters_by_node, figsize)
+    def graphviz_dag(self):
+        return dagviz.visualize_dag_graphviz(self)
 
     # TODO Should we offer an in-place version of this?  It's contrary to the
     # idea of an immutable API, but it might be more natural for the user, and
