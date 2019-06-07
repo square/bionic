@@ -18,6 +18,15 @@ def test_tokenize_simple_cleaning():
     assert tokenize('test\x00').startswith('test._')
 
 
+def test_avoid_initial_period():
+    assert tokenize('.test').startswith('_.test')
+    assert tokenize('\x00\x00').startswith('_..')
+
+
+def test_ensure_token_length_is_capped():
+    assert len(tokenize('a' * 1000)) < 50
+
+
 class Point(object):
     def __init__(self, x, y):
         self.x = x
