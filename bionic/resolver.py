@@ -64,22 +64,29 @@ class ResourceResolver(object):
         if self._is_ready_for_bootstrap_resolution:
             return
 
+        # Generate the static key spaces and tasks for each resource.
         self._key_spaces_by_resource_name = {}
         self._task_lists_by_resource_name = {}
         for name in self._flow_state.resources_by_name.keys():
             self._populate_resource_info(name)
 
-        self._task_states_by_key = {
-            task.key: TaskState(task)
-            for tasks in self._task_lists_by_resource_name.values()
-            for task in tasks
-        }
-        for task_state in self._task_states_by_key.values():
-            for dep_key in task_state.task.dep_keys:
-                dep_state = self._task_states_by_key[dep_key]
+        # Initialize a state object for each task.
+        self._task_states_by_key = {}
+        for tasks in self._task_lists_by_resource_name.values():
+            for task in tasks:
+                task_state = TaskState(task)
+                for key in task.keys:
+                    self._task_states_by_key[key] = task_state
 
-                task_state.parents.append(dep_state)
-                dep_state.children.append(task_state)
+        # Connect the task states to each other in a graph.
+        for tasks in self._task_lists_by_resource_name.values():
+            for task in tasks:
+                task_state = self._task_states_by_key[task.keys[0]]
+                for dep_key in task.dep_keys:
+                    dep_state = self._task_states_by_key[dep_key]
+
+                    task_state.parents.append(dep_state)
+                    dep_state.children.append(task_state)
 
         self._is_ready_for_bootstrap_resolution = True
 
@@ -100,7 +107,7 @@ class ResourceResolver(object):
 
         dep_task_key_lists_by_name = {
             dep_name: [
-                task.key
+                task.key_for_resource_name(dep_name)
                 for task in self._task_lists_by_resource_name[dep_name]
             ]
             for dep_name in dep_names
@@ -108,6 +115,7 @@ class ResourceResolver(object):
 
         self._key_spaces_by_resource_name[resource_name] =\
             resource.get_key_space(dep_key_spaces_by_name)
+
         self._task_lists_by_resource_name[resource_name] = resource.get_tasks(
             dep_key_spaces_by_name,
             dep_task_key_lists_by_name)
@@ -136,12 +144,12 @@ class ResourceResolver(object):
             raise UndefinedResourceError(
                 "Resource %r is not defined" % resource_name)
         requested_task_states = [
-            self._task_states_by_key[task.key]
+            self._task_states_by_key[task.keys[0]]
             for task in tasks
         ]
         ready_task_states = list(requested_task_states)
 
-        blocked_task_keys = set()
+        blocked_task_key_tuples = set()
 
         while ready_task_states:
             state = ready_task_states.pop()
@@ -152,24 +160,27 @@ class ResourceResolver(object):
             if not state.is_blocked():
                 self._compute_task_state(state)
                 for child_state in state.children:
-                    if child_state.task.key in blocked_task_keys and\
+                    if child_state.task.keys in blocked_task_key_tuples and\
                             not child_state.is_blocked():
                         ready_task_states.append(child_state)
-                        blocked_task_keys.remove(child_state.task.key)
+                        blocked_task_key_tuples.remove(child_state.task.keys)
 
                 continue
 
             for dep_state in state.parents:
                 if not dep_state.is_complete():
                     ready_task_states.append(dep_state)
-            blocked_task_keys.add(state.task.key)
+            blocked_task_key_tuples.add(state.task.keys)
 
-        assert len(blocked_task_keys) == 0, blocked_task_keys
+        assert len(blocked_task_key_tuples) == 0, blocked_task_key_tuples
         for state in requested_task_states:
             assert state.is_complete(), state
 
         return ResultGroup(
-            results=[state.result for state in requested_task_states],
+            results=[
+                state.results_by_name[resource_name]
+                for state in requested_task_states
+            ],
             key_space=self._key_spaces_by_resource_name[resource_name],
         )
 
@@ -179,12 +190,18 @@ class ResourceResolver(object):
 
         dep_keys = task.dep_keys
         dep_results = [
-            self._task_states_by_key[dep_key].result
+            self._task_states_by_key[dep_key]
+                .results_by_name[dep_key.resource_name]
             for dep_key in dep_keys
         ]
 
-        resource = self._flow_state.get_resource(task.key.resource_name)
-        case_key = task.key.case_key
+        # All names should point to the same resource.
+        resource, = set(
+            self._flow_state.get_resource(task_key.resource_name)
+            for task_key in task.keys
+        )
+        # And all the task keys should have the same case key.
+        case_key, = set(task_key.case_key for task_key in task.keys)
         provenance = Provenance.from_computation(
             code_id=resource.get_code_id(case_key),
             case_key=case_key,
@@ -193,65 +210,90 @@ class ResourceResolver(object):
                 for dep_result in dep_results
             },
         )
-        query = Query(
-            name=resource.attrs.name,
-            protocol=resource.attrs.protocol,
-            case_key=case_key,
-            provenance=provenance,
-        )
-
-        loggable_task_str = '%s(%s)' % (
-           task.key.resource_name,
-           ', '.join(
-               '%s=%s' % (name, value)
-               for name, value in task.key.case_key.items())
-        )
+        # We'll use "tk" ("task key") to prefix lists that line up with our
+        # list of task keys.
+        tk_queries = [
+            Query(
+                name=task_key.resource_name,
+                protocol=resource.protocol_for_name(task_key.resource_name),
+                case_key=case_key,
+                provenance=provenance,
+            )
+            for task_key in task.keys
+        ]
+        tk_loggable_task_strs = [
+            '%s(%s)' % (
+               task_key.resource_name,
+               ', '.join(
+                   '%s=%s' % (name, value)
+                   for name, value in task_key.case_key.items())
+            )
+            for task_key in task.keys
+        ]
 
         should_persist = resource.attrs.should_persist
         if should_persist:
             if not self._is_ready_for_full_resolution:
                 raise AssertionError(
-                    "Can't apply persistent caching to bootstrap resource %r" %
-                    task.key.resource_name)
-            result = self._persistent_cache.load(query)
+                    "Can't apply persistent caching to bootstrap resources %r"
+                    % (tuple(resource.attrs.names),))
+            tk_results = []
+            for query, task_str in zip(tk_queries, tk_loggable_task_strs):
+                result = self._persistent_cache.load(query)
+                if result is not None:
+                    logger.info('Loaded    %s from cache', task_str)
+                    tk_results.append(result)
+                else:
+                    results_ready = False
+                    break
+            else:
+                results_ready = True
         else:
-            result = None
+            results_ready = False
 
-        if result is not None:
-            logger.info('Loaded    %s from cache', loggable_task_str)
-        else:
-            logger.info('Computing %s ...', loggable_task_str)
+        if not results_ready:
+            for task_str in tk_loggable_task_strs:
+                logger.info('Computing %s ...', task_str)
 
             dep_values = [dep_result.value for dep_result in dep_results]
-            task_value = task_state.task.compute(
-                query=query,
-                dep_values=dep_values,
-            )
 
-            result = Result(query, task_value)
+            tk_values = task_state.task.compute(dep_values)
 
-            if should_persist:
-                self._persistent_cache.save(result)
-                # We immediately reload the value and treat that as the real
-                # value.  That way, if the serialized/deserialized value is not
-                # exactly the same as the original, we still always return the
-                # same value.
-                result = self._persistent_cache.load(query)
+            assert len(tk_values) == len(resource.attrs.names)
 
-            logger.info('Computed  %s', loggable_task_str)
+            tk_results = []
+            for value, query, loggable_task_str in zip(
+                    tk_values, tk_queries, tk_loggable_task_strs):
+                query.protocol.validate(value)
+                result = Result(query, value)
+                if should_persist:
+                    self._persistent_cache.save(result)
+                    # We immediately reload the value and treat that as the
+                    # real value.  That way, if the serialized/deserialized
+                    # value is not exactly the same as the original, we still
+                    # always return the same value.
+                    result = self._persistent_cache.load(query)
 
-        task_state.result = result
+                logger.info('Computed  %s', loggable_task_str)
+
+                tk_results.append(result)
+
+        assert len(tk_results) == len(task.keys)
+        task_state.results_by_name = {
+            task_key.resource_name: result
+            for task_key, result in zip(task.keys, tk_results)
+        }
 
 
 class TaskState(object):
     def __init__(self, task):
         self.task = task
-        self.result = None
+        self.results_by_name = None
         self.parents = []
         self.children = []
 
     def is_complete(self):
-        return self.result is not None
+        return self.results_by_name is not None
 
     def is_blocked(self):
         return not all(parent.is_complete() for parent in self.parents)

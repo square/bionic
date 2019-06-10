@@ -24,24 +24,14 @@ def raw_df():
     return df
 
 
-# TODO Once we have a decorator that lets us generate multiple targets with
-# one function, we should combine this with test_df.
 @builder
-def train_df(raw_df, test_frac, random_seed):
+@bn.outputs('train_df', 'test_df')
+def split_raw_df(raw_df, test_frac, random_seed):
     return model_selection.train_test_split(
         raw_df,
         test_size=test_frac,
         random_state=random_seed,
-    )[0]
-
-
-@builder
-def test_df(raw_df, test_frac, random_seed):
-    return model_selection.train_test_split(
-        raw_df,
-        test_size=test_frac,
-        random_state=random_seed,
-    )[1]
+    )
 
 
 @builder

@@ -1,11 +1,15 @@
 from future import standard_library
 standard_library.install_aliases() # NOQA
+
+from builtins import str
 from io import BytesIO
 from textwrap import dedent
 
 import pandas as pd
 from pandas import testing as pdt
 from decorator import decorate
+
+import bionic as bn
 
 
 # TODO This name is cumbersome; maybe one of these shorter names?
@@ -67,3 +71,14 @@ def count_calls(func):
     container.append(wrapped)
 
     return wrapped
+
+
+class RoundingProtocol(bn.protocols.BaseProtocol):
+    def get_fixed_file_extension(self):
+        return 'round'
+
+    def write(self, value, file_):
+        file_.write(str(round(value)).encode('utf-8'))
+
+    def read(self, file_, extension):
+        return float(file_.read())

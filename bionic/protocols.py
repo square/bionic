@@ -18,7 +18,7 @@ from pyarrow import parquet, Table
 import pandas as pd
 from PIL import Image
 
-from .resource import resource_wrapper, AttrUpdateResource
+from .resource import resource_wrapper, ProtocolUpdateResource
 from . import tokenization
 
 
@@ -102,7 +102,7 @@ class BaseProtocol(object):
                     "%s can't be called with both a function and keywords" %
                     self)
 
-            wrapper = resource_wrapper(AttrUpdateResource, 'protocol', self)
+            wrapper = resource_wrapper(ProtocolUpdateResource, self)
             return wrapper(func_or_resource)
         else:
             return self.__class__(**kwargs)
