@@ -27,11 +27,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# TODO The "Resource" object in this file is no longer 1:1 with a logical
+# resource, because one "Resource" could be responsible for generating multiple
+# "resources".  We might want to rename this to something like "Provider" or
+# "Rule".
+
 class ResourceAttributes(object):
     def __init__(
-            self, name, protocol=None, code_version=None, should_persist=None):
-        self.name = name
-        self.protocol = protocol
+            self, names, protocols=None, code_version=None, should_persist=None):
+        self.names = names
+        self.protocols = protocols
         self.code_version = code_version
         self.should_persist = None
 
@@ -65,8 +70,16 @@ class BaseResource(object):
         else:
             return self
 
+    def protocol_for_name(self, name):
+        name_ix = self.attrs.names.index(name)
+        if name_ix < 0:
+            raise ValueError(
+                "Attempted to look up name %r from resource providing only %r"
+                % (name, tuple(self.attrs.names)))
+        return self.attrs.protocols[name_ix]
+
     def __repr__(self):
-        return '%s(%r))' % (self.__class__.__name__, self.attrs.name)
+        return '%s%r)' % (self.__class__.__name__, tuple(self.attrs.names))
 
 
 class WrappingResource(BaseResource):
@@ -113,6 +126,122 @@ class AttrUpdateResource(WrappingResource):
         setattr(self.attrs, attr_name, attr_value)
 
 
+class ProtocolUpdateResource(WrappingResource):
+    def __init__(self, wrapped_resource, protocol=None, protools=None):
+
+        super(ProtocolUpdateResource, self).__init__(wrapped_resource)
+
+        protocols = [protocol for name in self.wrapped_resource.attrs.names]
+
+        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs.protocols = protocols
+
+
+class MultiProtocolUpdateResource(WrappingResource):
+    def __init__(self, wrapped_resource, protocols=None):
+
+        super(MultiProtocolUpdateResource, self).__init__(wrapped_resource)
+
+        names = wrapped_resource.attrs.names
+        if len(protocols) != len(names):
+            raise ValueError(
+                "Number of protocols must match the number of names; got "
+                "%d names %r and %d protocols %r" % (
+                    len(names), tuple(names), len(protocols),
+                    tuple(protocols)))
+        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs.protocols = protocols
+
+
+class RenamingResource(WrappingResource):
+    def __init__(self, wrapped_resource, name):
+
+        super(RenamingResource, self).__init__(wrapped_resource)
+
+        orig_names = wrapped_resource.attrs.names
+        if len(orig_names) != 1:
+            raise ValueError(
+                "Can't change rename a resource that already has multiple "
+                "names; need exactly one name but got %r" % (
+                    tuple(orig_names),))
+
+        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs.names = [name]
+
+    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+        name, = self.attrs.names
+
+        def wrap_task(task):
+            task_key, = task.keys
+            return Task(
+                keys=[
+                    TaskKey(
+                        resource_name=name,
+                        case_key=task_key.case_key
+                    )
+                ],
+                dep_keys=task.dep_keys,
+                compute_func=task.compute,
+            )
+
+        inner_tasks = self.wrapped_resource.get_tasks(
+            dep_key_spaces_by_name, dep_task_key_lists_by_name)
+        return [wrap_task(task) for task in inner_tasks]
+
+
+class NameSplittingResource(WrappingResource):
+    def __init__(self, wrapped_resource, names=None):
+
+        super(NameSplittingResource, self).__init__(wrapped_resource)
+
+        orig_names = wrapped_resource.attrs.names
+        if len(orig_names) != 1:
+            raise ValueError(
+                "Can't change a resource's number of names multiple times; "
+                "need exactly one name but got %r" % (tuple(orig_names),))
+
+        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs.names = names
+        if self.attrs.protocols is not None:
+            protocol, = self.attrs.protocols
+            self.attrs.protocols = [protocol for name in names]
+
+    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+        inner_tasks = self.wrapped_resource.get_tasks(
+            dep_key_spaces_by_name, dep_task_key_lists_by_name)
+
+        def wrap_task(task):
+            assert len(task.keys) == 1
+            task_key, = task.keys
+
+            def wrapped_compute_func(dep_values):
+                value_seq, = task.compute(dep_values)
+
+                if len(value_seq) != len(self.attrs.names):
+                    raise ValueError(
+                        "Expected resource %r to return %d outputs named %r; "
+                        "got %d outputs %r" % (
+                            self.wrapped_resource.attrs.names[0],
+                            len(self.attrs.names), self.attrs.names,
+                            tuple(value_seq)))
+
+                return tuple(value_seq)
+
+            return Task(
+                keys=[
+                    TaskKey(
+                        resource_name=name,
+                        case_key=task_key.case_key,
+                    )
+                    for name in self.attrs.names
+                ],
+                dep_keys=task.dep_keys,
+                compute_func=wrapped_compute_func,
+            )
+
+        return [wrap_task(task) for task in inner_tasks]
+
+
 class VersionedResource(WrappingResource):
     def __init__(self, wrapped_resource, version):
         assert wrapped_resource.attrs.code_version is None
@@ -127,14 +256,17 @@ class ValueResource(BaseResource):
     def __init__(self, name, protocol):
         super(ValueResource, self).__init__(
             attrs=ResourceAttributes(
-                name=name, protocol=protocol, should_persist=False),
+                names=[name], protocols=[protocol], should_persist=False),
             is_mutable=True,
         )
+
+        self.name = name
+        self.protocol = protocol
 
         self.clear_cases()
 
     def copy(self):
-        resource = ValueResource(self.attrs.name, self.attrs.protocol)
+        resource = ValueResource(self.name, self.protocol)
         resource.key_space = self.key_space
         resource._has_any_values = self._has_any_values
         resource._values_by_case_key = self._values_by_case_key.copy()
@@ -148,21 +280,21 @@ class ValueResource(BaseResource):
         self._code_ids_by_key = {}
 
     def check_can_add_case(self, case_key, value):
-        self.attrs.protocol.validate(value)
+        self.protocol.validate(value)
 
         if self._has_any_values:
             if case_key.space != self.key_space:
                 raise ValueError(
                     "Can't add %r to resource %r: key space doesn't match %r" %
-                    (case_key, self.attrs.name, self.key_space))
+                    (case_key, self.name, self.key_space))
 
             if case_key in self._values_by_case_key:
                 raise ValueError(
                     "Can't add %r to resource %r; that case key already exists"
-                    % (case_key, self.attrs.name))
+                    % (case_key, self.name))
 
     def add_case(self, case_key, value):
-        code_id = self.attrs.protocol.tokenize(value)
+        code_id = self.protocol.tokenize(value)
 
         if not self._has_any_values:
             self.key_space = case_key.space
@@ -187,10 +319,7 @@ class ValueResource(BaseResource):
 
         return [
             Task(
-                key=TaskKey(
-                    resource_name=self.attrs.name,
-                    case_key=case_key,
-                ),
+                keys=[TaskKey(self.name, case_key)],
                 dep_keys=[],
                 compute_func=functools.partial(
                     self._compute,
@@ -200,16 +329,18 @@ class ValueResource(BaseResource):
             for case_key in self._values_by_case_key.keys()
         ]
 
-    def _compute(self, query, dep_values, case_key):
-        return self._values_by_case_key[case_key]
+    def _compute(self, dep_values, case_key):
+        return [self._values_by_case_key[case_key]]
 
 
 class FunctionResource(BaseResource):
     def __init__(self, func):
+        name = func.__name__
         super(FunctionResource, self).__init__(attrs=ResourceAttributes(
-            name=func.__name__))
+            names=[name]))
 
         self._func = func
+        self.name = name
 
         if six.PY2:
             argspec = inspect.getargspec(func)
@@ -249,7 +380,7 @@ class FunctionResource(BaseResource):
 
         return [
             Task(
-                key=TaskKey(self.attrs.name, case_key),
+                keys=[TaskKey(self.name, case_key)],
                 dep_keys=[
                     TaskKey(
                         dep_name,
@@ -262,10 +393,9 @@ class FunctionResource(BaseResource):
             for case_key in out_case_keys
         ]
 
-    def _apply(self, query, dep_values):
+    def _apply(self, dep_values):
         value = self._func(*dep_values)
-        query.protocol.validate(value)
-        return value
+        return [value]
 
     def __repr__(self):
         return '%s(%s)' % (self.__class__.__name__, self._func)
@@ -416,7 +546,7 @@ class GatherResource(WrappingResource):
             # synthesizing it ourselves).
             wrapped_dep_keys = prepended_keys + passthrough_dep_keys
 
-            def wrapped_compute_func(query, dep_values):
+            def wrapped_compute_func(dep_values):
                 # Split off the extra values for the keys we prepended.
                 prepended_values = dep_values[:len(prepended_keys)]
                 passthrough_values = dep_values[len(prepended_keys):]
@@ -441,14 +571,14 @@ class GatherResource(WrappingResource):
                 inner_dep_values = passthrough_values
                 inner_dep_values.insert(gather_task_key_ix, gathered_df)
 
-                return task.compute(query, inner_dep_values)
+                return task.compute(inner_dep_values)
 
             # NOTE This Task object will not be picklable, because its
             # compute_func is a nested function.  If we ever want to send Tasks
             # over the network, we need to either use dill or refactor this
             # code.
             return Task(
-                key=task.key,
+                keys=task.keys,
                 dep_keys=wrapped_dep_keys,
                 compute_func=wrapped_compute_func,
             )
@@ -542,8 +672,7 @@ class PyplotResource(WrappingResource):
         inner_tasks = self.wrapped_resource.get_tasks(inner_dkss, inner_dtkls)
 
         def wrap_task(task):
-            def wrapped_compute_func(query, dep_values):
-                # Make sure matplotlib is set up.
+            def wrapped_compute_func(dep_values):
                 init_matplotlib()
                 from matplotlib import pyplot as plt
 
@@ -557,11 +686,12 @@ class PyplotResource(WrappingResource):
                 plt.figure()
 
                 # Run the task, which will do the plotting.
-                value = task.compute(query, inner_dep_values)
-                if value is not None:
+                values = task.compute(inner_dep_values)
+                if values != [None]:
                     raise ValueError(
                         "Resources wrapped by %s should not return values; "
-                        "got value %r" % (self.__class__.__name__, value))
+                        "got values %r" % (
+                            self.__class__.__name__, tuple(values)))
 
                 # Save the plot into a buffer.
                 bio = BytesIO()
@@ -573,10 +703,10 @@ class PyplotResource(WrappingResource):
                 # Load the buffer into an Image object.
                 image = Image.open(bio)
 
-                return image
+                return [image]
 
             return Task(
-                key=task.key,
+                keys=task.keys,
                 dep_keys=[
                     dep_key
                     for dep_key in task.dep_keys

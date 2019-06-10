@@ -22,7 +22,7 @@ from .resource import ValueResource, multi_index_from_case_keys, as_resource
 from .resolver import ResourceResolver
 from . import decorators
 from .util import group_pairs, check_exactly_one_present
-from .dagviz import render_dag_tiers
+from . import dagviz
 
 import logging
 logger = logging.getLogger(__name__)
@@ -86,10 +86,11 @@ class FlowState(pyrs.PClass):
         resource = ValueResource(name, protocol)
         return self._set_resource(resource).touch()
 
-    def update_resource(self, resource, create_if_not_set=False):
-        name = resource.attrs.name
-        if name not in self.resources_by_name and not create_if_not_set:
-            raise ValueError("Resource %r doesn't exist" % name)
+    def install_resource(self, resource, create_if_not_set=False):
+        for name in resource.attrs.names:
+            if name in self.resources_by_name:
+                raise ValueError("Resource %r already exists" % name)
+
         return self._set_resource(resource).touch()
 
     def add_case(self, name, case_key, value):
@@ -104,10 +105,35 @@ class FlowState(pyrs.PClass):
     def clear_resources(self, names):
         state = self
 
+        # Remember the original protocol for each resource.
+        protocols_by_resource_name = {}
         for name in names:
             if not state.has_resource(name):
                 continue
             resource = self.get_resource(name)
+            for res_name, res_protocol in zip(
+                    resource.attrs.names, resource.attrs.protocols):
+                protocols_by_resource_name[res_name] = res_protocol
+
+        # Delete the resources (or fail if not possible).
+        state = state.delete_resources(names)
+
+        # Recreate an empty version of each resource.
+        for res_name, res_protocol in protocols_by_resource_name.items():
+            state = state.create_resource(res_name, res_protocol)
+
+        return state.touch()
+
+        # TODO Consider checking downstream resources too.
+
+    def delete_resources(self, names):
+        state = self
+
+        for name in names:
+            # Make sure the name is safe to delete.
+            if not state.has_resource(name):
+                continue
+            resource = state.get_resource(name)
 
             if isinstance(resource, ValueResource):
                 for related_name in resource.key_space:
@@ -117,28 +143,26 @@ class FlowState(pyrs.PClass):
                             "removing resources %r" % (
                                 name, list(resource.key_space)))
 
-            state = state._delete_resource(name)
-            state = state.create_resource(name, resource.attrs.protocol)
+            resource_names = resource.attrs.names
+            for related_name in resource_names:
+                if related_name not in names:
+                    raise ValueError(
+                        "Can't remove cases for resource %r without also "
+                        "removing resources %r" % (
+                            name, list(resource_names)))
 
-        return state.touch()
-
-        # TODO Consider checking downstream resources too.
-
-    def delete_resources(self, names):
-        state = self
-        state = state.clear_resources(names)
-        for name in names:
-            state = state._delete_resource(name)
+            # Delete it.
+            state = state.set(
+                resources_by_name=state.resources_by_name.remove(name))
 
         return state.touch()
 
     def _set_resource(self, resource):
-        name = resource.attrs.name
-        return self.set(
-            resources_by_name=self.resources_by_name.set(name, resource))
-
-    def _delete_resource(self, name):
-        return self.set(resources_by_name=self.resources_by_name.remove(name))
+        state = self
+        for name in resource.attrs.names:
+            state = state.set(
+                resources_by_name=state.resources_by_name.set(name, resource))
+        return state
 
 
 class FlowBuilder(object):
@@ -208,7 +232,9 @@ class FlowBuilder(object):
 
         state = state.clear_resources([name])
         resource = state.get_resource(name)
-        protocol = resource.attrs.protocol
+        # This resource must have a single name and single protocol; otherwise
+        # we wouldn't have been able to clear it.
+        protocol, = resource.attrs.protocols
 
         protocol.validate(value)
 
@@ -232,7 +258,11 @@ class FlowBuilder(object):
         case_nvt_tuples = []
         for name, value in name_value_pairs:
             resource = state.get_resource(name)
-            protocol = resource.attrs.protocol
+            if len(resource.attrs.protocols) > 1:
+                raise ValueError(
+                    "Can't add case for resource with multiple names %r" % (
+                        (tuple(resource.attr.names),)))
+            protocol, = resource.attrs.protocols
             protocol.validate(value)
             token = protocol.tokenize(value)
 
@@ -258,13 +288,17 @@ class FlowBuilder(object):
 
     def derive(self, func_or_resource):
         resource = as_resource(func_or_resource)
-        if resource.attrs.protocol is None:
+        if resource.attrs.protocols is None:
             resource = DEFAULT_PROTOCOL(resource)
         if resource.attrs.should_persist is None:
             resource = decorators.persist(True)(resource)
 
-        self._state = self._state.update_resource(
-            resource, create_if_not_set=True)
+        state = self._state
+
+        state = state.delete_resources(resource.attrs.names)
+        state = state.install_resource(resource)
+
+        self._state = state
 
         return resource.get_source_func()
 
@@ -326,7 +360,7 @@ class Flow(object):
         ]
 
     def resource_protocol(self, name):
-        return self._state.get_resource(name).attrs.protocol
+        return self._state.get_resource(name).protocol_for_name(name)
 
     def to_builder(self):
         return FlowBuilder._from_state(self._state)
@@ -379,40 +413,10 @@ class Flow(object):
         return self.get('core__flow_name')
 
     def plot_dag(self, figsize=None):
-        names_by_task_key = {}
-        clusters_by_node = {}
-        for resource_name, tasks in (
-                self._resolver._task_lists_by_resource_name.items()):
-            if self._resource_is_core(resource_name):
-                continue
+        return dagviz.visualize_dag_matplotlib(self, figsize=figsize)
 
-            if len(tasks) == 1:
-                name_template = '{resource_name}'
-            else:
-                name_template = '{resource_name}[{ix}]'
-
-            for ix, task in enumerate(tasks):
-                name = name_template.format(resource_name=resource_name, ix=ix)
-                names_by_task_key[task.key] = name
-                clusters_by_node[name] = resource_name
-
-        child_lists_by_parent = {}
-        for state in self._resolver._task_states_by_key.values():
-            if self._resource_is_core(state.task.key.resource_name):
-                continue
-            name = names_by_task_key[state.task.key]
-
-            child_names = list()
-            for child_state in state.children:
-                child_name = names_by_task_key[child_state.task.key]
-                if self._resource_is_core(child_name):
-                    continue
-                child_names.append(child_name)
-
-            child_lists_by_parent[name] = child_names
-
-        return render_dag_tiers(
-            child_lists_by_parent, clusters_by_node, figsize)
+    def graphviz_dag(self):
+        return dagviz.visualize_dag_graphviz(self)
 
     # TODO Should we offer an in-place version of this?  It's contrary to the
     # idea of an immutable API, but it might be more natural for the user, and

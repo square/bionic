@@ -1,8 +1,7 @@
-from builtins import str
 from builtins import object
 import math
 
-from helpers import count_calls
+from helpers import count_calls, RoundingProtocol
 
 import bionic as bn
 
@@ -190,16 +189,6 @@ def test_versioning(builder):
 
 
 def test_all_returned_results_are_deserialized(builder):
-    class RoundingProtocol(bn.protocols.BaseProtocol):
-        def get_fixed_file_extension(self):
-            return 'round'
-
-        def write(self, value, file_):
-            file_.write(str(round(value)).encode('utf-8'))
-
-        def read(self, file_, extension):
-            return float(file_.read())
-
     @builder
     @RoundingProtocol()
     @count_calls

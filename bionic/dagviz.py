@@ -3,6 +3,64 @@ from collections import defaultdict
 import pandas as pd
 
 
+def visualize_dag_graphviz(dag):
+    import networkx as nx
+
+    child_lists_by_parent, _ = structure(dag)
+    G = nx.DiGraph()
+    G.add_edges_from([
+        (parent, child)
+        for parent, children in child_lists_by_parent.items()
+        for child in children
+    ])
+    return nx.drawing.nx_pydot.to_pydot(G)
+
+
+def visualize_dag_matplotlib(dag, figsize=None):
+    child_lists_by_parent, clusters_by_node = structure(dag)
+    return render_dag_tiers(child_lists_by_parent, clusters_by_node, figsize)
+
+
+def structure(flow):
+    names_by_task_key = {}
+    clusters_by_node = {}
+    flow._resolver.get_ready()
+    for resource_name, tasks in (
+            flow._resolver._task_lists_by_resource_name.items()):
+        if flow._resource_is_core(resource_name):
+            continue
+
+        if len(tasks) == 1:
+            name_template = '{resource_name}'
+        else:
+            name_template = '{resource_name}[{ix}]'
+
+        for ix, task in enumerate(tasks):
+            name = name_template.format(resource_name=resource_name, ix=ix)
+            task_key = task.key_for_resource_name(resource_name)
+            names_by_task_key[task_key] = name
+            clusters_by_node[name] = resource_name
+
+    child_lists_by_parent = {}
+    for state in flow._resolver._task_states_by_key.values():
+        for task_key in state.task.keys:
+            if flow._resource_is_core(task_key.resource_name):
+                continue
+
+            name = names_by_task_key[task_key]
+
+            child_names = list()
+            for child_state in state.children:
+                for child_task_key in child_state.task.keys:
+                    child_name = names_by_task_key[child_task_key]
+                    if flow._resource_is_core(child_name):
+                        continue
+                    child_names.append(child_name)
+
+            child_lists_by_parent[name] = child_names
+    return child_lists_by_parent, clusters_by_node
+
+
 def toposorted(parent_lists_by_child):
     '''
     Topologically sort the nodes in a DAG.  If the DAG is passed as a map from
