@@ -23,7 +23,9 @@ requirements = [
     'jupyterlab',
     'ipdb',
     'Cython',
-    'networkx'
+    'networkx',
+    'pydot',
+    'hsluv',
 ]
 
 extras_require = {
