@@ -356,7 +356,7 @@ class Flow(object):
         return [
             name
             for name in self._state.resources_by_name.keys()
-            if include_core or not self._resource_is_core(name)
+            if include_core or not self._resolver.resource_is_core(name)
         ]
 
     def resource_protocol(self, name):
@@ -412,11 +412,11 @@ class Flow(object):
     def name(self):
         return self.get('core__flow_name')
 
-    def plot_dag(self, figsize=None):
-        return dagviz.visualize_dag_matplotlib(self, figsize=figsize)
-
-    def graphviz_dag(self):
-        return dagviz.visualize_dag_graphviz(self)
+    def render_dag(self, include_core=False, vertical=False, curvy_lines=False):
+        graph = self._resolver.export_dag(include_core)
+        dot = dagviz.dot_from_graph(graph, vertical, curvy_lines)
+        image = dagviz.image_from_dot(dot)
+        return image
 
     # TODO Should we offer an in-place version of this?  It's contrary to the
     # idea of an immutable API, but it might be more natural for the user, and
@@ -530,9 +530,6 @@ class Flow(object):
         builder = FlowBuilder._from_state(self._state)
         builder_update_func(builder)
         return Flow._from_state(builder._state)
-
-    def _resource_is_core(self, resource_name):
-        return resource_name.startswith('core__')
 
 
 class ShortcutProxy(object):

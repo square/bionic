@@ -70,13 +70,11 @@ if __name__ == '__main__':
     from pathlib2 import Path
 
     bn.util.init_basic_logging()
-    bn.util.init_matplotlib()
 
     dag_path = Path('example_output')
     if not dag_path.exists():
         dag_path.mkdir()
-    fig = flow.plot_dag()
-    fig.savefig(str(dag_path / 'dag_test.png'))
+    fig = flow.render_dag().save(str(dag_path / 'dag_test.png'))
 
     flow.get('pr_plot')
     with pd.option_context("display.max_rows", 10):

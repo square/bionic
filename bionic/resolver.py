@@ -47,6 +47,65 @@ class ResourceResolver(object):
         self.get_ready()
         return self._compute_result_group_for_resource_name(resource_name)
 
+    def export_dag(self, include_core=False):
+        '''
+        Constructs a NetworkX graph corresponding to the DAG of tasks.  There
+        is one node per task key -- i.e., for each artifact that can be created
+        (uniquely defined by a resource name and a case key); and one edge from
+        each task key to each key that depends on it.  Each node is represented
+        by a TaskKey, and also has the following attributes:
+
+            name: a short, unique, human-readable identifier
+            resource_name: the name of the resource for this task key
+            case_key: the case key for this task key
+            task_ix: the task key's index in the ordered series of case keys
+                     for its resource
+        '''
+        import networkx as nx
+
+        def include_resource_name(name):
+            return include_core or not self.resource_is_core(resource_name)
+
+        self.get_ready()
+
+        graph = nx.DiGraph()
+
+        for resource_name, tasks in (
+                self._task_lists_by_resource_name.items()):
+            if not include_resource_name(resource_name):
+                continue
+
+            if len(tasks) == 1:
+                name_template = '{resource_name}'
+            else:
+                name_template = '{resource_name}[{task_ix}]'
+
+            for task_ix, task in enumerate(sorted(
+                    tasks, key=lambda task: task.keys[0].case_key)):
+                task_key = task.key_for_resource_name(resource_name)
+                state = self._task_states_by_key[task_key]
+
+                node_name = name_template.format(
+                    resource_name=resource_name, task_ix=task_ix)
+
+                graph.add_node(
+                    task_key,
+                    name=node_name,
+                    resource_name=resource_name,
+                    case_key=task_key.case_key,
+                    task_ix=task_ix,
+                )
+
+                for child_state in state.children:
+                    for child_task_key in child_state.task.keys:
+                        if include_resource_name(child_task_key.resource_name):
+                            graph.add_edge(task_key, child_task_key)
+
+        return graph
+
+    def resource_is_core(self, resource_name):
+        return resource_name.startswith('core__')
+
     # --- Private helpers.
 
     def _get_ready_for_full_resolution(self):
