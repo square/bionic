@@ -6,10 +6,12 @@ from __future__ import absolute_import
 
 from builtins import object
 import os
+import shutil
 import functools
 
 import pyrsistent as pyrs
 import pandas as pd
+from pathlib2 import Path
 from six.moves import reload_module
 
 
@@ -394,6 +396,49 @@ class Flow(object):
             )
         else:
             raise ValueError("Unrecognized format %r" % fmt)
+
+    def export(self, name, file_path=None, dir_path=None):
+        '''
+        Provides access to the persisted file corresponding to a resource.  Can
+        be called in three ways:
+
+            export(name): returns a path the cached file
+            export(name, file_path=path): copies the cached file to the
+                specified path
+            export(name, dir_path=path): copies the cached file to the
+                specified directory
+
+        The resource must be persisted and have only one instance.
+        '''
+        result_group = self._resolver.resolve(name)
+        if len(result_group) != 1:
+            raise ValueError(
+                "Can only export a resource if it has a single value; "
+                "resource %r has %d values" % (name, len(result_group)))
+
+        result, = result_group
+        if result.cache_path is None:
+            raise ValueError("Resource %r is not persisted" % name)
+
+        src_file_path = result.cache_path
+
+        if dir_path is None and file_path is None:
+            return src_file_path
+
+        check_exactly_one_present(dir_path=dir_path, file_path=file_path)
+
+        if dir_path is not None:
+            dst_dir_path = Path(dir_path)
+            filename = name + src_file_path.suffix
+            dst_file_path = dst_dir_path / filename
+        else:
+            dst_file_path = Path(file_path)
+            dst_dir_path = dst_file_path.parent
+
+        if not dst_dir_path.exists():
+            dst_dir_path.mkdir(parents=True)
+
+        shutil.copyfile(str(src_file_path), str(dst_file_path))
 
     def setting(self, name, value=None, values=None):
         return self._updating(lambda builder: builder.set(name, value, values))

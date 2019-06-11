@@ -107,6 +107,7 @@ class PersistentCache(object):
         return Result(
             query=query,
             value=value,
+            cache_path=self._entry_for_query(query).existing_value_path(),
         )
 
     def _query_is_cached(self, query):
