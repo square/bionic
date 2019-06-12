@@ -98,8 +98,12 @@ class ResourceResolver(object):
 
                 for child_state in state.children:
                     for child_task_key in child_state.task.keys:
-                        if include_resource_name(child_task_key.resource_name):
-                            graph.add_edge(task_key, child_task_key)
+                        if not include_resource_name(
+                                child_task_key.resource_name):
+                            continue
+                        if task_key not in child_state.task.dep_keys:
+                            continue
+                        graph.add_edge(task_key, child_task_key)
 
         return graph
 
