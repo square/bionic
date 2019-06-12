@@ -69,9 +69,10 @@ class Result(object):
     '''
     Represents one value for one resource.
     '''
-    def __init__(self, query, value):
+    def __init__(self, query, value, cache_path=None):
         self.query = query
         self.value = value
+        self.cache_path = cache_path
 
     def __repr__(self):
         return 'Result(%r, %r)' % (self.query, self.value)
