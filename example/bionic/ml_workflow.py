@@ -58,10 +58,16 @@ def pr_df(model, test_df):
 
 
 @builder
+@bn.gather('hyperparams_dict', 'pr_df')
 @bn.pyplot('plt')
-def pr_plot(pr_df, plt):
+def all_hp_pr_plot(gather_df, plt):
     ax = plt.subplot()
-    pr_df.plot(x='recall', y='precision', ax=ax)
+    for row in gather_df.itertuples():
+        label = ', '.join(
+            '%s=%s' % key_value
+            for key_value in row.hyperparams_dict.items()
+        )
+        row.pr_df.plot(x='recall', y='precision', label=label, ax=ax)
 
 
 flow = builder.build()
@@ -70,14 +76,12 @@ if __name__ == '__main__':
     from pathlib2 import Path
 
     bn.util.init_basic_logging()
-    bn.util.init_matplotlib()
 
     dag_path = Path('example_output')
     if not dag_path.exists():
         dag_path.mkdir()
-    fig = flow.plot_dag()
-    fig.savefig(str(dag_path / 'dag_test.png'))
+    fig = flow.render_dag().save(str(dag_path / 'dag_test.png'))
 
-    flow.get('pr_plot')
+    flow.get('all_hp_pr_plot')
     with pd.option_context("display.max_rows", 10):
         print(flow.get('pr_df'))
