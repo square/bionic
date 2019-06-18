@@ -112,6 +112,11 @@ class BaseProtocol(object):
 
 
 class PicklableProtocol(BaseProtocol):
+    """
+    Decorator indicating that a resource's values can be serialized using the
+    ``pickle`` library.
+    """
+
     def get_fixed_file_extension(self):
         return 'pkl'
 
@@ -123,6 +128,13 @@ class PicklableProtocol(BaseProtocol):
 
 
 class DillableProtocol(BaseProtocol):
+    """
+    Decorator indicating that a resource's values can be serialized using the
+    ``dill`` library.
+
+    This is useful for objects that can't be pickled for some reason.
+    """
+
     def get_fixed_file_extension(self):
         return 'dill'
 
@@ -144,6 +156,13 @@ class DillableProtocol(BaseProtocol):
 
 
 class DataFrameProtocol(BaseProtocol):
+    """
+    Decorator indicating that a resource's values always have the
+    ``pandas.DataFrame`` type.
+
+    These values will be serialized to Parquet files.
+    """
+
     def get_fixed_file_extension(self):
         return 'pq'
 
@@ -158,6 +177,13 @@ class DataFrameProtocol(BaseProtocol):
 
 
 class ImageProtocol(BaseProtocol):
+    """
+    Decorator indicating that a resource's values always have the
+    ``Pillow.Imag`` type.
+
+    These values will be serialized to PNG files.
+    """
+
     def get_fixed_file_extension(self):
         return 'png'
 
@@ -176,6 +202,24 @@ class ImageProtocol(BaseProtocol):
 
 
 class CombinedProtocol(BaseProtocol):
+    """
+    Decorator generator indicating that a resource's values should be handled
+    differently depending on their types.
+
+    This protocol combines multiple protocols, and handles each value according
+    to the first protocol that supports it.
+
+    Parameters
+    ----------
+    subprotocols: Sequence of Protocols
+        An ordered sequence of protocols to try for each value.
+
+    Returns
+    -------
+    Function:
+        A resource decorator.
+    """
+
     def __init__(self, *subprotocols):
         super(CombinedProtocol, self).__init__()
 
@@ -219,6 +263,20 @@ class CombinedProtocol(BaseProtocol):
 
 
 class TypeProtocol(PicklableProtocol):
+    """
+    Indicates that a resource's values will always have a specific type.
+
+    Parameters
+    ----------
+    type_: Type
+        The expected type for this resource.
+
+    Returns
+    -------
+    Function:
+        A resource decorator.
+    """
+
     def __init__(self, type_):
         super(TypeProtocol, self).__init__()
 
@@ -232,6 +290,20 @@ class TypeProtocol(PicklableProtocol):
 
 
 class EnumProtocol(PicklableProtocol):
+    """
+    Indicates that a resource will only have one of a specific set of values.
+
+    Parameters
+    ----------
+    allowed_values: Sequence of objects
+        The expected possible values for this resource.
+
+    Returns
+    -------
+    Function:
+        A resource decorator.
+    """
+
     def __init__(self, *allowed_values):
         super(EnumProtocol, self).__init__()
 

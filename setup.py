@@ -29,7 +29,11 @@ requirements = [
 ]
 
 extras_require = {
-    'dev': ['pytest', 'flake8']
+    'dev': [
+        'pytest', 'flake8',
+        'sphinx', 'sphinx_rtd_theme', 'sphinx-autobuild', 'nbsphinx',
+        'bumpversion',
+    ]
 }
 
 setup(
