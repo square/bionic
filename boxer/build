@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+export OUTPUT=/tmp/build
+
+curl -o $OUTPUT 'https://git.sqcorp.co/projects/PY/repos/nexus/raw/nexus-upload-kochiku.sh?at=refs%2Fheads%2Fmaster'
+chmod 755 $OUTPUT
+exec $OUTPUT
