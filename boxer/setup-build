@@ -1,0 +1,8 @@
+#!/bin/bash -ex
+
+sudo yum -y install python-pip
+
+OUTPUT=/tmp/setup-build
+curl -o $OUTPUT 'https://stash.corp.squareup.com/projects/CLOUD/repos/gcp-buildpack/browse/files/setup-build.source?at=green&raw'
+chmod 755 $OUTPUT
+exec $OUTPUT

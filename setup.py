@@ -33,7 +33,7 @@ extras_require = {
 }
 
 setup(
-    name='workflows',
+    name='bionic',
     version='0.1.0',
     description='prototype',
     long_description=readme,
@@ -44,7 +44,7 @@ setup(
     install_requires=requirements,
     extras_require=extras_require,
     zip_safe=False,
-    keywords='workflows',
+    keywords='bionic',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',
