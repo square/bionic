@@ -142,6 +142,7 @@ class CaseKey(ImmutableMapping):
         super(CaseKey, self).__init__(tokens_by_name)
         self._nvt_triples = name_value_token_triples
         self.values = values_by_name
+        self.tokens = tokens_by_name
         self.space = CaseKeySpace(list(values_by_name.keys()))
 
     def project(self, key_space):

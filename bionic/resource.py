@@ -731,6 +731,9 @@ class PyplotResource(WrappingResource):
         return outer_tasks
 
 
+# -- Helpers for managing case keys.
+
+
 def merge_case_key_lists(case_key_lists):
     merged_case_keys = [CaseKey([])]
     merged_key_space = CaseKeySpace()
@@ -770,11 +773,42 @@ def merge_case_key_lists(case_key_lists):
     return merged_case_keys
 
 
+class HashableWrapper(object):
+    '''
+    Wraps an arbitrary object along with a hashable token.
+
+    Can be used as a hash key even if the wrapped object can't.
+    '''
+    def __init__(self, value, token):
+        self._value = value
+        self._token = str(token)
+
+    def get(self):
+        return self._value
+
+    def __hash__(self):
+        return hash(self._token)
+
+    def __eq__(self, other):
+        if not isinstance(other, HashableWrapper):
+            return False
+        return self._token == other._token
+
+    def __str__(self):
+        return 'W(%s)' % self._value
+
+    def __repr__(self):
+        return 'HashableWrapper(%r)' % self._value
+
+
 def multi_index_from_case_keys(case_keys, ordered_key_names):
     assert len(ordered_key_names) > 0
     return pd.MultiIndex.from_tuples(
         tuples=[
-            tuple(case_key.values[name] for name in ordered_key_names)
+            tuple(
+                HashableWrapper(case_key.values[name], case_key.tokens[name])
+                for name in ordered_key_names
+            )
             for case_key in case_keys
         ],
         names=ordered_key_names,
