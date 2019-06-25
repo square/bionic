@@ -639,8 +639,7 @@ class PyplotResource(WrappingResource):
         self._pyplot_name = name
 
         inner_dep_names = wrapped_resource.get_dependency_names()
-        self._pyplot_dep_ix = inner_dep_names.index(self._pyplot_name)
-        if self._pyplot_dep_ix == -1:
+        if self._pyplot_name not in inner_dep_names:
             raise ValueError(
                 "When using %s, expected wrapped %s to have a dependency "
                 "named %r; only found %r" % (
@@ -652,6 +651,13 @@ class PyplotResource(WrappingResource):
 
     def get_dependency_names(self):
         return self._outer_dep_names
+
+    def get_key_space(self, dep_key_spaces_by_name):
+        outer_dkss = dep_key_spaces_by_name
+        inner_dkss = outer_dkss.copy()
+        inner_dkss[self._pyplot_name] = CaseKey([])
+
+        return self.wrapped_resource.get_key_space(inner_dkss)
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
         outer_dkss = dep_key_spaces_by_name
@@ -672,6 +678,16 @@ class PyplotResource(WrappingResource):
         inner_tasks = self.wrapped_resource.get_tasks(inner_dkss, inner_dtkls)
 
         def wrap_task(task):
+            inner_dep_keys = task.dep_keys
+            pyplot_dep_ix, = [
+                ix
+                for ix, dep_key in enumerate(inner_dep_keys)
+                if dep_key.resource_name == self._pyplot_name
+            ]
+
+            outer_dep_keys = list(inner_dep_keys)
+            outer_dep_keys.pop(pyplot_dep_ix)
+
             def wrapped_compute_func(dep_values):
                 init_matplotlib()
                 from matplotlib import pyplot as plt
@@ -679,7 +695,7 @@ class PyplotResource(WrappingResource):
                 outer_dep_values = dep_values
 
                 inner_dep_values = list(outer_dep_values)
-                inner_dep_values.insert(self._pyplot_dep_ix, plt)
+                inner_dep_values.insert(pyplot_dep_ix, plt)
 
                 # Create a new figure so our task has a blank canvas to work
                 # with.
@@ -707,11 +723,7 @@ class PyplotResource(WrappingResource):
 
             return Task(
                 keys=task.keys,
-                dep_keys=[
-                    dep_key
-                    for dep_key in task.dep_keys
-                    if dep_key.resource_name != self._pyplot_name
-                ],
+                dep_keys=outer_dep_keys,
                 compute_func=wrapped_compute_func,
             )
 
