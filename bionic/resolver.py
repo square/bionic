@@ -214,18 +214,27 @@ class ResourceResolver(object):
 
         blocked_task_key_tuples = set()
 
+        logged_task_keys = set()
+
         while ready_task_states:
             state = ready_task_states.pop()
 
             if state.is_complete():
                 for task_key in state.task.keys:
-                    loggable_str = self._loggable_str_for_task_key(task_key)
-                    self._log(
-                        'Accessed  %s from in-memory cache', loggable_str)
+                    if task_key not in logged_task_keys:
+                        loggable_str = self._loggable_str_for_task_key(
+                            task_key)
+                        self._log(
+                            'Accessed  %s from in-memory cache', loggable_str)
+                        logged_task_keys.add(task_key)
                 continue
 
             if not state.is_blocked():
                 self._compute_task_state(state)
+
+                for task_key in state.task.keys:
+                    logged_task_keys.add(task_key)
+
                 for child_state in state.children:
                     if child_state.task.keys in blocked_task_key_tuples and\
                             not child_state.is_blocked():
