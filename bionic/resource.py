@@ -325,6 +325,7 @@ class ValueResource(BaseResource):
                     self._compute,
                     case_key=case_key,
                 ),
+                is_simple_lookup=True,
             )
             for case_key in self._values_by_case_key.keys()
         ]
