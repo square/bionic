@@ -309,14 +309,16 @@ def test_get_formats(preset_flow):
         # This is a convoluted way of accessing the index, but I don't want
         # the test to be sensitive to whether we output a regular index or a
         # MultiIndex.
-        z_series_index_df = z_series.index.to_frame()
+        z_series_index_df = z_series.index.to_frame()\
+            .applymap(lambda x: x.get())
         assert list(z_series_index_df.columns) == ['z']
         assert list(z_series_index_df['z']) == [2, 3]
 
         p_series = flow.get('p', fmt)
         assert list(p_series) == [4]
         assert p_series.name == 'p'
-        p_series_index_df = p_series.index.to_frame()
+        p_series_index_df = p_series.index.to_frame()\
+            .applymap(lambda x: x.get())
         assert list(sorted(p_series_index_df.columns)) == ['p', 'q']
         assert list(p_series_index_df['p']) == [4]
         assert list(p_series_index_df['q']) == [5]
@@ -465,3 +467,17 @@ def test_shortcuts(builder):
 
     assert flow.get.x() == 1
     assert flow.setting.x(3).get.x() == 3
+
+
+def test_unhashable_index_values(builder):
+    builder.assign('xs', values=[[1, 2], [2, 3]])
+
+    @builder
+    def xs_sum(xs):
+        return sum(xs)
+
+    sums_series = builder.build().get('xs_sum', 'series').sort_values()
+    assert list(sums_series) == [3, 5]
+
+    index_items = [wrapper.get() for wrapper, in sums_series.index]
+    assert index_items == [[1, 2], [2, 3]]
