@@ -214,14 +214,27 @@ class ResourceResolver(object):
 
         blocked_task_key_tuples = set()
 
+        logged_task_keys = set()
+
         while ready_task_states:
             state = ready_task_states.pop()
 
             if state.is_complete():
+                for task_key in state.task.keys:
+                    if task_key not in logged_task_keys:
+                        loggable_str = self._loggable_str_for_task_key(
+                            task_key)
+                        self._log(
+                            'Accessed  %s from in-memory cache', loggable_str)
+                        logged_task_keys.add(task_key)
                 continue
 
             if not state.is_blocked():
                 self._compute_task_state(state)
+
+                for task_key in state.task.keys:
+                    logged_task_keys.add(task_key)
+
                 for child_state in state.children:
                     if child_state.task.keys in blocked_task_key_tuples and\
                             not child_state.is_blocked():
@@ -285,12 +298,7 @@ class ResourceResolver(object):
             for task_key in task.keys
         ]
         tk_loggable_task_strs = [
-            '%s(%s)' % (
-               task_key.resource_name,
-               ', '.join(
-                   '%s=%s' % (name, value)
-                   for name, value in task_key.case_key.items())
-            )
+            self._loggable_str_for_task_key(task_key)
             for task_key in task.keys
         ]
 
@@ -304,7 +312,7 @@ class ResourceResolver(object):
             for query, task_str in zip(tk_queries, tk_loggable_task_strs):
                 result = self._persistent_cache.load(query)
                 if result is not None:
-                    logger.info('Loaded    %s from cache', task_str)
+                    self._log('Loaded    %s from file cache', task_str)
                     tk_results.append(result)
                 else:
                     results_ready = False
@@ -316,7 +324,8 @@ class ResourceResolver(object):
 
         if not results_ready:
             for task_str in tk_loggable_task_strs:
-                logger.info('Computing %s ...', task_str)
+                if not task.is_simple_lookup:
+                    self._log('Computing %s ...', task_str)
 
             dep_values = [dep_result.value for dep_result in dep_results]
 
@@ -337,7 +346,11 @@ class ResourceResolver(object):
                     # always return the same value.
                     result = self._persistent_cache.load(query)
 
-                logger.info('Computed  %s', loggable_task_str)
+                if task.is_simple_lookup:
+                    self._log(
+                        'Accessed  %s from definition', loggable_task_str)
+                else:
+                    self._log('Computed  %s', loggable_task_str)
 
                 tk_results.append(result)
 
@@ -346,6 +359,21 @@ class ResourceResolver(object):
             task_key.resource_name: result
             for task_key, result in zip(task.keys, tk_results)
         }
+
+    def _loggable_str_for_task_key(self, task_key):
+        return '%s(%s)' % (
+           task_key.resource_name,
+           ', '.join(
+               '%s=%s' % (name, value)
+               for name, value in task_key.case_key.items())
+        )
+
+    def _log(self, message, *args):
+        if self._is_ready_for_full_resolution:
+            log_level = logging.INFO
+        else:
+            log_level = logging.DEBUG
+        logger.log(log_level, message, *args)
 
 
 class TaskState(object):

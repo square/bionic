@@ -29,10 +29,11 @@ class Task(object):
     A unit of work.  Can have dependencies, which are referred to via their
     TaskKeys.
     '''
-    def __init__(self, keys, dep_keys, compute_func):
+    def __init__(self, keys, dep_keys, compute_func, is_simple_lookup=False):
         self.keys = tuple(keys)
         self.dep_keys = tuple(dep_keys)
         self.compute = compute_func
+        self.is_simple_lookup = is_simple_lookup
 
     def key_for_resource_name(self, name):
         matching_keys = [
