@@ -20,11 +20,9 @@ copyright = u'2019, Square'
 author = u'Janek Klawe'
 
 # The short X.Y version
-# FIXME Unify this with setup.py's version.
-version = u'0.1'
+version = u'0.1.0'
 # The full version, including alpha/beta/rc tags
-release = u'0.1'
-
+release = version
 
 # -- General configuration ---------------------------------------------------
 
