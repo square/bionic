@@ -13,7 +13,7 @@ import errno
 
 import pathlib2 as pl
 
-from .entity import Result, Provenance
+from .datatypes import Result, Provenance
 
 import logging
 logger = logging.getLogger(__name__)

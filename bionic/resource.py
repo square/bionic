@@ -20,7 +20,7 @@ from io import BytesIO
 import pandas as pd
 from PIL import Image
 
-from .entity import Task, TaskKey, CaseKey, CaseKeySpace
+from .datatypes import Task, TaskKey, CaseKey, CaseKeySpace
 from .util import groups_dict, init_matplotlib
 
 import logging

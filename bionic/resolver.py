@@ -4,7 +4,7 @@ Contains the core logic for resolving Resources by executing Tasks.
 from __future__ import absolute_import
 
 from builtins import object
-from .entity import Provenance, Query, Result, ResultGroup
+from .datatypes import Provenance, Query, Result, ResultGroup
 from .exception import UndefinedResourceError
 
 import logging

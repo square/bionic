@@ -18,7 +18,7 @@ from six.moves import reload_module
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
 from .cache import PersistentCache
-from .entity import CaseKey
+from .datatypes import CaseKey
 from .exception import UndefinedResourceError
 from .resource import ValueResource, multi_index_from_case_keys, as_resource
 from .resolver import ResourceResolver
