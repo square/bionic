@@ -20,7 +20,7 @@ from .cache import PersistentCache
 from .datatypes import CaseKey
 from .exception import UndefinedEntityError
 from .provider import ValueProvider, multi_index_from_case_keys, as_provider
-from .resolver import EntityResolver
+from .deriver import EntityDeriver
 from . import decorators
 from .util import group_pairs, check_exactly_one_present
 from . import dagviz
@@ -209,7 +209,7 @@ class FlowBuilder(object):
             state = state.bless()
 
         flow = Flow._from_state(state)
-        flow._resolver.get_ready()
+        flow._deriver.get_ready()
 
         self._state = state.touch()
         return flow
@@ -553,7 +553,7 @@ class Flow(object):
         return [
             name
             for name in self._state.providers_by_name.keys()
-            if include_core or not self._resolver.entity_is_internal(name)
+            if include_core or not self._deriver.entity_is_internal(name)
         ]
 
     def entity_protocol(self, name):
@@ -606,7 +606,7 @@ class Flow(object):
         The value of the entity, or a collection containing its values.
         """
 
-        result_group = self._resolver.resolve(name)
+        result_group = self._deriver.derive(name)
         if fmt is None or fmt is object:
             if len(result_group) == 0:
                 raise ValueError("Entity %r has no defined values" % name)
@@ -656,7 +656,7 @@ class Flow(object):
         The entity must be persisted and have only one instance.
         """
 
-        result_group = self._resolver.resolve(name)
+        result_group = self._deriver.derive(name)
         if len(result_group) != 1:
             raise ValueError(
                 "Can only export an entity if it has a single value; "
@@ -730,7 +730,7 @@ class Flow(object):
         Will fail if Graphviz is not installed on the system.
         """
 
-        graph = self._resolver.export_dag(include_core)
+        graph = self._deriver.export_dag(include_core)
         dot = dagviz.dot_from_graph(graph, vertical, curvy_lines)
         image = dagviz.image_from_dot(dot)
         return image
@@ -846,7 +846,7 @@ class Flow(object):
                 "use one of the classmethod constructors")
 
         self._state = state
-        self._resolver = EntityResolver(state)
+        self._deriver = EntityDeriver(state)
 
         self.get = ShortcutProxy(self.get)
         self.setting = ShortcutProxy(self.setting)

@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class EntityResolver(object):
+class EntityDeriver(object):
     # --- Public API.
 
     def __init__(self, flow_state):
@@ -34,12 +34,12 @@ class EntityResolver(object):
 
     def get_ready(self):
         """
-        Make sure this Resolver is ready to resolve().  Calling this is not
+        Make sure this Deriver is ready to derive().  Calling this is not
         necessary but allows errors to surface earlier.
         """
         self._get_ready_for_full_resolution()
 
-    def resolve(self, entity_name):
+    def derive(self, entity_name):
         """
         Given an entity name, computes and returns a ResultGroup containing
         all values for that entity.
