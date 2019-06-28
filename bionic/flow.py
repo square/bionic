@@ -47,11 +47,12 @@ DEFAULT_PROTOCOL = protos.CombinedProtocol(
 # 3. We can maintain a single "blessed" state object that's eligible for
 # reloading.
 class FlowState(pyrs.PClass):
-    '''
+    """
     Contains the state for a Flow or FlowBuilder object.  This is a
     "pyrsistent" class, which means it's immutable, but a modified copy can be
     efficiently created with the set() method.
-    '''
+    """
+
     resources_by_name = pyrs.field(initial=pyrs.pmap())
     last_added_case_key = pyrs.field(initial=None)
 
@@ -168,11 +169,19 @@ class FlowState(pyrs.PClass):
 
 
 class FlowBuilder(object):
-    '''
-    A mutable builder (as in "builder pattern") for Flows.  Use declare/assign/
-    set/derive to add resources to the builder, then use build() to convert it
-    into a Flow.
-    '''
+    """
+    A mutable builder for Flows.
+
+    Allows ``Flow`` objects to be constructed incrementally.  Use ``declare``,
+    ``assign``, ``set``, and/or ``derive`` to add resources to the builder,
+    then use ``build`` to convert it into a Flow.
+
+    Parameters
+    ----------
+
+    name: String
+        Identifies the flow and provides a namespace for cached data.
+    """
 
     # --- Public API.
 
@@ -189,6 +198,13 @@ class FlowBuilder(object):
             self._state = _state
 
     def build(self):
+        """
+        Constructs a ``Flow`` object from this builder's state.
+
+        The returned flow is immutable and will not be affected by future
+        changes to this builder's state.
+        """
+
         state = self._state
         if state.can_be_blessed:
             state = state.bless()
@@ -200,12 +216,47 @@ class FlowBuilder(object):
         return flow
 
     def declare(self, name, protocol=None):
+        """
+        Creates a new resource but does not assign it a value.
+
+        The resource must not already exist.
+
+        Parameters
+        ----------
+
+        name: String
+            The name of the new resource.
+        protocol: Protocol, optional
+            The resource's protocol.  The default is a smart type-detecting
+            protocol.
+        """
+
         if protocol is None:
             protocol = DEFAULT_PROTOCOL
 
         self._state = self._state.create_resource(name, protocol)
 
     def assign(self, name, value=None, values=None, protocol=None):
+        """
+        Creates a new resource and assigns it a value.
+
+        Exactly one of ``value`` or ``values`` must be provided.  The resource
+        must not already exist.
+
+        Parameters
+        ----------
+
+        name: String
+            The name of the new resource.
+        value: Object, optional
+            A single value for the resource.
+        values: Sequence, optional
+            A sequence of values for the resource.
+        protocol: Protocol, optional
+            The resource's protocol.  The default is a smart type-detecting
+            protocol.
+        """
+
         check_exactly_one_present(value=value, values=values)
         if value is not None:
             values = [value]
@@ -226,6 +277,24 @@ class FlowBuilder(object):
         self._state = state
 
     def set(self, name, value=None, values=None):
+        """
+        Sets the value of an existing resource.
+
+        Exactly one of ``value`` or ``values`` must be provided.  The resource
+        must already exist and may already have a value (which will be
+        overwritten).
+
+        Parameters
+        ----------
+
+        name: String
+            The name of the new resource.
+        value: Object, optional
+            A single value for the resource.
+        values: Sequence, optional
+            A sequence of values for the resource.
+        """
+
         check_exactly_one_present(value=value, values=values)
         if value is not None:
             values = [value]
@@ -253,6 +322,70 @@ class FlowBuilder(object):
     # to add a clean label to an unhashable value.  In that case it'd be nice
     # that we can create new resources even on a Flow.)
     def add_case(self, *name_values):
+        """
+        Adds a "case": a collection of associated values for a set of
+        resources.
+
+        Assigning resource values by case is an alternative to ``set`` (or
+        ``assign``).  If ``set`` is used to set multiple values for some
+        resources, then every combination of those values will be considered
+        for downstream resources.  On the other hand, if ``add_case`` is used,
+        only the specified combinations will be considered.
+
+        Example Using ``assign``:
+
+        .. code-block:: python
+
+            builder = FlowBuilder()
+
+            builder.assign('first_name', values=['Alice', 'Bob'])
+            builder.assign('last_name', values=['Smith', 'Jones'])
+
+            @builder
+            def full_name(first_name, last_name):
+                return first_name + ' ' + last_name
+
+            # Prints: {'Alice Jones', 'Alice Smith', 'Bob Jones', 'Bob Smith'}
+            print(builder.build().get('full_name', set))
+
+        Example using ``add_case``:
+
+        .. code-block:: python
+
+            builder = FlowBuilder()
+
+            builder.declare('first_name')
+            builder.declare('last_name')
+
+            builder.add_case('first_name', 'Alice', 'last_name', 'Jones')
+            builder.add_case('first_name', 'Alice', 'last_name', 'Smith')
+            builder.add_case('first_name', 'Bob', 'last_name', 'Smith')
+
+            @builder
+            def full_name(first_name, last_name):
+                return first_name + ' ' + last_name
+
+            print(builder.build().get('full_name', set))
+            # Prints: {'Alice Jones', 'Alice Smith', 'Bob Smith'}
+
+        All resources must already exist.  They may have existing values, but
+        those values must have been set case-by-case with the same structure
+        as this call.
+
+        Parameters
+        ----------
+
+        name_values: String/Object
+            Alternating resource names and values.
+
+        Returns
+        -------
+
+        FlowCase
+            An object which can be used to set values on additional resources
+            with this case.
+        """
+
         name_value_pairs = group_pairs(name_values)
 
         state = self._state
@@ -283,12 +416,58 @@ class FlowBuilder(object):
         return case
 
     def clear_cases(self, *names):
+        """
+        Removes all values assigned to one or more resources.
+
+        The values will still exist, but not have any values, as if they had
+        just been created with ``declare``.  If any of the resources were set
+        in a group using ``add_case``, they must all be cleared together.
+
+        Parameters
+        ----------
+
+        names: Sequence of strings
+            The resources whose values should be cleared.
+        """
+
         self._state = self._state.clear_resources(names)
 
     def delete(self, *names):
+        """
+        Deletes one or more resources.
+
+        If any of the resources were set in a group using ``add_case``, they
+        must all be cleared together.
+
+        Parameters
+        ----------
+
+        names: Sequence of strings
+            The resources to be deleted.
+        """
+
         self._state = self._state.delete_resources(names)
 
     def derive(self, func_or_resource):
+        """
+        Defines a resource by providing a function that derives its value from
+        other resources.
+
+        By default, the name of the provided function will be the name of the
+        new resource; the arguments of the function should be other resources.
+        If the name of the new resource already exists, it will be overwritten.
+
+        This function is intended to be used as a decorator.  However, as a
+        convenience, a builder can be used as a decorator with the same effect.
+
+        Parameters
+        ----------
+
+        func_or_resource: Function or resource
+            A Python function, optionally decorated with one or more Bionic
+            resource decorators.
+        """
+
         resource = as_resource(func_or_resource)
         if resource.attrs.protocols is None:
             resource = DEFAULT_PROTOCOL(resource)
@@ -305,9 +484,10 @@ class FlowBuilder(object):
         return resource.get_source_func()
 
     def __call__(self, func_or_resource):
-        '''
-        Convenience wrapper for derive().
-        '''
+        """
+        A convenience wrapper for ``derive``.
+        """
+
         return self.derive(func_or_resource)
 
     # --- Private helpers.
@@ -336,25 +516,41 @@ class FlowBuilder(object):
 
 
 class FlowCase(object):
+    """
+    A specific case for which resources can have associated values.
+
+    These should be constructed by the ``FlowBuilder`` object, not by users.
+    """
     def __init__(self, builder, key):
         self.key = key
         self._builder = builder
 
     def then_set(self, name, value):
+        """Sets a single value for a resource for this case."""
         self._builder._set_for_case_key(self.key, name, value)
         return self
 
 
 class Flow(object):
-    '''
+    """
     An immutable workflow object.  You can use get() to compute any resource
     in the workflow, or setting() to create a new workflow with modifications.
     Not all modifications are possible with this interface, but to_builder()
     can be used to get a mutable FlowBuilder version of a Flow.
-    '''
+    """
+
     # --- Public API.
 
     def all_resource_names(self, include_core=False):
+        """
+        Returns a list of all declared resource names in this flow.
+
+        Parameters
+        ----------
+
+        include_core: Boolean, optional (default false)
+            Include built-in resources used for Bionic infrastructure.
+        """
         return [
             name
             for name in self._state.resources_by_name.keys()
@@ -362,12 +558,55 @@ class Flow(object):
         ]
 
     def resource_protocol(self, name):
+        """
+        Returns the protocol for a given resource.
+
+        Parameters
+        ----------
+
+        name: String
+            The name of a resource.
+        """
+
         return self._state.get_resource(name).protocol_for_name(name)
 
     def to_builder(self):
+        """
+        Returns a ``FlowBuilder`` with a copy of this ``Flow``'s state.
+
+        Since this flow is immutable, it won't be affected by any changes to
+        the returned builder.
+        """
+
         return FlowBuilder._from_state(self._state)
 
     def get(self, name, fmt=None):
+        """
+        Computes the value(s) associated with a resource.
+
+        If the resource has multiple values, the ``fmt`` parameter indicates
+        how to handle them.  It can have any of the following values:
+
+        * ``object``: return a single value or throw an exception
+        * ``list`` or ``'list'``: return a list of values
+        * ``set`` or ``'set'``: return a set of values
+        * ``pandas.Series`` or ``'series'``: return a series whose index is
+          the root cases distinguishing the different values
+
+        Parameters
+        ----------
+
+        name: String
+            The name of a resource.
+        fmt: String or type, optional, default is ``object``
+            The data structure to use if the resource has multiple values.
+
+        Returns
+        -------
+
+        The value of the resource, or a collection containing its values.
+        """
+
         result_group = self._resolver.resolve(name)
         if fmt is None or fmt is object:
             if len(result_group) == 0:
@@ -397,19 +636,27 @@ class Flow(object):
         else:
             raise ValueError("Unrecognized format %r" % fmt)
 
+    # TODO Maybe this wants to be two different functions?
     def export(self, name, file_path=None, dir_path=None):
-        '''
-        Provides access to the persisted file corresponding to a resource.  Can
-        be called in three ways:
+        """
+        Provides access to the persisted file corresponding to a resource.
 
-            export(name): returns a path the cached file
-            export(name, file_path=path): copies the cached file to the
-                specified path
-            export(name, dir_path=path): copies the cached file to the
-                specified directory
+        Can be called in three ways:
+
+        .. code-block:: python
+
+            # Returns a path to the persisted file.
+            export(name)
+
+            # Copies the persisted file to the specified file path.
+            export(name, file_path=path)
+
+            # Copies the persisted file to the specified directory.
+            export(name, dir_path=path)
 
         The resource must be persisted and have only one instance.
-        '''
+        """
+
         result_group = self._resolver.resolve(name)
         if len(result_group) != 1:
             raise ValueError(
@@ -441,23 +688,49 @@ class Flow(object):
         shutil.copyfile(str(src_file_path), str(dst_file_path))
 
     def setting(self, name, value=None, values=None):
+        """
+        Like ``FlowBuilder.set``, but returns a new copy of this flow.
+        """
+
         return self._updating(lambda builder: builder.set(name, value, values))
 
     def adding_case(self, *name_values):
+        """
+        Like ``FlowBuilder.add_case``, but returns a new copy of this flow.
+        """
+
         return self._updating(lambda builder: builder.add_case(*name_values))
 
     def then_setting(self, name, value):
+        """
+        Like ``FlowCase.then_set``, but returns a new copy of this flow.
+
+        Use after calling ``Flow.adding_case``.
+        """
+
         return self._updating(
             lambda builder: builder._set_for_last_case(name, value))
 
     def clearing_cases(self, *names):
+        """
+        Like ``FlowBuilder.clear_cases``, but returns a new copy of this flow.
+        """
+
         return self._updating(lambda builder: builder.clear_cases(*names))
 
     @property
     def name(self):
+        """Returns the name of this flow."""
+
         return self.get('core__flow_name')
 
     def render_dag(self, include_core=False, vertical=False, curvy_lines=False):
+        """
+        Returns an image with a visualization of this flow's DAG.
+
+        Will fail if Graphviz is not installed on the system.
+        """
+
         graph = self._resolver.export_dag(include_core)
         dot = dagviz.dot_from_graph(graph, vertical, curvy_lines)
         image = dagviz.image_from_dot(dot)
@@ -467,16 +740,21 @@ class Flow(object):
     # idea of an immutable API, but it might be more natural for the user, and
     # reloading is already updating global state....
     def reloading(self):
-        '''
-        Attempts to reload all modules used directly by this Flow.  For safety,
-        this only works if this flow meets the following requirements:
-        - is the first Flow built by its FlowBuilder
-        - has never been modified (i.e., isn't derived from another Flow)
-        - is assigned to a top-level variable in a module that one of its
+        """
+        Attempts to reload all modules used directly by this flow.
+
+        For safety, this only works if this flow meets the following
+        requirements:
+
+        * is the first Flow built by its FlowBuilder
+        * has never been modified (i.e., isn't derived from another Flow)
+        * is assigned to a top-level variable in a module that one of its
           functions is defined in
 
         The most straightforward way to meet these requirements is to define
         your flow in a module as:
+
+        .. code-block:: python
 
             builder = ...
 
@@ -489,13 +767,16 @@ class Flow(object):
 
         and then import in the notebook like so:
 
+        .. code-block:: python
+
             from mymodule import flow
             ...
             flow.reloading().get('myresource')
 
         This will reload the modules and use the most recent version of the
-        flow before doing the get().
-        '''
+        flow before doing the ``get()``.
+        """
+
         # TODO If we wanted, I think we could support reloading on modified
         # versions of flows by keeping a copy of the original blessed flow,
         # plus all the operations performed to get to the current version.
