@@ -40,8 +40,8 @@ Bionic will provide better APIs to combine multiple flows into one, or to nest
 one flow inside another with its own namespace.  This should enable the
 construction of more complex and/or more reusable flows.
 
-Direct Access toPersisted Files
-...............................
+Direct Access to Persisted Files
+................................
 
 Bionic is built around the idea that the user's code generally wants to operate
 on in-memory objects rather than files.  However, in some cases it's preferable
