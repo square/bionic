@@ -1,11 +1,11 @@
 '''
-Contains the core logic for resolving Resources by executing Tasks.
+Contains the core logic for resolving Entities by executing Tasks.
 '''
 from __future__ import absolute_import
 
 from builtins import object
 from .datatypes import Provenance, Query, Result, ResultGroup
-from .exception import UndefinedResourceError
+from .exception import UndefinedEntityError
 
 import logging
 # TODO At some point it might be good to have the option of Bionic handling its
@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class ResourceResolver(object):
+class EntityResolver(object):
     # --- Public API.
 
     def __init__(self, flow_state):
@@ -25,7 +25,7 @@ class ResourceResolver(object):
         # initialized, we can use it to bootstrap the requirements for "full"
         # resolution below.
         self._is_ready_for_bootstrap_resolution = False
-        self._task_lists_by_resource_name = None
+        self._task_lists_by_entity_name = None
         self._task_states_by_key = None
 
         # This state allows us to do full resolution for external callers.
@@ -39,67 +39,67 @@ class ResourceResolver(object):
         """
         self._get_ready_for_full_resolution()
 
-    def resolve(self, resource_name):
+    def resolve(self, entity_name):
         """
-        Given a resource name, computes and returns a ResultGroup containing
-        all values for that resource.
+        Given an entity name, computes and returns a ResultGroup containing
+        all values for that entity.
         """
         self.get_ready()
-        return self._compute_result_group_for_resource_name(resource_name)
+        return self._compute_result_group_for_entity_name(entity_name)
 
     def export_dag(self, include_core=False):
         '''
         Constructs a NetworkX graph corresponding to the DAG of tasks.  There
         is one node per task key -- i.e., for each artifact that can be created
-        (uniquely defined by a resource name and a case key); and one edge from
+        (uniquely defined by an entity name and a case key); and one edge from
         each task key to each key that depends on it.  Each node is represented
         by a TaskKey, and also has the following attributes:
 
             name: a short, unique, human-readable identifier
-            resource_name: the name of the resource for this task key
+            entity_name: the name of the entity for this task key
             case_key: the case key for this task key
             task_ix: the task key's index in the ordered series of case keys
-                     for its resource
+                     for its entity
         '''
         import networkx as nx
 
-        def include_resource_name(name):
-            return include_core or not self.resource_is_core(resource_name)
+        def should_include_entity_name(name):
+            return include_core or not self.entity_is_internal(entity_name)
 
         self.get_ready()
 
         graph = nx.DiGraph()
 
-        for resource_name, tasks in (
-                self._task_lists_by_resource_name.items()):
-            if not include_resource_name(resource_name):
+        for entity_name, tasks in (
+                self._task_lists_by_entity_name.items()):
+            if not should_include_entity_name(entity_name):
                 continue
 
             if len(tasks) == 1:
-                name_template = '{resource_name}'
+                name_template = '{entity_name}'
             else:
-                name_template = '{resource_name}[{task_ix}]'
+                name_template = '{entity_name}[{task_ix}]'
 
             for task_ix, task in enumerate(sorted(
                     tasks, key=lambda task: task.keys[0].case_key)):
-                task_key = task.key_for_resource_name(resource_name)
+                task_key = task.key_for_entity_name(entity_name)
                 state = self._task_states_by_key[task_key]
 
                 node_name = name_template.format(
-                    resource_name=resource_name, task_ix=task_ix)
+                    entity_name=entity_name, task_ix=task_ix)
 
                 graph.add_node(
                     task_key,
                     name=node_name,
-                    resource_name=resource_name,
+                    entity_name=entity_name,
                     case_key=task_key.case_key,
                     task_ix=task_ix,
                 )
 
                 for child_state in state.children:
                     for child_task_key in child_state.task.keys:
-                        if not include_resource_name(
-                                child_task_key.resource_name):
+                        if not should_include_entity_name(
+                                child_task_key.entity_name):
                             continue
                         if task_key not in child_state.task.dep_keys:
                             continue
@@ -107,8 +107,8 @@ class ResourceResolver(object):
 
         return graph
 
-    def resource_is_core(self, resource_name):
-        return resource_name.startswith('core__')
+    def entity_is_internal(self, entity_name):
+        return entity_name.startswith('core__')
 
     # --- Private helpers.
 
@@ -127,22 +127,22 @@ class ResourceResolver(object):
         if self._is_ready_for_bootstrap_resolution:
             return
 
-        # Generate the static key spaces and tasks for each resource.
-        self._key_spaces_by_resource_name = {}
-        self._task_lists_by_resource_name = {}
-        for name in self._flow_state.resources_by_name.keys():
-            self._populate_resource_info(name)
+        # Generate the static key spaces and tasks for each entity.
+        self._key_spaces_by_entity_name = {}
+        self._task_lists_by_entity_name = {}
+        for name in self._flow_state.providers_by_name.keys():
+            self._populate_entity_info(name)
 
         # Initialize a state object for each task.
         self._task_states_by_key = {}
-        for tasks in self._task_lists_by_resource_name.values():
+        for tasks in self._task_lists_by_entity_name.values():
             for task in tasks:
                 task_state = TaskState(task)
                 for key in task.keys:
                     self._task_states_by_key[key] = task_state
 
         # Connect the task states to each other in a graph.
-        for tasks in self._task_lists_by_resource_name.values():
+        for tasks in self._task_lists_by_entity_name.values():
             for task in tasks:
                 task_state = self._task_states_by_key[task.keys[0]]
                 for dep_key in task.dep_keys:
@@ -153,59 +153,55 @@ class ResourceResolver(object):
 
         self._is_ready_for_bootstrap_resolution = True
 
-    def _populate_resource_info(self, resource_name):
-        if resource_name in self._task_lists_by_resource_name:
+    def _populate_entity_info(self, entity_name):
+        if entity_name in self._task_lists_by_entity_name:
             return
 
-        resource = self._flow_state.get_resource(resource_name)
+        provider = self._flow_state.get_provider(entity_name)
 
-        dep_names = resource.get_dependency_names()
+        dep_names = provider.get_dependency_names()
         for dep_name in dep_names:
-            self._populate_resource_info(dep_name)
+            self._populate_entity_info(dep_name)
 
         dep_key_spaces_by_name = {
-            dep_name: self._key_spaces_by_resource_name[dep_name]
+            dep_name: self._key_spaces_by_entity_name[dep_name]
             for dep_name in dep_names
         }
 
         dep_task_key_lists_by_name = {
             dep_name: [
-                task.key_for_resource_name(dep_name)
-                for task in self._task_lists_by_resource_name[dep_name]
+                task.key_for_entity_name(dep_name)
+                for task in self._task_lists_by_entity_name[dep_name]
             ]
             for dep_name in dep_names
         }
 
-        self._key_spaces_by_resource_name[resource_name] =\
-            resource.get_key_space(dep_key_spaces_by_name)
+        self._key_spaces_by_entity_name[entity_name] =\
+            provider.get_key_space(dep_key_spaces_by_name)
 
-        self._task_lists_by_resource_name[resource_name] = resource.get_tasks(
+        self._task_lists_by_entity_name[entity_name] = provider.get_tasks(
             dep_key_spaces_by_name,
             dep_task_key_lists_by_name)
 
-    def _populate_key_spaces_for_resource_name(self, resource_name):
-        if resource_name in self._task_lists_by_resource_name:
-            return
-
-    def _bootstrap_singleton(self, resource_name):
-        result_group = self._compute_result_group_for_resource_name(
-            resource_name)
+    def _bootstrap_singleton(self, entity_name):
+        result_group = self._compute_result_group_for_entity_name(
+            entity_name)
         if len(result_group) == 0:
             raise ValueError(
-                "No values were defined for internal bootstrap resource %r" %
-                resource_name)
+                "No values were defined for internal bootstrap entity %r" %
+                entity_name)
         if len(result_group) > 1:
             values = [result.value for result in result_group]
             raise ValueError(
-                "Bootstrap resource %r must have exactly one value; "
-                "got %d (%r)" % (resource_name, len(values), values))
+                "Bootstrap entity %r must have exactly one value; "
+                "got %d (%r)" % (entity_name, len(values), values))
         return result_group[0].value
 
-    def _compute_result_group_for_resource_name(self, resource_name):
-        tasks = self._task_lists_by_resource_name.get(resource_name)
+    def _compute_result_group_for_entity_name(self, entity_name):
+        tasks = self._task_lists_by_entity_name.get(entity_name)
         if tasks is None:
-            raise UndefinedResourceError(
-                "Resource %r is not defined" % resource_name)
+            raise UndefinedEntityError(
+                "Entity %r is not defined" % entity_name)
         requested_task_states = [
             self._task_states_by_key[task.keys[0]]
             for task in tasks
@@ -254,10 +250,10 @@ class ResourceResolver(object):
 
         return ResultGroup(
             results=[
-                state.results_by_name[resource_name]
+                state.results_by_name[entity_name]
                 for state in requested_task_states
             ],
-            key_space=self._key_spaces_by_resource_name[resource_name],
+            key_space=self._key_spaces_by_entity_name[entity_name],
         )
 
     def _compute_task_state(self, task_state):
@@ -267,19 +263,19 @@ class ResourceResolver(object):
         dep_keys = task.dep_keys
         dep_results = [
             self._task_states_by_key[dep_key]
-                .results_by_name[dep_key.resource_name]
+                .results_by_name[dep_key.entity_name]
             for dep_key in dep_keys
         ]
 
-        # All names should point to the same resource.
-        resource, = set(
-            self._flow_state.get_resource(task_key.resource_name)
+        # All names should point to the same provider.
+        provider, = set(
+            self._flow_state.get_provider(task_key.entity_name)
             for task_key in task.keys
         )
         # And all the task keys should have the same case key.
         case_key, = set(task_key.case_key for task_key in task.keys)
         provenance = Provenance.from_computation(
-            code_id=resource.get_code_id(case_key),
+            code_id=provider.get_code_id(case_key),
             case_key=case_key,
             dep_provenances_by_name={
                 dep_result.query.name: dep_result.query.provenance
@@ -290,8 +286,8 @@ class ResourceResolver(object):
         # list of task keys.
         tk_queries = [
             Query(
-                name=task_key.resource_name,
-                protocol=resource.protocol_for_name(task_key.resource_name),
+                name=task_key.entity_name,
+                protocol=provider.protocol_for_name(task_key.entity_name),
                 case_key=case_key,
                 provenance=provenance,
             )
@@ -302,12 +298,12 @@ class ResourceResolver(object):
             for task_key in task.keys
         ]
 
-        should_persist = resource.attrs.should_persist
+        should_persist = provider.attrs.should_persist
         if should_persist:
             if not self._is_ready_for_full_resolution:
                 raise AssertionError(
-                    "Can't apply persistent caching to bootstrap resources %r"
-                    % (tuple(resource.attrs.names),))
+                    "Can't apply persistent caching to bootstrap entities %r"
+                    % (tuple(provider.attrs.names),))
             tk_results = []
             for query, task_str in zip(tk_queries, tk_loggable_task_strs):
                 result = self._persistent_cache.load(query)
@@ -331,7 +327,7 @@ class ResourceResolver(object):
 
             tk_values = task_state.task.compute(dep_values)
 
-            assert len(tk_values) == len(resource.attrs.names)
+            assert len(tk_values) == len(provider.attrs.names)
 
             tk_results = []
             for value, query, loggable_task_str in zip(
@@ -356,13 +352,13 @@ class ResourceResolver(object):
 
         assert len(tk_results) == len(task.keys)
         task_state.results_by_name = {
-            task_key.resource_name: result
+            task_key.entity_name: result
             for task_key, result in zip(task.keys, tk_results)
         }
 
     def _loggable_str_for_task_key(self, task_key):
         return '%s(%s)' % (
-           task_key.resource_name,
+           task_key.entity_name,
            ', '.join(
                '%s=%s' % (name, value)
                for name, value in task_key.case_key.items())

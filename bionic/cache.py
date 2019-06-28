@@ -32,7 +32,7 @@ class PersistentCache(object):
         new_content_entry = self._candidate_entry_for_query(query)
         official_symlink_entry = self._entry_for_query(query)
         if official_symlink_entry.dir_path.exists():
-            old_content_entry = ResourceEntry(
+            old_content_entry = ArtifactEntry(
                 pl.Path(os.readlink(str(official_symlink_entry.dir_path))))
         else:
             old_content_entry = None
@@ -146,14 +146,14 @@ class PersistentCache(object):
         return path
 
     def _entry_for_query(self, query):
-        return ResourceEntry(self._path_for_query(query) / 'cur')
+        return ArtifactEntry(self._path_for_query(query) / 'cur')
 
     def _candidate_entry_for_query(self, query):
         query_path = self._path_for_query(query)
         n_attempts = 3
         for i in range(n_attempts):
             tmp_name = self._random_str()
-            entry = ResourceEntry(query_path / tmp_name)
+            entry = ArtifactEntry(query_path / tmp_name)
 
             try:
                 entry.dir_path.mkdir(parents=True)
@@ -181,7 +181,7 @@ class PersistentCache(object):
         return 'PersistentCache(%r)' % self._root_path
 
 
-class ResourceEntry(object):
+class ArtifactEntry(object):
     VALUE_FILE_STEM = 'value.'
 
     def __init__(self, path):
@@ -213,4 +213,4 @@ class ResourceEntry(object):
         return filename[len(self.VALUE_FILE_STEM):]
 
     def __repr__(self):
-        return 'ResourceEntry(path=%s)' % self.dir_path
+        return 'ArtifactEntry(path=%s)' % self.dir_path

@@ -6,7 +6,7 @@ import pandas.testing as pdt
 from helpers import RoundingProtocol
 
 import bionic as bn
-from bionic.exception import UndefinedResourceError
+from bionic.exception import UndefinedEntityError
 
 
 @pytest.fixture(scope='function')
@@ -29,7 +29,7 @@ def test_output(preset_builder):
 
     assert flow.get('g') == 5
 
-    with pytest.raises(UndefinedResourceError):
+    with pytest.raises(UndefinedEntityError):
         flow.get('f')
 
 
@@ -49,7 +49,7 @@ def test_outputs(builder):
     assert flow.get('quotient') == 4
     assert flow.get('remainder') == 2
 
-    with pytest.raises(UndefinedResourceError):
+    with pytest.raises(UndefinedEntityError):
         flow.get('divide')
 
 

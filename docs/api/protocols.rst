@@ -7,11 +7,11 @@ Introduction
 
 Protocols are special cases of Bionic decorators; their effect is to specify
 the `Serialization Protocol <../concepts.rst#serialization-protocols>`_ for the
-resource being defined.  For example:
+entity being defined.  For example:
 
 .. code-block:: python
 
-    # This resource should only have values equal to "short" or "long".
+    # This entity should only have values equal to "short" or "long".
     @builder
     @bn.protocol.enum('short', 'long')
     def name_length(name):
@@ -20,7 +20,7 @@ resource being defined.  For example:
         else:
             return 'long'
 
-    # This resource's value will always be a ``pandas.DataFrame``.
+    # This entity's value will always be a ``pandas.DataFrame``.
     @builder
     @bn.protocol.DataFrame
     def raw_df():
@@ -33,13 +33,13 @@ resource being defined.  For example:
         return df
 
 Protocols are used to tell Bionic how to serialize, deserialize, and validate
-resource values.  In most cases, Bionic's default protocol can figure out an
+entity values.  In most cases, Bionic's default protocol can figure out an
 appropriate way to handle each value, so explicit protocol decorators are
 usually not required.  However, they can be useful for data types that need
 special handling, or just to add clarity, safety, or documentation to a
-resource definition.
+entity definition.
 
-Protocols can also be used when creating new resources with ``declare`` or
+Protocols can also be used when creating new entities with ``declare`` or
 ``assign``:
 
 .. code-block:: python

@@ -1,7 +1,7 @@
 '''
-Contains Bionic's concept of a "resource": an element of a workflow that can
-have one or more values, possible depending on other resources.  This module
-includes a BaseResource class and various subclasses.
+Contains the "Provider" class hierarchy.  A provider is the object that knows
+how to produce a value for one or more entities.  This module includes a
+BaseProvider class and various subclasses.
 
 The whole architecture is a bit of a mess and probably needs a substantial
 rethink.
@@ -27,12 +27,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# TODO The "Resource" object in this file is no longer 1:1 with a logical
-# resource, because one "Resource" could be responsible for generating multiple
-# "resources".  We might want to rename this to something like "Provider" or
-# "Rule".
-
-class ResourceAttributes(object):
+class ProviderAttributes(object):
     def __init__(
             self, names, protocols=None, code_version=None, should_persist=None):
         self.names = names
@@ -41,7 +36,7 @@ class ResourceAttributes(object):
         self.should_persist = None
 
 
-class BaseResource(object):
+class BaseProvider(object):
     def __init__(self, attrs, is_mutable=False):
         self.attrs = attrs
         self.is_mutable = is_mutable
@@ -74,7 +69,7 @@ class BaseResource(object):
         name_ix = self.attrs.names.index(name)
         if name_ix < 0:
             raise ValueError(
-                "Attempted to look up name %r from resource providing only %r"
+                "Attempted to look up name %r from provider providing only %r"
                 % (name, tuple(self.attrs.names)))
         return self.attrs.protocols[name_ix]
 
@@ -82,90 +77,90 @@ class BaseResource(object):
         return '%s%r)' % (self.__class__.__name__, tuple(self.attrs.names))
 
 
-class WrappingResource(BaseResource):
-    def __init__(self, wrapped_resource):
-        if wrapped_resource.is_mutable:
+class WrappingProvider(BaseProvider):
+    def __init__(self, wrapped_provider):
+        if wrapped_provider.is_mutable:
             raise ValueError(
-                "Can only wrap immutable resources; got mutable resource %r" %
-                wrapped_resource)
-        super(WrappingResource, self).__init__(wrapped_resource.attrs)
-        self.wrapped_resource = wrapped_resource
+                "Can only wrap immutable providers; got mutable provider %r" %
+                wrapped_provider)
+        super(WrappingProvider, self).__init__(wrapped_provider.attrs)
+        self.wrapped_provider = wrapped_provider
 
     def get_code_id(self, case_key):
-        return self.wrapped_resource.get_code_id(case_key)
+        return self.wrapped_provider.get_code_id(case_key)
 
     def get_dependency_names(self):
-        return self.wrapped_resource.get_dependency_names()
+        return self.wrapped_provider.get_dependency_names()
 
     def get_key_space(self, dep_key_spaces_by_name):
-        return self.wrapped_resource.get_key_space(dep_key_spaces_by_name)
+        return self.wrapped_provider.get_key_space(dep_key_spaces_by_name)
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
-        return self.wrapped_resource.get_tasks(
+        return self.wrapped_provider.get_tasks(
             dep_key_spaces_by_name, dep_task_key_lists_by_name)
 
     def get_source_func(self):
-        return self.wrapped_resource.get_source_func()
+        return self.wrapped_provider.get_source_func()
 
     def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self.wrapped_resource)
+        return '%s(%s)' % (self.__class__.__name__, self.wrapped_provider)
 
 
-class AttrUpdateResource(WrappingResource):
-    def __init__(self, wrapped_resource, attr_name, attr_value):
-        super(AttrUpdateResource, self).__init__(wrapped_resource)
+class AttrUpdateProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, attr_name, attr_value):
+        super(AttrUpdateProvider, self).__init__(wrapped_provider)
 
-        old_attr_value = getattr(wrapped_resource.attrs, attr_name)
+        old_attr_value = getattr(wrapped_provider.attrs, attr_name)
         if old_attr_value is not None:
             raise ValueError(
                 "Attempted to set attribute %r twice on %r; old value was %r, "
                 "new value is %r" % (
-                    attr_name, wrapped_resource, old_attr_value, attr_value))
+                    attr_name, wrapped_provider, old_attr_value, attr_value))
 
-        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs = copy(wrapped_provider.attrs)
         setattr(self.attrs, attr_name, attr_value)
 
 
-class ProtocolUpdateResource(WrappingResource):
-    def __init__(self, wrapped_resource, protocol=None, protools=None):
+class ProtocolUpdateProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, protocol=None, protools=None):
 
-        super(ProtocolUpdateResource, self).__init__(wrapped_resource)
+        super(ProtocolUpdateProvider, self).__init__(wrapped_provider)
 
-        protocols = [protocol for name in self.wrapped_resource.attrs.names]
+        protocols = [protocol for name in self.wrapped_provider.attrs.names]
 
-        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs = copy(wrapped_provider.attrs)
         self.attrs.protocols = protocols
 
 
-class MultiProtocolUpdateResource(WrappingResource):
-    def __init__(self, wrapped_resource, protocols=None):
+class MultiProtocolUpdateProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, protocols=None):
 
-        super(MultiProtocolUpdateResource, self).__init__(wrapped_resource)
+        super(MultiProtocolUpdateProvider, self).__init__(wrapped_provider)
 
-        names = wrapped_resource.attrs.names
+        names = wrapped_provider.attrs.names
         if len(protocols) != len(names):
             raise ValueError(
                 "Number of protocols must match the number of names; got "
                 "%d names %r and %d protocols %r" % (
                     len(names), tuple(names), len(protocols),
                     tuple(protocols)))
-        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs = copy(wrapped_provider.attrs)
         self.attrs.protocols = protocols
 
 
-class RenamingResource(WrappingResource):
-    def __init__(self, wrapped_resource, name):
+class RenamingProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, name):
 
-        super(RenamingResource, self).__init__(wrapped_resource)
+        super(RenamingProvider, self).__init__(wrapped_provider)
 
-        orig_names = wrapped_resource.attrs.names
+        orig_names = wrapped_provider.attrs.names
         if len(orig_names) != 1:
             raise ValueError(
-                "Can't change rename a resource that already has multiple "
+                "Can't change rename a provider that already has multiple "
                 "names; need exactly one name but got %r" % (
                     tuple(orig_names),))
 
-        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = [name]
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
@@ -176,7 +171,7 @@ class RenamingResource(WrappingResource):
             return Task(
                 keys=[
                     TaskKey(
-                        resource_name=name,
+                        entity_name=name,
                         case_key=task_key.case_key
                     )
                 ],
@@ -184,30 +179,30 @@ class RenamingResource(WrappingResource):
                 compute_func=task.compute,
             )
 
-        inner_tasks = self.wrapped_resource.get_tasks(
+        inner_tasks = self.wrapped_provider.get_tasks(
             dep_key_spaces_by_name, dep_task_key_lists_by_name)
         return [wrap_task(task) for task in inner_tasks]
 
 
-class NameSplittingResource(WrappingResource):
-    def __init__(self, wrapped_resource, names=None):
+class NameSplittingProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, names=None):
 
-        super(NameSplittingResource, self).__init__(wrapped_resource)
+        super(NameSplittingProvider, self).__init__(wrapped_provider)
 
-        orig_names = wrapped_resource.attrs.names
+        orig_names = wrapped_provider.attrs.names
         if len(orig_names) != 1:
             raise ValueError(
-                "Can't change a resource's number of names multiple times; "
+                "Can't change a provider's number of names multiple times; "
                 "need exactly one name but got %r" % (tuple(orig_names),))
 
-        self.attrs = copy(wrapped_resource.attrs)
+        self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = names
         if self.attrs.protocols is not None:
             protocol, = self.attrs.protocols
             self.attrs.protocols = [protocol for name in names]
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
-        inner_tasks = self.wrapped_resource.get_tasks(
+        inner_tasks = self.wrapped_provider.get_tasks(
             dep_key_spaces_by_name, dep_task_key_lists_by_name)
 
         def wrap_task(task):
@@ -219,9 +214,9 @@ class NameSplittingResource(WrappingResource):
 
                 if len(value_seq) != len(self.attrs.names):
                     raise ValueError(
-                        "Expected resource %r to return %d outputs named %r; "
+                        "Expected provider %r to return %d outputs named %r; "
                         "got %d outputs %r" % (
-                            self.wrapped_resource.attrs.names[0],
+                            self.wrapped_provider.attrs.names[0],
                             len(self.attrs.names), self.attrs.names,
                             tuple(value_seq)))
 
@@ -230,7 +225,7 @@ class NameSplittingResource(WrappingResource):
             return Task(
                 keys=[
                     TaskKey(
-                        resource_name=name,
+                        entity_name=name,
                         case_key=task_key.case_key,
                     )
                     for name in self.attrs.names
@@ -242,20 +237,20 @@ class NameSplittingResource(WrappingResource):
         return [wrap_task(task) for task in inner_tasks]
 
 
-class VersionedResource(WrappingResource):
-    def __init__(self, wrapped_resource, version):
-        assert wrapped_resource.attrs.code_version is None
-        super(VersionedResource, self).__init__(wrapped_resource)
+class VersionedProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, version):
+        assert wrapped_provider.attrs.code_version is None
+        super(VersionedProvider, self).__init__(wrapped_provider)
         self._version = version
 
     def get_code_id(self, case_key):
         return 'code_version=%s' % self._version
 
 
-class ValueResource(BaseResource):
+class ValueProvider(BaseProvider):
     def __init__(self, name, protocol):
-        super(ValueResource, self).__init__(
-            attrs=ResourceAttributes(
+        super(ValueProvider, self).__init__(
+            attrs=ProviderAttributes(
                 names=[name], protocols=[protocol], should_persist=False),
             is_mutable=True,
         )
@@ -266,12 +261,12 @@ class ValueResource(BaseResource):
         self.clear_cases()
 
     def copy(self):
-        resource = ValueResource(self.name, self.protocol)
-        resource.key_space = self.key_space
-        resource._has_any_values = self._has_any_values
-        resource._values_by_case_key = self._values_by_case_key.copy()
-        resource._code_ids_by_key = self._code_ids_by_key.copy()
-        return resource
+        provider = ValueProvider(self.name, self.protocol)
+        provider.key_space = self.key_space
+        provider._has_any_values = self._has_any_values
+        provider._values_by_case_key = self._values_by_case_key.copy()
+        provider._code_ids_by_key = self._code_ids_by_key.copy()
+        return provider
 
     def clear_cases(self):
         self.key_space = CaseKeySpace()
@@ -285,12 +280,12 @@ class ValueResource(BaseResource):
         if self._has_any_values:
             if case_key.space != self.key_space:
                 raise ValueError(
-                    "Can't add %r to resource %r: key space doesn't match %r" %
+                    "Can't add %r to entity %r: key space doesn't match %r" %
                     (case_key, self.name, self.key_space))
 
             if case_key in self._values_by_case_key:
                 raise ValueError(
-                    "Can't add %r to resource %r; that case key already exists"
+                    "Can't add %r to entity %r; that case key already exists"
                     % (case_key, self.name))
 
     def add_case(self, case_key, value):
@@ -334,10 +329,10 @@ class ValueResource(BaseResource):
         return [self._values_by_case_key[case_key]]
 
 
-class FunctionResource(BaseResource):
+class FunctionProvider(BaseProvider):
     def __init__(self, func):
         name = func.__name__
-        super(FunctionResource, self).__init__(attrs=ResourceAttributes(
+        super(FunctionProvider, self).__init__(attrs=ProviderAttributes(
             names=[name]))
 
         self._func = func
@@ -402,18 +397,18 @@ class FunctionResource(BaseResource):
         return '%s(%s)' % (self.__class__.__name__, self._func)
 
 
-class GatherResource(WrappingResource):
+class GatherProvider(WrappingProvider):
     def __init__(
-            self, wrapped_resource,
+            self, wrapped_provider,
             primary_names, secondary_names, gathered_dep_name):
         # TODO This is still pretty confusing, I think.
         '''
         This a very involved wrapper implementing the "gather" decorator.  It
         collects multiple dependencies into a single DataFrame argument, which
-        is accessible to the wrapped resource along with its other arguments.
+        is accessible to the wrapped provider along with its other arguments.
         Multiple instances of these dependencies may be grouped in a single
         DataFrame rather than being passed to separate instances of this
-        resource.
+        provider.
 
         The gathered dependencies are provided in two groups: "primary" and
         "secondary"; putting dependencies in one group or the other will change
@@ -421,16 +416,16 @@ class GatherResource(WrappingResource):
         variation caused by it (i.e., variation from its ancestors) will be
         collapsed into a single frame.  Secondary dependencies do not affect
         the grouping; any variation due to them will result in multiple
-        instances of this resource, as normal.
+        instances of this provider, as normal.
         '''
 
-        super(GatherResource, self).__init__(wrapped_resource)
+        super(GatherProvider, self).__init__(wrapped_provider)
 
         self._primary_names = primary_names
         self._secondary_names = secondary_names
         self._inner_gathered_dep_name = gathered_dep_name
 
-        self._inner_dep_names = self.wrapped_resource.get_dependency_names()
+        self._inner_dep_names = self.wrapped_provider.get_dependency_names()
 
         self._gather_names = (
             list(self._primary_names) + list(self._secondary_names))
@@ -441,7 +436,7 @@ class GatherResource(WrappingResource):
             raise ValueError(
                 "Expected wrapped %r to have dependency name %r, but "
                 "only found names %r" % (
-                    self.wrapped_resource, self._inner_gathered_dep_name,
+                    self.wrapped_provider, self._inner_gathered_dep_name,
                     self._inner_dep_names))
 
         self._passthrough_dep_names = list(self._inner_dep_names)
@@ -484,19 +479,19 @@ class GatherResource(WrappingResource):
 
         delta_case_keys = gather_case_key_lists_by_delta_case_key.keys()
 
-        # Create new task keys for the gathered values that the inner resource
+        # Create new task keys for the gathered values that the inner provider
         # will consume.
         inner_gathered_key_space = key_spaces.delta
         inner_gathered_dep_task_keys = [
             TaskKey(
-                resource_name=self._inner_gathered_dep_name,
+                entity_name=self._inner_gathered_dep_name,
                 case_key=case_key,
             )
             for case_key in delta_case_keys
         ]
 
         # Now we can construct the dicts of key spaces and task keys that the
-        # wrapper resource will see.
+        # wrapper provider will see.
         inner_key_spaces_by_name = {
             name: (
                 inner_gathered_key_space
@@ -521,7 +516,7 @@ class GatherResource(WrappingResource):
             gather_task_key_ix, = [
                 ix
                 for ix, dep_key in enumerate(inner_dep_keys)
-                if dep_key.resource_name == self._inner_gathered_dep_name
+                if dep_key.entity_name == self._inner_gathered_dep_name
             ]
 
             # Remove the key for the aggregated value, and remember its case
@@ -537,7 +532,7 @@ class GatherResource(WrappingResource):
                 dep_key_space = dep_key_spaces_by_name[dep_name]
                 for gather_case_key in gather_case_keys:
                     unique_gather_task_keys.add(TaskKey(
-                        resource_name=dep_name,
+                        entity_name=dep_name,
                         case_key=gather_case_key.project(dep_key_space),
                     ))
             prepended_keys = list(unique_gather_task_keys)
@@ -584,7 +579,7 @@ class GatherResource(WrappingResource):
                 compute_func=wrapped_compute_func,
             )
 
-        orig_tasks = self.wrapped_resource.get_tasks(
+        orig_tasks = self.wrapped_provider.get_tasks(
             inner_key_spaces_by_name, inner_dtkls)
         return [wrap_task(task) for task in orig_tasks]
 
@@ -592,12 +587,12 @@ class GatherResource(WrappingResource):
         return self._KeySpaces(self, dep_key_spaces_by_name)
 
     class _KeySpaces(object):
-        def __init__(self, gather_resource, dep_key_spaces_by_name):
+        def __init__(self, gather_provider, dep_key_spaces_by_name):
             # The combined keyspace of all the non-gathered dependencies of the
-            # wrapped resource.
+            # wrapped provider.
             self.passthrough = CaseKeySpace.union_all(
                 dep_key_spaces_by_name[name]
-                for name in gather_resource._passthrough_dep_names
+                for name in gather_provider._passthrough_dep_names
             )
 
             # The combined keyspace of the all the primary gathered
@@ -605,24 +600,24 @@ class GatherResource(WrappingResource):
             # frame.
             self.primary = CaseKeySpace.union_all(
                 dep_key_spaces_by_name[name]
-                for name in gather_resource._primary_names
+                for name in gather_provider._primary_names
             )
 
             # The combined keyspace of the all the secondary gathered
             # dependencies.
             self.secondary = CaseKeySpace.union_all(
                 dep_key_spaces_by_name[name]
-                for name in gather_resource._secondary_names
+                for name in gather_provider._secondary_names
             )
 
             # The difference between the secondary and primary key spaces.
-            # This is the key space of the gathered frame resource that the
-            # wrapped resource sees.
+            # This is the key space of the gathered frame provider that the
+            # wrapped provider sees.
             self.delta = self.secondary.difference(self.primary)
 
             # The combination of the passthrough and delta key spaces -- i.e.,
             # the combined key space of all the dependencies seen by the
-            # wrapped resource.  This is also the key space of this resource.
+            # wrapped provider.  This is also the key space of this provider.
             self.outer = self.passthrough.union(self.delta)
 
 
@@ -633,18 +628,18 @@ class GatherResource(WrappingResource):
 # 2. Have special handling for certain tasks that need to run in a separate
 #    process.
 # 3. Try to make Bionic's matplotlib initialization identical to Jupyter's.
-class PyplotResource(WrappingResource):
-    def __init__(self, wrapped_resource, name='pyplot'):
-        super(PyplotResource, self).__init__(wrapped_resource)
+class PyplotProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, name='pyplot'):
+        super(PyplotProvider, self).__init__(wrapped_provider)
 
         self._pyplot_name = name
 
-        inner_dep_names = wrapped_resource.get_dependency_names()
+        inner_dep_names = wrapped_provider.get_dependency_names()
         if self._pyplot_name not in inner_dep_names:
             raise ValueError(
                 "When using %s, expected wrapped %s to have a dependency "
                 "named %r; only found %r" % (
-                    self.__class__.__name__, wrapped_resource, inner_dep_names)
+                    self.__class__.__name__, wrapped_provider, inner_dep_names)
             )
 
         self._outer_dep_names = list(inner_dep_names)
@@ -658,7 +653,7 @@ class PyplotResource(WrappingResource):
         inner_dkss = outer_dkss.copy()
         inner_dkss[self._pyplot_name] = CaseKey([])
 
-        return self.wrapped_resource.get_key_space(inner_dkss)
+        return self.wrapped_provider.get_key_space(inner_dkss)
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
         outer_dkss = dep_key_spaces_by_name
@@ -671,19 +666,19 @@ class PyplotResource(WrappingResource):
         inner_dtkls = outer_dtkls.copy()
         inner_dtkls[self._pyplot_name] = [
             TaskKey(
-                resource_name=self._pyplot_name,
+                entity_name=self._pyplot_name,
                 case_key=CaseKey([]),
             )
         ]
 
-        inner_tasks = self.wrapped_resource.get_tasks(inner_dkss, inner_dtkls)
+        inner_tasks = self.wrapped_provider.get_tasks(inner_dkss, inner_dtkls)
 
         def wrap_task(task):
             inner_dep_keys = task.dep_keys
             pyplot_dep_ix, = [
                 ix
                 for ix, dep_key in enumerate(inner_dep_keys)
-                if dep_key.resource_name == self._pyplot_name
+                if dep_key.entity_name == self._pyplot_name
             ]
 
             outer_dep_keys = list(inner_dep_keys)
@@ -706,7 +701,7 @@ class PyplotResource(WrappingResource):
                 values = task.compute(inner_dep_values)
                 if values != [None]:
                     raise ValueError(
-                        "Resources wrapped by %s should not return values; "
+                        "Providers wrapped by %s should not return values; "
                         "got values %r" % (
                             self.__class__.__name__, tuple(values)))
 
@@ -816,29 +811,29 @@ def multi_index_from_case_keys(case_keys, ordered_key_names):
     )
 
 
-# -- Helpers for working with resources.
+# -- Helpers for working with providers.
 
-RESOURCE_METHODS = [
+PROVIDER_METHODS = [
     'get_code_id', 'get_dependency_names', 'get_tasks', 'get_source_func']
 
 
-def is_resource(obj):
-    return all(hasattr(obj, method_name) for method_name in RESOURCE_METHODS)
+def is_provider(obj):
+    return all(hasattr(obj, method_name) for method_name in PROVIDER_METHODS)
 
 
-def as_resource(func_or_resource):
-    if is_resource(func_or_resource):
-        resource = func_or_resource
-    elif callable(func_or_resource):
-        resource = FunctionResource(func_or_resource)
+def as_provider(func_or_provider):
+    if is_provider(func_or_provider):
+        provider = func_or_provider
+    elif callable(func_or_provider):
+        provider = FunctionProvider(func_or_provider)
     else:
-        raise ValueError('func must be either callable or a Resource')
+        raise ValueError('func must be either callable or a Provider')
 
-    return resource
+    return provider
 
 
-def resource_wrapper(wrapper_fn, *args, **kwargs):
-    def decorator(func_or_resource):
-        resource = as_resource(func_or_resource)
-        return wrapper_fn(resource, *args, **kwargs)
+def provider_wrapper(wrapper_fn, *args, **kwargs):
+    def decorator(func_or_provider):
+        provider = as_provider(func_or_provider)
+        return wrapper_fn(provider, *args, **kwargs)
     return decorator

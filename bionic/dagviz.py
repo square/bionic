@@ -36,15 +36,15 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False):
 
     node_lists_by_cluster = defaultdict(list)
     for node in graph.nodes():
-        resource_name = graph.nodes[node]['resource_name']
-        node_lists_by_cluster[resource_name].append(node)
+        entity_name = graph.nodes[node]['entity_name']
+        node_lists_by_cluster[entity_name].append(node)
 
-    resource_names = list(set(
-        graph.nodes[node]['resource_name']
+    entity_names = list(set(
+        graph.nodes[node]['entity_name']
         for node in graph.nodes()
     ))
-    color_strs_by_resource_name = hpluv_color_dict(
-        resource_names, saturation=99, lightness=90)
+    color_strs_by_entity_name = hpluv_color_dict(
+        entity_names, saturation=99, lightness=90)
 
     def name_from_node(node):
         return graph.nodes[node]['name']
@@ -56,11 +56,11 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False):
         subdot = pydot.Cluster(cluster, style='invis')
 
         for node in sorted_nodes:
-            resource_name = graph.nodes[node]['resource_name']
+            entity_name = graph.nodes[node]['entity_name']
             subdot.add_node(pydot.Node(
                 name_from_node(node),
                 style='filled',
-                fillcolor=color_strs_by_resource_name[resource_name],
+                fillcolor=color_strs_by_entity_name[entity_name],
                 shape='box',
             ))
 
