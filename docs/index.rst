@@ -5,8 +5,8 @@ Bionic
 Release v\ |version|.  **Bionic is pre-alpha and under active development.**
 
 Bionic is a Python framework for building, running, and sharing data science
-workflows.  It's designed for writing research code, where the point is to
-learn something from the code's output, and where you'll be rapidly tweaking
+workflows.  It's designed for writing *research code*: code where the point is
+to learn something from the code's output, and where you'll be rapidly tweaking
 and rewriting your code based on what you learn.
 
 Bionic uses `dependency injection`_ to let you specify your workflow with a
