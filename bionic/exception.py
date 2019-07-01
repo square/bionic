@@ -3,5 +3,5 @@ Bionic-specific exception classes.
 '''
 
 
-class UndefinedResourceError(KeyError):
+class UndefinedEntityError(KeyError):
     pass

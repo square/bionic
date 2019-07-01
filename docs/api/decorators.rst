@@ -25,8 +25,8 @@ as follows:
 
     print(builder.build().get('x_plus_one'))  # Prints "2".
 
-In the simple case above, the function is interpreted as a new resource named
-``x_plus_one`` which depends on the existing resource ``x``.  However, in many
+In the simple case above, the function is interpreted as a new entity named
+``x_plus_one`` which depends on the existing entity ``x``.  However, in many
 cases we want Bionic to process the function in a more complex way.  In these
 cases we can add additional decorators:
 
@@ -48,7 +48,7 @@ cases we can add additional decorators:
     print(builder.build().get('x_plus_two'))  # Prints "3".
 
 These decorators tell Bionic that our function actually generates two values
-for two different resources (``x_plus_one`` and ``x_plus_two``), and these
+for two different entities (``x_plus_one`` and ``x_plus_two``), and these
 values should not be persisted to disk.
 
 All Bionic decorators should be placed *after* the initial ``@builder``

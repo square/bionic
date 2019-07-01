@@ -14,14 +14,13 @@ import pandas as pd
 from pathlib2 import Path
 from six.moves import reload_module
 
-
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
 from .cache import PersistentCache
-from .entity import CaseKey
-from .exception import UndefinedResourceError
-from .resource import ValueResource, multi_index_from_case_keys, as_resource
-from .resolver import ResourceResolver
+from .datatypes import CaseKey
+from .exception import UndefinedEntityError
+from .provider import ValueProvider, multi_index_from_case_keys, as_provider
+from .deriver import EntityDeriver
 from . import decorators
 from .util import group_pairs, check_exactly_one_present
 from . import dagviz
@@ -53,7 +52,7 @@ class FlowState(pyrs.PClass):
     efficiently created with the set() method.
     """
 
-    resources_by_name = pyrs.field(initial=pyrs.pmap())
+    providers_by_name = pyrs.field(initial=pyrs.pmap())
     last_added_case_key = pyrs.field(initial=None)
 
     # These are used to keep track of whether a flow state is safe to reload.
@@ -74,97 +73,97 @@ class FlowState(pyrs.PClass):
     def touch(self):
         return self.set(is_blessed=False)
 
-    def get_resource(self, name):
-        if name not in self.resources_by_name:
-            raise UndefinedResourceError("Resource %r is not defined" % name)
-        return self.resources_by_name[name]
+    def get_provider(self, name):
+        if name not in self.providers_by_name:
+            raise UndefinedEntityError("Entity %r is not defined" % name)
+        return self.providers_by_name[name]
 
-    def has_resource(self, name):
-        return name in self.resources_by_name
+    def has_provider(self, name):
+        return name in self.providers_by_name
 
-    def create_resource(self, name, protocol):
-        if name in self.resources_by_name:
-            raise ValueError("Resource %r already exists" % name)
+    def create_provider(self, name, protocol):
+        if name in self.providers_by_name:
+            raise ValueError("Entity %r already exists" % name)
 
-        resource = ValueResource(name, protocol)
-        return self._set_resource(resource).touch()
+        provider = ValueProvider(name, protocol)
+        return self._set_provider(provider).touch()
 
-    def install_resource(self, resource, create_if_not_set=False):
-        for name in resource.attrs.names:
-            if name in self.resources_by_name:
-                raise ValueError("Resource %r already exists" % name)
+    def install_provider(self, provider, create_if_not_set=False):
+        for name in provider.attrs.names:
+            if name in self.providers_by_name:
+                raise ValueError("Entity %r already exists" % name)
 
-        return self._set_resource(resource).touch()
+        return self._set_provider(provider).touch()
 
     def add_case(self, name, case_key, value):
-        resource = self.get_resource(name).copy_if_mutable()
-        if not isinstance(resource, ValueResource):
-            raise ValueError("Can't add case to function resource %r" % name)
-        resource.check_can_add_case(case_key, value)
-        resource.add_case(case_key, value)
+        provider = self.get_provider(name).copy_if_mutable()
+        if not isinstance(provider, ValueProvider):
+            raise ValueError("Can't add case to function entity %r" % name)
+        provider.check_can_add_case(case_key, value)
+        provider.add_case(case_key, value)
 
-        return self._set_resource(resource).touch()
+        return self._set_provider(provider).touch()
 
-    def clear_resources(self, names):
+    def clear_providers(self, names):
         state = self
 
-        # Remember the original protocol for each resource.
-        protocols_by_resource_name = {}
+        # Remember the original protocol for each provider.
+        protocols_by_entity_name = {}
         for name in names:
-            if not state.has_resource(name):
+            if not state.has_provider(name):
                 continue
-            resource = self.get_resource(name)
+            provider = self.get_provider(name)
             for res_name, res_protocol in zip(
-                    resource.attrs.names, resource.attrs.protocols):
-                protocols_by_resource_name[res_name] = res_protocol
+                    provider.attrs.names, provider.attrs.protocols):
+                protocols_by_entity_name[res_name] = res_protocol
 
-        # Delete the resources (or fail if not possible).
-        state = state.delete_resources(names)
+        # Delete the providers (or fail if not possible).
+        state = state.delete_providers(names)
 
-        # Recreate an empty version of each resource.
-        for res_name, res_protocol in protocols_by_resource_name.items():
-            state = state.create_resource(res_name, res_protocol)
+        # Recreate an empty version of each provider.
+        for res_name, res_protocol in protocols_by_entity_name.items():
+            state = state.create_provider(res_name, res_protocol)
 
         return state.touch()
 
-        # TODO Consider checking downstream resources too.
+        # TODO Consider checking downstream entity providers too.
 
-    def delete_resources(self, names):
+    def delete_providers(self, names):
         state = self
 
         for name in names:
             # Make sure the name is safe to delete.
-            if not state.has_resource(name):
+            if not state.has_provider(name):
                 continue
-            resource = state.get_resource(name)
+            provider = state.get_provider(name)
 
-            if isinstance(resource, ValueResource):
-                for related_name in resource.key_space:
+            if isinstance(provider, ValueProvider):
+                for related_name in provider.key_space:
                     if related_name not in names:
                         raise ValueError(
-                            "Can't remove cases for resource %r without also "
-                            "removing resources %r" % (
-                                name, list(resource.key_space)))
+                            "Can't remove cases for entity %r without also "
+                            "removing entities %r" % (
+                                name, list(provider.key_space)))
 
-            resource_names = resource.attrs.names
-            for related_name in resource_names:
+            entity_names = provider.attrs.names
+            for related_name in entity_names:
                 if related_name not in names:
                     raise ValueError(
-                        "Can't remove cases for resource %r without also "
-                        "removing resources %r" % (
-                            name, list(resource_names)))
+                        "Can't remove cases for entity %r without also "
+                        "removing entities %r" % (
+                            name, list(entity_names)))
 
             # Delete it.
             state = state.set(
-                resources_by_name=state.resources_by_name.remove(name))
+                providers_by_name=state.providers_by_name.remove(name))
 
         return state.touch()
 
-    def _set_resource(self, resource):
+    def _set_provider(self, provider):
         state = self
-        for name in resource.attrs.names:
+        for name in provider.attrs.names:
             state = state.set(
-                resources_by_name=state.resources_by_name.set(name, resource))
+                providers_by_name=state.providers_by_name.set(name, provider))
         return state
 
 
@@ -173,7 +172,7 @@ class FlowBuilder(object):
     A mutable builder for Flows.
 
     Allows ``Flow`` objects to be constructed incrementally.  Use ``declare``,
-    ``assign``, ``set``, and/or ``derive`` to add resources to the builder,
+    ``assign``, ``set``, and/or ``derive`` to add entities to the builder,
     then use ``build`` to convert it into a Flow.
 
     Parameters
@@ -210,50 +209,50 @@ class FlowBuilder(object):
             state = state.bless()
 
         flow = Flow._from_state(state)
-        flow._resolver.get_ready()
+        flow._deriver.get_ready()
 
         self._state = state.touch()
         return flow
 
     def declare(self, name, protocol=None):
         """
-        Creates a new resource but does not assign it a value.
+        Creates a new entity but does not assign it a value.
 
-        The resource must not already exist.
+        The entity must not already exist.
 
         Parameters
         ----------
 
         name: String
-            The name of the new resource.
+            The name of the new entity.
         protocol: Protocol, optional
-            The resource's protocol.  The default is a smart type-detecting
+            The entity's protocol.  The default is a smart type-detecting
             protocol.
         """
 
         if protocol is None:
             protocol = DEFAULT_PROTOCOL
 
-        self._state = self._state.create_resource(name, protocol)
+        self._state = self._state.create_provider(name, protocol)
 
     def assign(self, name, value=None, values=None, protocol=None):
         """
-        Creates a new resource and assigns it a value.
+        Creates a new entity and assigns it a value.
 
-        Exactly one of ``value`` or ``values`` must be provided.  The resource
+        Exactly one of ``value`` or ``values`` must be provided.  The entity
         must not already exist.
 
         Parameters
         ----------
 
         name: String
-            The name of the new resource.
+            The name of the new entity.
         value: Object, optional
-            A single value for the resource.
+            A single value for the entity.
         values: Sequence, optional
-            A sequence of values for the resource.
+            A sequence of values for the entity.
         protocol: Protocol, optional
-            The resource's protocol.  The default is a smart type-detecting
+            The entity's protocol.  The default is a smart type-detecting
             protocol.
         """
 
@@ -269,7 +268,7 @@ class FlowBuilder(object):
 
         state = self._state
 
-        state = state.create_resource(name, protocol)
+        state = state.create_provider(name, protocol)
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
             state = state.add_case(name, case_key, value)
@@ -278,9 +277,9 @@ class FlowBuilder(object):
 
     def set(self, name, value=None, values=None):
         """
-        Sets the value of an existing resource.
+        Sets the value of an existing entity.
 
-        Exactly one of ``value`` or ``values`` must be provided.  The resource
+        Exactly one of ``value`` or ``values`` must be provided.  The entity
         must already exist and may already have a value (which will be
         overwritten).
 
@@ -288,11 +287,11 @@ class FlowBuilder(object):
         ----------
 
         name: String
-            The name of the new resource.
+            The name of the new entity.
         value: Object, optional
-            A single value for the resource.
+            A single value for the entity.
         values: Sequence, optional
-            A sequence of values for the resource.
+            A sequence of values for the entity.
         """
 
         check_exactly_one_present(value=value, values=values)
@@ -301,11 +300,11 @@ class FlowBuilder(object):
 
         state = self._state
 
-        state = state.clear_resources([name])
-        resource = state.get_resource(name)
-        # This resource must have a single name and single protocol; otherwise
+        state = state.clear_providers([name])
+        provider = state.get_provider(name)
+        # This provider must have a single name and single protocol; otherwise
         # we wouldn't have been able to clear it.
-        protocol, = resource.attrs.protocols
+        protocol, = provider.attrs.protocols
 
         protocol.validate(value)
 
@@ -317,19 +316,19 @@ class FlowBuilder(object):
 
     # TODO Should we allow undeclared names?  Having to declare them first is
     # basically always clunky and annoying, but should we allow add_case to
-    # create new resources?  (On the other hand, it sort of makes sense in cases
+    # create new entities?  (On the other hand, it sort of makes sense in cases
     # where we're using add_case('label', text).then_set('var', value) in order
     # to add a clean label to an unhashable value.  In that case it'd be nice
-    # that we can create new resources even on a Flow.)
+    # that we can create new entities even on a Flow.)
     def add_case(self, *name_values):
         """
         Adds a "case": a collection of associated values for a set of
-        resources.
+        entities.
 
-        Assigning resource values by case is an alternative to ``set`` (or
+        Assigning entity values by case is an alternative to ``set`` (or
         ``assign``).  If ``set`` is used to set multiple values for some
-        resources, then every combination of those values will be considered
-        for downstream resources.  On the other hand, if ``add_case`` is used,
+        entities, then every combination of those values will be considered
+        for downstream entities.  On the other hand, if ``add_case`` is used,
         only the specified combinations will be considered.
 
         Example Using ``assign``:
@@ -368,7 +367,7 @@ class FlowBuilder(object):
             print(builder.build().get('full_name', set))
             # Prints: {'Alice Jones', 'Alice Smith', 'Bob Smith'}
 
-        All resources must already exist.  They may have existing values, but
+        All entities must already exist.  They may have existing values, but
         those values must have been set case-by-case with the same structure
         as this call.
 
@@ -376,13 +375,13 @@ class FlowBuilder(object):
         ----------
 
         name_values: String/Object
-            Alternating resource names and values.
+            Alternating entity names and values.
 
         Returns
         -------
 
         FlowCase
-            An object which can be used to set values on additional resources
+            An object which can be used to set values on additional entities
             with this case.
         """
 
@@ -392,12 +391,12 @@ class FlowBuilder(object):
 
         case_nvt_tuples = []
         for name, value in name_value_pairs:
-            resource = state.get_resource(name)
-            if len(resource.attrs.protocols) > 1:
+            provider = state.get_provider(name)
+            if len(provider.attrs.protocols) > 1:
                 raise ValueError(
-                    "Can't add case for resource with multiple names %r" % (
-                        (tuple(resource.attr.names),)))
-            protocol, = resource.attrs.protocols
+                    "Can't add case for entity co-generated with other "
+                    "entities %r" % (tuple(provider.attr.names),))
+            protocol, = provider.attrs.protocols
             protocol.validate(value)
             token = protocol.tokenize(value)
 
@@ -417,45 +416,45 @@ class FlowBuilder(object):
 
     def clear_cases(self, *names):
         """
-        Removes all values assigned to one or more resources.
+        Removes all values assigned to one or more entities.
 
         The values will still exist, but not have any values, as if they had
-        just been created with ``declare``.  If any of the resources were set
+        just been created with ``declare``.  If any of the entities were set
         in a group using ``add_case``, they must all be cleared together.
 
         Parameters
         ----------
 
         names: Sequence of strings
-            The resources whose values should be cleared.
+            The entities whose values should be cleared.
         """
 
-        self._state = self._state.clear_resources(names)
+        self._state = self._state.clear_providers(names)
 
     def delete(self, *names):
         """
-        Deletes one or more resources.
+        Deletes one or more entities.
 
-        If any of the resources were set in a group using ``add_case``, they
+        If any of the entities were set in a group using ``add_case``, they
         must all be cleared together.
 
         Parameters
         ----------
 
         names: Sequence of strings
-            The resources to be deleted.
+            The entities to be deleted.
         """
 
-        self._state = self._state.delete_resources(names)
+        self._state = self._state.delete_providers(names)
 
-    def derive(self, func_or_resource):
+    def derive(self, func_or_provider):
         """
-        Defines a resource by providing a function that derives its value from
-        other resources.
+        Defines an entity by providing a function that derives its value from
+        other entities.
 
         By default, the name of the provided function will be the name of the
-        new resource; the arguments of the function should be other resources.
-        If the name of the new resource already exists, it will be overwritten.
+        new entity; the arguments of the function should be other entities.
+        If the name of the new entity already exists, it will be overwritten.
 
         This function is intended to be used as a decorator.  However, as a
         convenience, a builder can be used as a decorator with the same effect.
@@ -463,32 +462,32 @@ class FlowBuilder(object):
         Parameters
         ----------
 
-        func_or_resource: Function or resource
+        func_or_provider: Function or entity
             A Python function, optionally decorated with one or more Bionic
-            resource decorators.
+            entity decorators.
         """
 
-        resource = as_resource(func_or_resource)
-        if resource.attrs.protocols is None:
-            resource = DEFAULT_PROTOCOL(resource)
-        if resource.attrs.should_persist is None:
-            resource = decorators.persist(True)(resource)
+        provider = as_provider(func_or_provider)
+        if provider.attrs.protocols is None:
+            provider = DEFAULT_PROTOCOL(provider)
+        if provider.attrs.should_persist is None:
+            provider = decorators.persist(True)(provider)
 
         state = self._state
 
-        state = state.delete_resources(resource.attrs.names)
-        state = state.install_resource(resource)
+        state = state.delete_providers(provider.attrs.names)
+        state = state.install_provider(provider)
 
         self._state = state
 
-        return resource.get_source_func()
+        return provider.get_source_func()
 
-    def __call__(self, func_or_resource):
+    def __call__(self, func_or_provider):
         """
         A convenience wrapper for ``derive``.
         """
 
-        return self.derive(func_or_resource)
+        return self.derive(func_or_provider)
 
     # --- Private helpers.
 
@@ -517,7 +516,7 @@ class FlowBuilder(object):
 
 class FlowCase(object):
     """
-    A specific case for which resources can have associated values.
+    A specific case for which entities can have associated values.
 
     These should be constructed by the ``FlowBuilder`` object, not by users.
     """
@@ -526,14 +525,14 @@ class FlowCase(object):
         self._builder = builder
 
     def then_set(self, name, value):
-        """Sets a single value for a resource for this case."""
+        """Sets a single value for an entity for this case."""
         self._builder._set_for_case_key(self.key, name, value)
         return self
 
 
 class Flow(object):
     """
-    An immutable workflow object.  You can use get() to compute any resource
+    An immutable workflow object.  You can use get() to compute any entity
     in the workflow, or setting() to create a new workflow with modifications.
     Not all modifications are possible with this interface, but to_builder()
     can be used to get a mutable FlowBuilder version of a Flow.
@@ -541,34 +540,34 @@ class Flow(object):
 
     # --- Public API.
 
-    def all_resource_names(self, include_core=False):
+    def all_entity_names(self, include_core=False):
         """
-        Returns a list of all declared resource names in this flow.
+        Returns a list of all declared entity names in this flow.
 
         Parameters
         ----------
 
         include_core: Boolean, optional (default false)
-            Include built-in resources used for Bionic infrastructure.
+            Include internal entities used for Bionic infrastructure.
         """
         return [
             name
-            for name in self._state.resources_by_name.keys()
-            if include_core or not self._resolver.resource_is_core(name)
+            for name in self._state.providers_by_name.keys()
+            if include_core or not self._deriver.entity_is_internal(name)
         ]
 
-    def resource_protocol(self, name):
+    def entity_protocol(self, name):
         """
-        Returns the protocol for a given resource.
+        Returns the protocol for a given entity.
 
         Parameters
         ----------
 
         name: String
-            The name of a resource.
+            The name of a entity.
         """
 
-        return self._state.get_resource(name).protocol_for_name(name)
+        return self._state.get_provider(name).protocol_for_name(name)
 
     def to_builder(self):
         """
@@ -582,9 +581,9 @@ class Flow(object):
 
     def get(self, name, fmt=None):
         """
-        Computes the value(s) associated with a resource.
+        Computes the value(s) associated with an entity.
 
-        If the resource has multiple values, the ``fmt`` parameter indicates
+        If the entity has multiple values, the ``fmt`` parameter indicates
         how to handle them.  It can have any of the following values:
 
         * ``object``: return a single value or throw an exception
@@ -597,22 +596,22 @@ class Flow(object):
         ----------
 
         name: String
-            The name of a resource.
+            The name of a entity.
         fmt: String or type, optional, default is ``object``
-            The data structure to use if the resource has multiple values.
+            The data structure to use if the entity has multiple values.
 
         Returns
         -------
 
-        The value of the resource, or a collection containing its values.
+        The value of the entity, or a collection containing its values.
         """
 
-        result_group = self._resolver.resolve(name)
+        result_group = self._deriver.derive(name)
         if fmt is None or fmt is object:
             if len(result_group) == 0:
-                raise ValueError("Resource %s has no defined values" % name)
+                raise ValueError("Entity %r has no defined values" % name)
             if len(result_group) > 1:
-                raise ValueError("Resource %s has multiple values" % name)
+                raise ValueError("Entity %r has multiple values" % name)
             result, = result_group
             return result.value
         elif fmt is list or fmt == 'list':
@@ -639,7 +638,7 @@ class Flow(object):
     # TODO Maybe this wants to be two different functions?
     def export(self, name, file_path=None, dir_path=None):
         """
-        Provides access to the persisted file corresponding to a resource.
+        Provides access to the persisted file corresponding to an entity.
 
         Can be called in three ways:
 
@@ -654,18 +653,18 @@ class Flow(object):
             # Copies the persisted file to the specified directory.
             export(name, dir_path=path)
 
-        The resource must be persisted and have only one instance.
+        The entity must be persisted and have only one instance.
         """
 
-        result_group = self._resolver.resolve(name)
+        result_group = self._deriver.derive(name)
         if len(result_group) != 1:
             raise ValueError(
-                "Can only export a resource if it has a single value; "
-                "resource %r has %d values" % (name, len(result_group)))
+                "Can only export an entity if it has a single value; "
+                "entity %r has %d values" % (name, len(result_group)))
 
         result, = result_group
         if result.cache_path is None:
-            raise ValueError("Resource %r is not persisted" % name)
+            raise ValueError("Entity %r is not persisted" % name)
 
         src_file_path = result.cache_path
 
@@ -731,7 +730,7 @@ class Flow(object):
         Will fail if Graphviz is not installed on the system.
         """
 
-        graph = self._resolver.export_dag(include_core)
+        graph = self._deriver.export_dag(include_core)
         dot = dagviz.dot_from_graph(graph, vertical, curvy_lines)
         image = dagviz.image_from_dot(dot)
         return image
@@ -771,7 +770,7 @@ class Flow(object):
 
             from mymodule import flow
             ...
-            flow.reloading().get('myresource')
+            flow.reloading().get('my_entity')
 
         This will reload the modules and use the most recent version of the
         flow before doing the ``get()``.
@@ -795,8 +794,8 @@ class Flow(object):
         self_name = self.name
 
         module_names = set()
-        for resource in state.resources_by_name.values():
-            source_func = resource.get_source_func()
+        for provider in state.providers_by_name.values():
+            source_func = provider.get_source_func()
             if source_func is None:
                 continue
             module_names.add(source_func.__module__)
@@ -847,7 +846,7 @@ class Flow(object):
                 "use one of the classmethod constructors")
 
         self._state = state
-        self._resolver = ResourceResolver(state)
+        self._deriver = EntityDeriver(state)
 
         self.get = ShortcutProxy(self.get)
         self.setting = ShortcutProxy(self.setting)
@@ -865,13 +864,13 @@ class ShortcutProxy(object):
 
     Original style:
 
-        flow.get('resource')
-        flow.setting('resource', 7)
+        flow.get('my_entity')
+        flow.setting('my_entity', 7)
 
     Alternative style:
 
-        flow.get.resource()
-        flow.setting.resource(7)
+        flow.get.my_entity()
+        flow.setting.my_entity(7)
 
     The advantage of the alternative style is that it can be autocompleted in
     IPython, Jupyter, etc.
@@ -888,7 +887,7 @@ class ShortcutProxy(object):
         return self._wrapped_method(*args, **kwargs)
 
     def __dir__(self):
-        return self._flow.all_resource_names()
+        return self._flow.all_entity_names()
 
     def __getattr__(self, name):
         return functools.partial(self._wrapped_method, name)

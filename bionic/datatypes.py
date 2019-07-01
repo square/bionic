@@ -13,15 +13,15 @@ from .util import (
 
 
 # TODO Consider using the attr library here?
-class TaskKey(namedtuple('TaskKey', 'resource_name case_key')):
+class TaskKey(namedtuple('TaskKey', 'entity_name case_key')):
     '''
     A unique identifier for a Task.
     '''
-    def __new__(cls, resource_name, case_key):
-        return super(TaskKey, cls).__new__(cls, resource_name, case_key)
+    def __new__(cls, entity_name, case_key):
+        return super(TaskKey, cls).__new__(cls, entity_name, case_key)
 
     def __repr__(self):
-        return 'TaskKey(%r, %r)' % (self.resource_name, self.case_key)
+        return 'TaskKey(%r, %r)' % (self.entity_name, self.case_key)
 
 
 class Task(object):
@@ -35,11 +35,11 @@ class Task(object):
         self.compute = compute_func
         self.is_simple_lookup = is_simple_lookup
 
-    def key_for_resource_name(self, name):
+    def key_for_entity_name(self, name):
         matching_keys = [
             task_key
             for task_key in self.keys
-            if task_key.resource_name == name
+            if task_key.entity_name == name
         ]
         key, = matching_keys
         return key
@@ -50,7 +50,7 @@ class Task(object):
 
 class Query(object):
     '''
-    Represents a request for a specific resource value.
+    Represents a request for a specific entity value.
     '''
     def __init__(self, name, protocol, case_key, provenance):
         self.name = name
@@ -68,7 +68,7 @@ class Query(object):
 
 class Result(object):
     '''
-    Represents one value for one resource.
+    Represents one value for one entity.
     '''
     def __init__(self, query, value, cache_path=None):
         self.query = query

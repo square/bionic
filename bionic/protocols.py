@@ -18,7 +18,7 @@ from pyarrow import parquet, Table
 import pandas as pd
 from PIL import Image
 
-from .resource import resource_wrapper, ProtocolUpdateResource
+from .provider import provider_wrapper, ProtocolUpdateProvider
 from . import tokenization
 
 
@@ -75,7 +75,7 @@ class BaseProtocol(object):
             return tokenization.tokenize(value, self.write)
 
     # This lets a protocol object be used in two different ways:
-    # - called with a function or resource and used as a decorator
+    # - called with a function or provider and used as a decorator
     # - called with keyword arguments to construct a new instance
     # The advantage is that later we can do something like:
     #
@@ -95,15 +95,15 @@ class BaseProtocol(object):
     #    def func(...):
     #        ...
     #
-    def __call__(self, func_or_resource=None, **kwargs):
-        if func_or_resource is not None:
+    def __call__(self, func_or_provider=None, **kwargs):
+        if func_or_provider is not None:
             if len(kwargs) > 0:
                 raise ValueError(
                     "%s can't be called with both a function and keywords" %
                     self)
 
-            wrapper = resource_wrapper(ProtocolUpdateResource, self)
-            return wrapper(func_or_resource)
+            wrapper = provider_wrapper(ProtocolUpdateProvider, self)
+            return wrapper(func_or_provider)
         else:
             return self.__class__(**kwargs)
 
@@ -113,7 +113,7 @@ class BaseProtocol(object):
 
 class PicklableProtocol(BaseProtocol):
     """
-    Decorator indicating that a resource's values can be serialized using the
+    Decorator indicating that an entity's values can be serialized using the
     ``pickle`` library.
     """
 
@@ -129,7 +129,7 @@ class PicklableProtocol(BaseProtocol):
 
 class DillableProtocol(BaseProtocol):
     """
-    Decorator indicating that a resource's values can be serialized using the
+    Decorator indicating that an entity's values can be serialized using the
     ``dill`` library.
 
     This is useful for objects that can't be pickled for some reason.
@@ -157,7 +157,7 @@ class DillableProtocol(BaseProtocol):
 
 class DataFrameProtocol(BaseProtocol):
     """
-    Decorator indicating that a resource's values always have the
+    Decorator indicating that an entity's values always have the
     ``pandas.DataFrame`` type.
 
     These values will be serialized to Parquet files.
@@ -178,7 +178,7 @@ class DataFrameProtocol(BaseProtocol):
 
 class ImageProtocol(BaseProtocol):
     """
-    Decorator indicating that a resource's values always have the
+    Decorator indicating that an entity's values always have the
     ``Pillow.Imag`` type.
 
     These values will be serialized to PNG files.
@@ -203,7 +203,7 @@ class ImageProtocol(BaseProtocol):
 
 class CombinedProtocol(BaseProtocol):
     """
-    Decorator generator indicating that a resource's values should be handled
+    Decorator generator indicating that an entity's values should be handled
     differently depending on their types.
 
     This protocol combines multiple protocols, and handles each value according
@@ -217,7 +217,7 @@ class CombinedProtocol(BaseProtocol):
     Returns
     -------
     Function:
-        A resource decorator.
+        An entity decorator.
     """
 
     def __init__(self, *subprotocols):
@@ -264,17 +264,17 @@ class CombinedProtocol(BaseProtocol):
 
 class TypeProtocol(PicklableProtocol):
     """
-    Indicates that a resource's values will always have a specific type.
+    Indicates that an entity's values will always have a specific type.
 
     Parameters
     ----------
     type_: Type
-        The expected type for this resource.
+        The expected type for this entity.
 
     Returns
     -------
     Function:
-        A resource decorator.
+        A entity decorator.
     """
 
     def __init__(self, type_):
@@ -291,17 +291,17 @@ class TypeProtocol(PicklableProtocol):
 
 class EnumProtocol(PicklableProtocol):
     """
-    Indicates that a resource will only have one of a specific set of values.
+    Indicates that an entity will only have one of a specific set of values.
 
     Parameters
     ----------
     allowed_values: Sequence of objects
-        The expected possible values for this resource.
+        The expected possible values for this entity.
 
     Returns
     -------
     Function:
-        A resource decorator.
+        An entity decorator.
     """
 
     def __init__(self, *allowed_values):

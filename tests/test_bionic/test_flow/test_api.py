@@ -4,7 +4,7 @@ from pytest import raises
 import pandas as pd
 
 import bionic as bn
-from bionic.exception import UndefinedResourceError
+from bionic.exception import UndefinedEntityError
 
 from helpers import count_calls
 
@@ -56,7 +56,7 @@ def test_declare(preset_builder):
 def test_declare_protocol(builder):
     protocol = bn.protocol.dillable()
     builder.declare('n', protocol=protocol)
-    assert builder.build().resource_protocol('n') == protocol
+    assert builder.build().entity_protocol('n') == protocol
 
 
 def test_set(preset_builder):
@@ -141,7 +141,7 @@ def test_add_case(preset_builder):
     with raises(ValueError):
         builder.add_case('f', 7)
 
-    with raises(UndefinedResourceError):
+    with raises(UndefinedEntityError):
         builder.add_case('xxx', 7)
 
     builder.add_case('p', 4, 'q', 6)
@@ -177,7 +177,7 @@ def test_then_set(preset_builder):
         case.then_set('c', 1)
     with raises(ValueError):
         case.then_set('a', 1)
-    with raises(UndefinedResourceError):
+    with raises(UndefinedEntityError):
         case.then_set('xxx', 1)
 
 
@@ -213,17 +213,17 @@ def test_delete(preset_builder):
     builder = preset_builder
 
     builder.delete('g')
-    with raises(UndefinedResourceError):
+    with raises(UndefinedEntityError):
         builder.build().get('g')
     builder.assign('g', 1)
     builder.build().get('g', set) == {1}
 
     builder.delete('z')
-    with raises(UndefinedResourceError):
+    with raises(UndefinedEntityError):
         builder.build().get('z', set)
 
     builder.delete('y')
-    with raises(UndefinedResourceError):
+    with raises(UndefinedEntityError):
         # This fails because f has been invalidated.
         builder.build()
 
@@ -245,7 +245,7 @@ def test_derive(builder):
 
     builder.delete('a')
 
-    with raises(UndefinedResourceError):
+    with raises(UndefinedEntityError):
         builder.build().get('h')
 
 # --- Flow API tests.
@@ -331,7 +331,7 @@ def test_setting(preset_flow):
     assert flow.setting('y', 2).get('y') == 2
     assert flow.setting('y', values=[3, 4]).get('y', set) == {3, 4}
 
-    with raises(UndefinedResourceError):
+    with raises(UndefinedEntityError):
         flow.setting('xxx', 1)
 
     assert flow.get('y') == 1
@@ -406,8 +406,8 @@ def test_clearing_cases(preset_flow):
     assert flow.clearing_cases('z').setting('z', 1).get('z') == 1
 
 
-def test_all_resource_names(preset_flow):
-    assert set(preset_flow.all_resource_names()) == {
+def test_all_entity_names(preset_flow):
+    assert set(preset_flow.all_entity_names()) == {
         'x', 'y', 'z', 'f', 'g', 'p', 'q'
     }
 
