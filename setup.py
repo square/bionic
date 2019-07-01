@@ -38,7 +38,7 @@ extras_require = {
 
 setup(
     name='bionic',
-    version='0.1.0',
+    version='0.2.0',
     description='prototype',
     long_description=readme,
     author='',
@@ -50,10 +50,11 @@ setup(
     zip_safe=False,
     keywords='bionic',
     classifiers=[
-        'Development Status :: 2 - Pre-Alpha',
+        'Development Status :: 2 - Alpha',
         'Intended Audience :: Developers',
         'Natural Language :: English',
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
     ],
 )

@@ -2,7 +2,7 @@
 Bionic
 ======
 
-Release v\ |version|.  **Bionic is pre-alpha and under active development.**
+Release v\ |version|.  **Bionic is in alpha and under active development.**
 
 Bionic is a Python framework for building, running, and sharing data science
 workflows.  It's designed for writing *research code*: code where the point is
