@@ -23,8 +23,9 @@ take advantage of all the CPU cores of whatever machine you're using.
 Distributed Computation
 .......................
 
-Similarly, Bionic will eventually be able to dispatch jobs to other machines
-(such as a cloud compute cluster) to achieve even more parallelization.
+Similar to the above: Bionic will eventually be able to dispatch jobs to other
+machines (such as a cloud-based compute cluster) to achieve even more
+parallelization.
 
 Cloud Storage
 .............
@@ -40,8 +41,8 @@ Bionic will provide better APIs to combine multiple flows into one, or to nest
 one flow inside another with its own namespace.  This should enable the
 construction of more complex and/or more reusable flows.
 
-Direct Access toPersisted Files
-...............................
+Direct Access to Persisted Files
+................................
 
 Bionic is built around the idea that the user's code generally wants to operate
 on in-memory objects rather than files.  However, in some cases it's preferable
@@ -104,8 +105,8 @@ user when they might have forgotten to re-version their code.
 In particular, we can usually (but not always) detect when an entity function
 changes, and force the user to indicate whether the change is meaningful or
 not.  This might involve a concept of a "major" and a "minor" version, where
-the major version indicates a functional change that invalidates old results,
-and a minor version indicates a non-functional change.
+the major version update indicates a functional change that invalidates old
+results, while a minor version update indicates a non-functional change.
 
 Automatic Regression Tests
 ..........................
@@ -113,7 +114,7 @@ Automatic Regression Tests
 Following up on the concept of non-functional changes above: when a user
 performs a change that is supposed to be non-functional, they might actually
 want Bionic to verify this by re-running their code and confirming that the
-output is the same as the previous version.
+output is the same as the previous version's.
 
 Data Validation
 ...............
@@ -141,5 +142,5 @@ require some iteration before we find the best way to work with it.  There are
 definitely many use cases of multiplicity that are awkward or impossible to
 express with the current API.  For example, we might want one entity to be able
 to generate multiple downstream instances of another: for example, a
-``hyperparameter_search_strategy`` which creates multiple instances of a
+``hyperparameter_search_strategy`` entity which creates multiple instances of a
 ``hyperparameters_dict`` entity.
