@@ -212,17 +212,19 @@ class EntityDeriver(object):
 
         logged_task_keys = set()
 
+        def log_completed_task_exactly_once(task):
+            for task_key in task.keys:
+                if task_key not in logged_task_keys:
+                    loggable_str = self._loggable_str_for_task_key(task_key)
+                    self._log(
+                        'Accessed  %s from in-memory cache', loggable_str)
+                    logged_task_keys.add(task_key)
+
         while ready_task_states:
             state = ready_task_states.pop()
 
             if state.is_complete():
-                for task_key in state.task.keys:
-                    if task_key not in logged_task_keys:
-                        loggable_str = self._loggable_str_for_task_key(
-                            task_key)
-                        self._log(
-                            'Accessed  %s from in-memory cache', loggable_str)
-                        logged_task_keys.add(task_key)
+                log_completed_task_exactly_once(state.task)
                 continue
 
             if not state.is_blocked():
@@ -240,7 +242,9 @@ class EntityDeriver(object):
                 continue
 
             for dep_state in state.parents:
-                if not dep_state.is_complete():
+                if dep_state.is_complete():
+                    log_completed_task_exactly_once(dep_state.task)
+                else:
                     ready_task_states.append(dep_state)
             blocked_task_key_tuples.add(state.task.keys)
 
