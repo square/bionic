@@ -82,6 +82,38 @@ To run a flow, we ``build`` the ``FlowBuilder`` into a ``Flow``, then use
     # Returns 'Hello world!'
     flow.get('message')
 
+Modifying Built Flows
+.....................
+
+Although ``Flow`` objects are immutable, they provide a :meth:`setting
+<bionic.Flow.setting>` method that can be used to create a modified copy of a
+flow:
+
+.. code-block:: python
+
+    new_flow = flow.setting('greeting', 'Goodbye').setting('subject', 'galaxy')
+
+    # Returns "Goodbye galaxy!"
+    new_flow.get('message')
+
+    # Still returns "Hello world!"
+    flow.get('message')
+
+If more extensive changes are needed (such as creating new entities, or setting
+derived entities), a ``Flow`` can also be converted back to a mutable
+``FlowBuilder``:
+
+.. code-block:: python
+
+    new_builder = flow.to_builder()
+
+    @new_builder
+    def loud_message(message):
+        return message.upper()
+
+    # Returns "HELLO WORLD!"
+    new_builder.build().get('loud_message')
+
 Defining Multiple Outputs Using Decorators
 ..........................................
 
