@@ -19,7 +19,8 @@ reuse your work more easily.
 
 .. _dependency injection: https://en.wikipedia.org/wiki/Dependency_injection
 
-Bionic is also the infrastructure layer for the new version of `REDACTED-TOOL <REDACTED-URL>`_.
+Bionic is also the infrastructure layer for the new version of `REDACTED-TOOL
+<REDACTED-URL>`_.
 
 Contents
 --------
