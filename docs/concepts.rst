@@ -33,8 +33,8 @@ The basic mechanics of building and running flows are illustrated in the
 
 .. _Hello world tutorial: tutorials/hello_world.ipynb
 
-Declaring, Setting, Assigning, and Deriving
-...........................................
+Declaring, Setting, Assigning, and Deriving Entities
+....................................................
 
 Once a FlowBuilder is created, entities can be defined and updated in a few
 different ways:
@@ -105,14 +105,13 @@ values.  These can be assigned to different entities with the :func:`@outputs
         first_name, last_name = full_name.split()
         return first_name, last_name
 
-(Since we're explicitly providing the name of the output entities, the name of
+(Since we're explicitly providing the names of the output entities, the name of
 the function is ignored here.)
 
-Bionic provides several builtin `decorators`_ that modify how a function is
-interpreted and converted to an entity (or entities).  In the `future`_, it
-will be possible for users to write their own decorators as well.
-
-.. _future: future.rst#user-defined-decorators
+Bionic provides several built-in `decorators`_ that modify how a function is
+interpreted and converted to an entity (or entities).  In the `future
+<future.rst#user-defined-decorators>`__, it will be possible for users to write
+their own decorators as well.
 
 Configuration with Internal Entities
 ....................................
@@ -121,8 +120,8 @@ In additional to the entities defined by the user, each ``Flow`` has a
 collection of "internal" entities which control its behavior.  For example,
 the built-in ``core__persistent_cache__global_cache_dir`` entity controls the
 location of Bionic's persistent cache.  Internal entities are usually omitted
-from lists and visualizations, but they can be accessed and modified by name
-just like regular entities.
+from user-facing lists and visualizations, but they can be accessed and
+modified by name just like regular entities.
 
 Caching and Protocols
 ---------------------
@@ -158,10 +157,10 @@ There are three ways for a cached value to become invalid:
 Bionic can detect cases 1 and 2 automatically: if you update the value of any
 entity in your flow, all downstream cached values will automatically be
 invalidated, and they will be recomputed from scratch next time they're
-requested [#f1]_.  However, case
-3 is difficult to detect automatically, so we provide a special :func:`@version
-<bionic.version>` decorator to tell Bionic that when a function's code has
-changed.  For example, if we've defined a ``message`` entity:
+requested [#f1]_.  However, case 3 is difficult to detect automatically, so we
+provide a special :func:`@version <bionic.version>` decorator to tell Bionic
+when a function's code has changed.  For example, if we've defined a
+``message`` entity:
 
 .. code-block:: python
 
@@ -169,7 +168,8 @@ changed.  For example, if we've defined a ``message`` entity:
     def message(greeting, subject):
         return '{0} {1}!'.format(greeting, subject)
 
-If we want to change the code that generates message, we attach the decorator:
+If we want to change the code that generates ``message``, we attach the
+decorator:
 
 .. code-block:: python
 
@@ -179,8 +179,8 @@ If we want to change the code that generates message, we attach the decorator:
         return '{greeting} {subject}!!!'.format(greeting, subject).upper()
 
 If the function has a different ``version`` from the cached value, the cached
-value will be disregarded.  Each subsequent time we change this function, we
-just increment the version number.
+value will be disregarded and a new value will be recomputed.  Each subsequent
+time we change this function, we just increment the version number.
 
 .. [#f1] Bionic detects changes by hashing all of the fixed entity values, and
   storing each computed value alongside a hash of all its inputs.
@@ -188,7 +188,7 @@ just increment the version number.
 Disabling Persistent Caching
 ............................
 
-In some cases, it doesn't make sense to make a persisent copy of an entity's
+In some cases, it doesn't make sense to make a persistent copy of an entity's
 value, either because the value is much cheaper to compute than to store, or
 because the value has a type that's difficult to serialize.  In these cases,
 we can disable persistent caching altogether:
@@ -217,8 +217,9 @@ two internal entities:
     # Cache this flow's data in /my_cache_dir/
     builder.set('core__persistent_cache__flow_dir', 'my_cache_dir')
 
-In the future, it will be possible to configure Bionic to cache data in cloud
-storage (such as GCS) instead of the local disk.
+In the `future <future.rst#cloud-storage>`__, it will be possible to configure
+Bionic to cache data in cloud storage (such as GCS) instead of on the local
+disk.
 
 Serialization Protocols
 .......................
@@ -249,8 +250,9 @@ Exporting Persisted Files
 
 In some cases, you'll want to directly access the persisted file for an entity,
 rather than its in-memory representation.  (For example, if you're writing a
-a paper, you may want to access the files containing the plots.)  This can be
-accomplished using the :meth:`Flow.export <bionic.Flow.export>` method.
+a paper or report, you may want to access the files containing the plots.)
+This can be accomplished using the :meth:`Flow.export <bionic.Flow.export>`
+method.
 
 Multiplicity
 ------------
@@ -342,7 +344,7 @@ from different ``full_name``\ s, so they won't be combined together.
 Gathering
 .........
 
-Typically, if we have multiple instances of an entity, we eventually want to
+Often, if we have multiple instances of an entity, we eventually want to
 aggregate those instances together and compare them somehow.  This is the
 function of the :func:`@gather <bionic.gather>` decorator.
 
@@ -369,7 +371,7 @@ The effect of ``@gather`` here is to "gather" together all the different
 instances of ``subject`` into a single dataframe, along with the associated
 values of ``message``.  Our ``message_for_all_subjects`` function then combines
 those messages together into a single message.  The final result is an entity
-with two different values.
+with two distinct values.
 
 Essentially, we create multiplicity with the ``values=`` keyword, and we remove
 it with the ``@gather`` decorator.  In this example, we created multiplicity

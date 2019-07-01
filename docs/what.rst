@@ -5,13 +5,15 @@ Why Should I Use Bionic?
 Bionic lets you automate your data analysis by combining the *entities* you
 care about into a *workflow*.  This has the following benefits:
 
+*(NOTE: Items with footnotes are not complete yet!)*
+
 * **File-Object Mapping**: Bionic knows how to convert each entity between
   a Python object and a file.  You never have to read or write intermediate files
   or remember what your file naming scheme is; you just ask for an entity by
   name and Bionic gets it for you.
 * **Automatic Caching**: Every entity is automatically cached on disk
-  [#f_disk]_, so you only have to compute it once.  If you redefine an entity,
-  Bionic figures out which entities need to be recomputed.
+  or in the cloud [#f_cloud]_, so you only have to compute it once.  If you
+  redefine an entity, Bionic figures out which entities need to be recomputed.
 * **Scalable Execution**: Entities are computed in parallel [#f_parallel]_,
   either on your local machine or on a cluster [#f_distributed]_.
 * **Automatic Plumbing**: Each entity is specified independently and only knows
@@ -27,17 +29,18 @@ care about into a *workflow*.  This has the following benefits:
   use it from a notebook.  This lets you combine the version control and
   reproducibility of files with the rapid iteration environment of notebooks.
 
-.. [#f_disk] Currently Bionic supports caching to your local hard disk.  In the
-  `future <future.rst#cloud-storage>`_ it will also support storage in cloud
-  buckets like GCS.
+.. [#f_cloud] Currently Bionic only supports caching to your local hard disk.
+  In the `future <future.rst#cloud-storage>`_ it will also support storage in
+  cloud buckets like GCS.
 
-.. [#f_parallel] Parallel computation is a `work in progress
+.. [#f_parallel] Parallel computation is `not implemented yet
   <future.rst#local-parallelization>`__.
 
-.. [#f_distributed] Distributed computation is, like, *really* a `work in progress
+.. [#f_distributed] Distributed computation is especially `not implemented yet
   <future.rst#distributed-computation>`__.
 
-.. [#f_combine] Yep, combining multiple workflows is also a `work in progress
+.. [#f_combine] Workflows can be reused and reconfigured, but combining
+  multiple workflows is also `not implemented yet
   <future.rst#flow-merging-and-nesting>`__.
 
 When Should I Use It?
@@ -93,7 +96,7 @@ Why Not Just Use...?
 --------------------
 
 * `Make <https://www.gnu.org/software/make/>`_ (or another build system): Make
-  is ubiquitous on UNIX systems and support dependency management and
+  is ubiquitous on UNIX systems and supports dependency management and
   invalidation.  However, Make forces you to work in terms of files rather than
   objects, which means (a) you have to maintain the translation between files
   and objects yourself, and (b) you'll want to represent each transformation
@@ -109,7 +112,7 @@ Why Not Just Use...?
 
 * `Dask <https://dask.org/>`_: Dask has two parts: generic infrastructure for
   executing task graphs on multiple compute hosts, and a collection of data
-  structures that mimic existing APIs like Pandas and Scikit-Learn, but
+  structures that mimic existing APIs like Pandas and Scikit-Learn but
   transparently use Dask's infrastructure.  Dask doesn't attempt to manage or
   organize workflows like Bionic does.  However, Dask's infrastructure could be
   used as a task execution backend for Bionic, and its data structures can be
@@ -118,7 +121,7 @@ Why Not Just Use...?
 * `Airflow <https://airflow.apache.org/>`_ and `Luigi <https://github.com/spotify/luigi>`_:
   These are both platforms for building and running workflows.  However, they
   are targeted more at production ETL workflows rather than experimental
-  research workflows.  It also has a more manual and low-level API for
+  research workflows.  They also have a more manual and low-level API for
   constructing workflows: users have to construct the dependency graph and
   manage file-object mapping themselves.  Either of them might make sense as
   part of a task execution backend for Bionic.
