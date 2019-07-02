@@ -85,3 +85,25 @@ these, you need to remember two things:
    metadata can't be changed by current versions of Jupyter Notebook or Jupyter
    Lab; you have to manually edit the ``.ipynb`` file.  If you add any new text
    cells to a notebook, you'll probably want to add this metadata as well.
+
+Pushing Documentation Changes
+-----------------------------
+
+Bionic's documentation is hosted by the Bitbucket Pages plugin.  We maintain a
+separate ``docs`` branch in Git which tracks ``master`` but also contains the
+built documentation.  After committing a documentation change to ``master``,
+you can automatically update the ``docs`` branch with the following script:
+
+.. code-block:: bash
+
+    script/update_docs_branch.py
+
+This script builds the latest version of the docs and merges any changes to
+your local ``docs`` branch.  Assuming the update succeeds, the script will
+instruct you to push your changes to the shared branch:
+
+.. code-block:: bash
+
+    git push origin docs
+
+After pushing, the updated docs should be visible to everyone.
