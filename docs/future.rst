@@ -125,7 +125,7 @@ those assertions are violated.  Currently this can be done in two ways: adding
 a custom `Protocol <api/protocols.rst>`_ with a special ``validate`` method.
 These solutions share two problems.  First, they have to be written by the
 person who defines the entity; it's not possible to add new assertions about
-pre-exsiting entities.  Second, if the assertions fail, the entity's value
+pre-existing entities.  Second, if the assertions fail, the entity's value
 never gets persisted, so it's difficult to debug the problem -- especially if
 the value was expensive to compute.
 

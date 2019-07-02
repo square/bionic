@@ -2,7 +2,7 @@
 Bionic
 ======
 
-Release v\ |version|.  **Bionic is pre-alpha and under active development.**
+Release v\ |version|.  **Bionic is in alpha and under active development.**
 
 Bionic is a Python framework for building, running, and sharing data science
 workflows.  It's designed for writing *research code*: code where the point is
@@ -19,7 +19,8 @@ reuse your work more easily.
 
 .. _dependency injection: https://en.wikipedia.org/wiki/Dependency_injection
 
-Bionic is also the infrastructure layer for the new version of `REDACTED-TOOL <REDACTED-URL>`_.
+Bionic is also the infrastructure layer for the new version of `REDACTED-TOOL
+<REDACTED-URL>`_.
 
 Contents
 --------
