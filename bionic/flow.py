@@ -6,17 +6,19 @@ from __future__ import absolute_import
 
 from builtins import object
 import os
+import posixpath
 import shutil
 import functools
 
 import pyrsistent as pyrs
 import pandas as pd
-from pathlib2 import Path
+from pathlib2 import Path, PosixPath
 from six.moves import reload_module
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
-from .cache import PersistentCache
+from .cache import (
+        LocalFileCache, GcsFileCache, PersistentCache, CACHE_SOURCE_NAME_LOCAL)
 from .datatypes import CaseKey
 from .exception import UndefinedEntityError
 from .provider import ValueProvider, multi_index_from_case_keys, as_provider
@@ -663,10 +665,10 @@ class Flow(object):
                 "entity %r has %d values" % (name, len(result_group)))
 
         result, = result_group
-        if result.cache_path is None:
-            raise ValueError("Entity %r is not persisted" % name)
 
-        src_file_path = result.cache_path
+        if result.cache_source_name != CACHE_SOURCE_NAME_LOCAL:
+            raise ValueError("Entity %r is not locally persisted" % name)
+        src_file_path = Path(result.cache_path_str)
 
         if dir_path is None and file_path is None:
             return src_file_path
@@ -896,7 +898,10 @@ class ShortcutProxy(object):
 # Construct a default state object.
 def create_default_flow_state():
     builder = FlowBuilder._with_empty_state()
+
     builder.declare('core__flow_name')
+    builder.declare('core__persistent_cache__cloud_cache')
+
     builder.assign('core__persistent_cache__global_dir', 'bndata')
 
     @builder.derive
@@ -906,9 +911,59 @@ def create_default_flow_state():
         return os.path.join(
             core__persistent_cache__global_dir, core__flow_name)
 
-    @builder.derive
+    # TODO I'm not sure what happens if an entity value is None, or whether
+    # we want to allow it at all.  So for now we'll use a sentinel value to
+    # indicate that this entity hasn't been set.
+    SENTINEL_VALUE = '__IGNORE__'
+    builder.assign('core__persistent_cache__gcs__bucket_name', SENTINEL_VALUE)
+    builder.assign('core__persistent_cache__gcs__enabled', False)
+
+    @builder
     @decorators.immediate
-    def core__persistent_cache(core__persistent_cache__flow_dir):
-        return PersistentCache(core__persistent_cache__flow_dir)
+    def core__persistent_cache__gcs__object_path():
+        import getpass
+        return '%s/bndata/' % getpass.getuser()
+
+    @builder
+    @decorators.immediate
+    def core__persistent_cache__gcs__url(
+            core__persistent_cache__gcs__bucket_name,
+            core__persistent_cache__gcs__object_path):
+        bucket_name = core__persistent_cache__gcs__bucket_name
+        object_path_str = core__persistent_cache__gcs__object_path
+
+        if bucket_name == SENTINEL_VALUE:
+            return SENTINEL_VALUE
+
+        path = PosixPath(bucket_name) / object_path_str
+        return 'gs://%s' % path
+
+    @builder
+    @decorators.immediate
+    def core__persistent_cache(
+                core__persistent_cache__flow_dir,
+                core__persistent_cache__gcs__url,
+                core__persistent_cache__gcs__enabled,
+            ):
+        local_flow_dir = core__persistent_cache__flow_dir
+        gcs_url = core__persistent_cache__gcs__url
+        gcs_enabled = core__persistent_cache__gcs__enabled
+
+        entity_cache_dir = os.path.join(local_flow_dir, 'artifacts')
+        local_cache = LocalFileCache(Path(entity_cache_dir))
+
+        if gcs_enabled:
+            if gcs_url == SENTINEL_VALUE:
+                raise AssertionError(
+                    'core__persistent_cache__gcs__url has invalid sentinel '
+                    'value %r -- it needs to be set' % gcs_url)
+            cloud_cache = GcsFileCache(posixpath.join(gcs_url, 'artifacts'))
+        else:
+            cloud_cache = None
+
+        return PersistentCache(
+            local_cache=local_cache,
+            cloud_cache=cloud_cache,
+        )
 
     return builder._state

@@ -6,6 +6,7 @@ from setuptools import setup, find_packages
 with open('README.md') as readme_file:
     readme = readme_file.read()
 
+# TODO I guess we might as well start putting these in alphabetical order.
 requirements = [
     'six',
     'pyrsistent',
@@ -26,6 +27,7 @@ requirements = [
     'networkx',
     'pydot',
     'hsluv',
+    'google-cloud-storage',
 ]
 
 extras_require = {

@@ -5,11 +5,8 @@ from __future__ import absolute_import
 
 from builtins import object
 from collections import namedtuple
-import yaml
 
-from .util import (
-    ImmutableSequence, ImmutableMapping, check_exactly_one_present, hash_to_hex
-)
+from .util import ImmutableSequence, ImmutableMapping
 
 
 # TODO Consider using the attr library here?
@@ -52,11 +49,13 @@ class Query(object):
     '''
     Represents a request for a specific entity value.
     '''
-    def __init__(self, name, protocol, case_key, provenance):
-        self.name = name
+    def __init__(
+            self, entity_name, protocol, case_key, provenance, readable_name):
+        self.entity_name = entity_name
         self.protocol = protocol
         self.case_key = case_key
         self.provenance = provenance
+        self.readable_name = readable_name
 
     def to_result(self, value):
         return Result(query=self, value=value)
@@ -70,10 +69,12 @@ class Result(object):
     '''
     Represents one value for one entity.
     '''
-    def __init__(self, query, value, cache_path=None):
+    def __init__(
+            self, query, value, cache_source_name=None, cache_path_str=None):
         self.query = query
         self.value = value
-        self.cache_path = cache_path
+        self.cache_source_name = cache_source_name
+        self.cache_path_str = cache_path_str
 
     def __repr__(self):
         return 'Result(%r, %r)' % (self.query, self.value)
@@ -195,42 +196,3 @@ class ResultGroup(ImmutableSequence):
 
     def __repr__(self):
         return 'ResultGroup(%r)' % list(self)
-
-
-class Provenance(object):
-    '''
-    A compact, unique hash of a (possibly yet-to-be-computed) value.
-    Can be used to determine whether a value needs to be recomputed.
-    '''
-    @classmethod
-    def from_computation(cls, code_id, case_key, dep_provenances_by_name):
-        return cls(body_dict=dict(
-            code_id=code_id,
-            case_key=dict(case_key),
-            deps={
-                name: provenance.hashed_value
-                for name, provenance in dep_provenances_by_name.items()
-            },
-        ))
-
-    @classmethod
-    def from_yaml(cls, yaml_str):
-        return cls(yaml_str=yaml_str)
-
-    def __init__(self, body_dict=None, yaml_str=None):
-        check_exactly_one_present(body_dict=body_dict, yaml_str=yaml_str)
-
-        if body_dict is not None:
-            self._body_dict = body_dict
-            self._yaml_str = yaml.dump(body_dict, default_flow_style=False, encoding=None)
-        else:
-            self._body_dict = yaml.full_load(yaml_str)
-            self._yaml_str = yaml_str
-
-        self.hashed_value = hash_to_hex(self._yaml_str.encode('utf-8'))
-
-    def to_yaml(self):
-        return self._yaml_str
-
-    def __repr__(self):
-        return 'Provenance(%s...)' % self.hashed_value[:8]

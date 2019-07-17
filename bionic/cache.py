@@ -1,216 +1,448 @@
-'''
+"""
 Contains the PersistentCache class, which handles persistent local caching.
-This including artifact naming, invalidation, and saving/loading.  We may want
-to separate these concepts later.
-'''
+This including artifact naming, invalidation, and saving/loading.
+
+The PersistentCache is backed by two "file caches", which can be used to
+replicate files to a persistent store.  Both classes implement the same
+interface, which is based on copying temporary directories in and out of a
+managed cache.  Directories within the cache are referred to by "virtual
+paths", which the cache translates into either filesystem paths or GCS object
+prefixes.
+"""
+
 from __future__ import absolute_import
 from __future__ import division
 
-from builtins import str, range, object
-import os
-from random import Random
-import errno
+from builtins import object
+import shutil
+import subprocess
+import tempfile
+import textwrap
+import warnings
+import yaml
 
-import pathlib2 as pl
+import six
+from pathlib2 import Path, PurePosixPath
 
-from .datatypes import Result, Provenance
+from .datatypes import Result
+from .util import check_exactly_one_present, hash_to_hex
 
 import logging
 logger = logging.getLogger(__name__)
 
+CACHE_SOURCE_NAME_LOCAL = 'local'
+CACHE_SOURCE_NAME_CLOUD = 'cloud'
+
+VALUE_FILENAME_STEM = 'value.'
+DESCRIPTOR_FILENAME = 'descriptor.yaml'
+
 
 class PersistentCache(object):
-    def __init__(self, root_path_str):
-        self._root_path = pl.Path(root_path_str)
-        self._random = Random()
+    """
+    Provides a persistent mapping between Queries (things we could compute) and
+    Results (computed Queries).
+    """
+
+    def __init__(self, local_cache, cloud_cache):
+        self._local_cache = local_cache
+        self._cloud_cache = cloud_cache
 
     def save(self, result):
-        logger.debug('Saving result for %r', result.query)
-
+        working_dir_path = self._create_tmp_dir_path()
         query = result.query
+        virtual_path = self._virtual_path(query)
 
-        new_content_entry = self._candidate_entry_for_query(query)
-        official_symlink_entry = self._entry_for_query(query)
-        if official_symlink_entry.dir_path.exists():
-            old_content_entry = ArtifactEntry(
-                pl.Path(os.readlink(str(official_symlink_entry.dir_path))))
-        else:
-            old_content_entry = None
+        value = result.value
+        extension = query.protocol.file_extension_for_value(value)
+        value_filename = VALUE_FILENAME_STEM + extension
+        value_path = working_dir_path / value_filename
 
-        succeeded = False
-        try:
-            value_path = new_content_entry.value_path_for_result(result)
-            with value_path.open('wb') as f:
-                query.protocol.write(result.value, f)
+        with value_path.open('wb') as f:
+            query.protocol.write(value, f)
 
-            with new_content_entry.provenance_path.open('w') as f:
-                f.write(query.provenance.to_yaml())
+        descriptor = ArtifactDescriptor.from_content(
+            entity_name=query.entity_name,
+            value_filename=value_filename,
+            provenance=query.provenance,
+        )
+        descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
+        descriptor_path.write_text(descriptor.to_yaml())
 
-            n_attempts = 3
-            for i in range(n_attempts):
-                tmp_symlink_path = new_content_entry.dir_path.parent / (
-                    'tmp_symlink_' + self._random_str())
-                try:
-                    # We need to make this an absolute path; symlinking to
-                    # a relative path will leave the link in a broken state!
-                    abs_content_path = new_content_entry.dir_path.resolve()
-                    tmp_symlink_path.symlink_to(abs_content_path)
-                    break
-                except OSError as e:
-                    if e.errno != errno.EEXIST:
-                        raise
-                    logger.warning(
-                        'Unable to create symlink %s to dir %s',
-                        tmp_symlink_path, abs_content_path, exc_info=True)
-                    continue
-            else:
-                raise AssertionError('Unable to create unique symlink file')
+        if not self._local_cache.has_dir(virtual_path):
+            active_cache = self._local_cache
+            active_cache.copy_in(virtual_path, working_dir_path)
+        if (
+                self._cloud_cache is not None and
+                not self._cloud_cache.has_dir(virtual_path)):
+            logger.info(
+                'Uploading   %s to cloud file cache ...',
+                query.readable_name)
+            self._cloud_cache.copy_in(virtual_path, working_dir_path)
 
-            # TODO This will not work atomically (maybe not at all?) on
-            # Windows.
-            tmp_symlink_path.rename(official_symlink_entry.dir_path)
-
-            self._check_entry_is_valid(official_symlink_entry)
-
-            succeeded = True
-
-        finally:
-            if not succeeded:
-                try:
-                    self._erase_entry(new_content_entry)
-                except Exception as e:
-                    # If we're here, there must have been an exception in the
-                    # previous try block, and we don't want to lose that
-                    # exception, so we'll just log this and move on.
-                    logger.exception(
-                        'Failed to erase entry while cleaning up after '
-                        'exception %r', e)
-
-        if old_content_entry is not None:
-            self._erase_entry(old_content_entry)
+        self._remove_tmp_dir_path(working_dir_path)
 
     def load(self, query):
-        logger.debug('Loading %r ...', query)
+        working_dir_path = self._create_tmp_dir_path()
+        virtual_path = self._virtual_path(query)
 
-        if not self._query_is_cached(query):
-            logger.debug('... Query is not cached')
+        active_cache = None
+        if self._local_cache.has_dir(virtual_path):
+            active_cache = self._local_cache
+            cache_source_name = CACHE_SOURCE_NAME_LOCAL
+        elif (
+                self._cloud_cache is not None and
+                self._cloud_cache.has_dir(virtual_path)):
+            active_cache = self._cloud_cache
+            cache_source_name = CACHE_SOURCE_NAME_CLOUD
+            logger.info(
+                'Downloading %s from cloud file cache ...',
+                query.readable_name)
+        else:
             return None
 
-        cached_provenance = self._load_provenance(query)
+        try:
+            active_cache.copy_out(virtual_path, working_dir_path)
 
-        if cached_provenance.hashed_value != query.provenance.hashed_value:
-            logger.debug('... Query is cached but not up to date')
-            return None
+            descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
+            if not descriptor_path.is_file():
+                raise InvalidCacheStateError(
+                    "Couldn't find descriptor file: %s" % DESCRIPTOR_FILENAME)
 
-        value = self._load_value(query)
-        logger.debug('... Query successfully retrieved from cache')
-        return Result(
-            query=query,
-            value=value,
-            cache_path=self._entry_for_query(query).existing_value_path(),
-        )
+            descriptor_yaml = descriptor_path.read_text()
+            try:
+                descriptor = ArtifactDescriptor.from_yaml(descriptor_yaml)
+            except YamlRecordParsingError as e:
+                raise InvalidCacheStateError(
+                    "Couldn't parse descriptor file: %s" % e)
 
-    def _query_is_cached(self, query):
-        entry = self._entry_for_query(query)
-
-        if not entry.dir_path.exists():
-            return False
-
-        self._check_entry_is_valid(entry)
-
-        return True
-
-    def _load_provenance(self, query):
-        entry = self._entry_for_query(query)
-        with entry.provenance_path.open('r') as f:
-            return Provenance.from_yaml(f.read())
-
-    def _load_value(self, query):
-        entry = self._entry_for_query(query)
-        with entry.existing_value_path().open('rb') as f:
-            return query.protocol.read(f, entry.existing_value_extension())
-
-    def _erase_entry(self, entry):
-        if entry.existing_value_path() is not None:
-            entry.existing_value_path().unlink()
-        if entry.provenance_path.exists():
-            entry.provenance_path.unlink()
-        if entry.dir_path.exists():
-            entry.dir_path.rmdir()
-
-    def _path_for_query(self, query):
-        path = self._root_path / query.name
-        for name, token in query.case_key.iteritems():
-            for item in (name, token):
-                path = path / item
-        return path
-
-    def _entry_for_query(self, query):
-        return ArtifactEntry(self._path_for_query(query) / 'cur')
-
-    def _candidate_entry_for_query(self, query):
-        query_path = self._path_for_query(query)
-        n_attempts = 3
-        for i in range(n_attempts):
-            tmp_name = self._random_str()
-            entry = ArtifactEntry(query_path / tmp_name)
+            value_filename = descriptor.value_filename
+            value_path = working_dir_path / value_filename
+            extension = value_path.name[len(VALUE_FILENAME_STEM):]
 
             try:
-                entry.dir_path.mkdir(parents=True)
-            except OSError as e:
-                if e.errno != errno.EEXIST:
-                    raise
-                logger.warn(
-                    'Unable to create path %s -- it already exists',
-                    entry.dir_path)
-                continue
+                with value_path.open('rb') as f:
+                    value = query.protocol.read(f, extension)
+            except Exception as e:
+                raise InvalidCacheStateError(
+                    "Unable to load value %s due to %s: %s" % (
+                        query.readable_name, e.__class__.__name__, e))
 
-            return entry
+        except InvalidCacheStateError as e:
+            raise InvalidCacheStateError(
+                "Cached data was in an invalid state; "
+                "this should be impossible but could have resulted from either "
+                "a bug or a change to the cached files.  You should be able "
+                "to repair the problem by removing '%s'."
+                "\nDetails: %s" % (
+                    active_cache.export_path_str(virtual_path), e))
 
-        raise AssertionError('Unable to create a unique temp directory')
+        cache_path_str = active_cache.export_path_str(
+            virtual_path / value_filename)
 
-    def _check_entry_is_valid(self, entry):
-        assert entry.dir_path.is_dir()
-        assert entry.existing_value_path() is not None
-        assert entry.provenance_path.exists()
+        result = Result(
+            query=query,
+            value=value,
+            cache_source_name=cache_source_name,
+            cache_path_str=cache_path_str,
+        )
 
-    def _random_str(self):
-        return '%08x' % self._random.getrandbits(32)
+        self.cache_source_name = cache_source_name
+        self._remove_tmp_dir_path(working_dir_path)
 
-    def __repr__(self):
-        return 'PersistentCache(%r)' % self._root_path
+        return result
+
+    def _create_tmp_dir_path(self):
+        return Path(tempfile.mkdtemp())
+
+    def _remove_tmp_dir_path(self, path):
+        if (path.is_file() or path.is_symlink()):
+            path.unlink()
+        else:
+            shutil.rmtree(str(path))
+
+    def _virtual_path(self, query):
+        artifact_dir_str = query.provenance.hashed_value
+        return Path(query.entity_name) / artifact_dir_str
 
 
-class ArtifactEntry(object):
-    VALUE_FILE_STEM = 'value.'
+class LocalFileCache(object):
+    """
+    Replicates files to another location on the local filesystem.
+    """
 
-    def __init__(self, path):
-        self.dir_path = path
+    def __init__(self, root_path):
+        self.root_path = root_path
 
-        self.provenance_path = self.dir_path / 'provenance.yaml'
+    def has_dir(self, virtual_path):
+        """Checks whether a directory is present in the cache."""
+        dir_path = self.root_path / virtual_path
+        return dir_path.is_dir()
 
-    def value_path_for_result(self, result):
-        extension = result.query.protocol.file_extension_for_value(
-            result.value)
-        return self.dir_path / (self.VALUE_FILE_STEM + extension)
+    def copy_in(self, virtual_path, src_path):
+        """
+        Copies a (temporary) directory into the cache filesystem.
 
-    def existing_value_path(self):
-        value_filenames = [
-            path.name
-            for path in self.dir_path.iterdir()
-            if path.is_file() and path.name.startswith(self.VALUE_FILE_STEM)
+        If the directory is not already a symlink, it will simply get moved
+        into the managed filesystem and replaced with a symlink to the moved
+        directory.  Since we're assuming the original directory is temporary,
+        this is safe and cheaper than copying the files.
+        """
+
+        dst_path = self.root_path / virtual_path
+        if dst_path.is_file():
+            dst_path.unlink()
+        dst_path.mkdir(parents=True, exist_ok=True)
+
+        if src_path.is_symlink():
+            shutil.copytree(src_path, dst_path)
+        else:
+            src_path.rename(dst_path)
+            src_path.symlink_to(dst_path.absolute(), target_is_directory=True)
+
+    def copy_out(self, virtual_path, dst_path):
+        """
+        Creates new directory which is a symlink to a directory in the cache
+        filesystem.
+        """
+        src_path = self.root_path / virtual_path
+        if src_path.is_file():
+            raise InvalidCacheStateError(
+                "Expected %s to be a directory, but it was a file" % dst_path)
+
+        if dst_path.is_dir():
+            dst_path.rmdir()
+        dst_path.symlink_to(src_path.absolute(), target_is_directory=True)
+
+    def export_path_str(self, virtual_path):
+        """Returns a real path corresponding to the provided virtual path."""
+        return str(self.root_path / virtual_path)
+
+
+def normalize_path(path):
+    """
+    Convert a Path to a slash-separated string, suitable for use in cloud
+    object names.  (We don't just use ``str(path)`` because our paths might
+    look different if we ever run on Windows.)
+    """
+    return str(PurePosixPath(path))
+
+
+class GcsFileCache(object):
+    """
+    Replicates files to and from Google Cloud Storage.
+    """
+
+    DIR_MARKER_NAME = '__dir_marker__'
+    DIR_MARKER_CONTENTS = textwrap.dedent('''
+    The presence of this file indicates that the containing directory
+    has been completely and successfully written.
+    ''')
+
+    def __init__(self, url):
+        URL_PREFIX = 'gs://'
+        if not url.startswith(URL_PREFIX):
+            raise ValueError('url must start with "%s"' % URL_PREFIX)
+        url_parts = url[len(URL_PREFIX):].split('/', 1)
+        if len(url_parts) == 1:
+            bucket_name, = url_parts
+            object_prefix = ''
+        else:
+            bucket_name, object_prefix = url_parts
+
+        from google.cloud import storage as gcs
+        with warnings.catch_warnings():
+            # Google's SDK warns if you use end user credentials instead of a
+            # service account.  I think this warning is intended for production
+            # server code, where you don't want GCP access to be tied to a
+            # particular user.  However, this code is intended to be run by
+            # individuals, so using end user credentials seems appropriate.
+            # Hence, we'll suppress this warning.
+            warnings.filterwarnings(
+                'ignore',
+                'Your application has authenticated using end user credentials'
+            )
+            logger.info('Initializing GCS client ...')
+            client = gcs.Client()
+
+        self._bucket = client.get_bucket(bucket_name)
+        if not object_prefix.endswith('/'):
+            object_prefix = object_prefix + '/'
+        self._object_prefix = object_prefix
+
+    def has_dir(self, virtual_path):
+        """Checks whether a directory is present in the cache."""
+        return self._marker_blob(virtual_path).exists()
+
+    def copy_in(self, virtual_path, src_path):
+        """
+        Copies the contents of a directory to GCS.
+
+        This uses gsutils rsync, but also adds a special marker blob to
+        indicate that a sync has been successfully completed.  (Otherwise,
+        if the rsync termined in the middle of an upload, there would be no
+        way to tell that the uploaded objects were incomplete.)
+        """
+
+        if (src_path / self.DIR_MARKER_NAME).exists():
+            raise ValueError(
+                "Found a file with the special name %r; we can't cache this" %
+                self.DIR_MARKER_NAME)
+
+        self._gsutil_rsync(
+            src_url=str(src_path),
+            dst_url=self._gs_url_from_path(virtual_path),
+        )
+
+        self._marker_blob(virtual_path).upload_from_string(
+            self.DIR_MARKER_CONTENTS)
+
+    def copy_out(self, virtual_path, dst_path):
+        """Copies a cached directory into a local file directory."""
+        dst_path.mkdir(parents=True, exist_ok=True)
+        self._gsutil_rsync(
+            src_url=self._gs_url_from_path(virtual_path),
+            dst_url=str(dst_path),
+        )
+
+    def export_path_str(self, virtual_path):
+        """Returns a ``gs://` URL corresponding to a virtual path."""
+        return self._gs_url_from_path(virtual_path)
+
+    def _gs_url_from_path(self, virtual_path):
+        return 'gs://%s/%s' % (
+            self._bucket.name,
+            normalize_path(self._object_prefix + str(virtual_path) + '/'))
+
+    def _gsutil_rsync(self, src_url, dst_url):
+        args = [
+            'gsutil',
+            '-q',  # Don't log anything but errors.
+            '-m',  # Transfer files in paralle.
+            'rsync',
+            '-d',  # Delete any items in the dst dir that aren't in the src dir.
+            '-R',  # Recursively sync sub-directories.
+            src_url, dst_url
         ]
-        if len(value_filenames) == 0:
-            return None
-        if len(value_filenames) > 1:
-            raise AssertionError('Found too many value files in %s: %r' % (
-                self.dir_path, value_filenames))
-        filename, = value_filenames
-        return self.dir_path / filename
+        logger.debug('Running command: %s' % ' '.join(args))
+        subprocess.check_call(args)
+        logger.debug('Finished running gsutil')
 
-    def existing_value_extension(self):
-        filename = self.existing_value_path().name
-        return filename[len(self.VALUE_FILE_STEM):]
+    def _marker_blob(self, virtual_path):
+        return self._bucket.blob(
+            self._object_prefix +
+            normalize_path(virtual_path / self.DIR_MARKER_NAME)
+        )
+
+
+class InvalidCacheStateError(Exception):
+    pass
+
+
+CACHE_SCHEMA_VERSION = 1
+
+if six.PY2:
+    PYTHON_MAJOR_VERSION = 2
+elif six.PY3:
+    PYTHON_MAJOR_VERSION = 3
+else:
+    raise AssertionError("Can't figure out what Python version we're using")
+
+
+class YamlDictRecord(object):
+    """
+    A base class for classes wrapping a simple dictionary that can easily
+    be converted to/from YAML.
+    """
+
+    @classmethod
+    def from_yaml(cls, yaml_str):
+        return cls(yaml_str=yaml_str)
+
+    def __init__(self, body_dict=None, yaml_str=None):
+        check_exactly_one_present(body_dict=body_dict, yaml_str=yaml_str)
+
+        if body_dict is not None:
+            self._body_dict = body_dict
+            self._yaml_str = yaml.dump(
+                body_dict,
+                default_flow_style=False,
+                encoding=None,
+                sort_keys=True,
+            )
+        else:
+            try:
+                self._body_dict = yaml.full_load(yaml_str)
+            except yaml.error.YAMLError as e:
+                raise YamlRecordParsingError(
+                    "Couldn't parse %s: %s" % (
+                        self.__class__.__name__, str(e)))
+            self._yaml_str = yaml_str
+
+    def to_yaml(self):
+        return self._yaml_str
+
+    def to_dict(self):
+        return self._body_dict
+
+
+class YamlRecordParsingError(Exception):
+    pass
+
+
+class ArtifactDescriptor(YamlDictRecord):
+    """
+    Describes a persisted artifact.  Intended to be stored as a YAML file.
+    """
+
+    @classmethod
+    def from_content(cls, entity_name, value_filename, provenance):
+        return cls(body_dict=dict(
+            entity=entity_name,
+            filename=value_filename,
+            provenance=provenance,
+        ))
+
+    def __init__(self, body_dict=None, yaml_str=None):
+        super(ArtifactDescriptor, self).__init__(body_dict, yaml_str)
+
+        try:
+            self.entity_name = self.to_dict()['entity']
+            self.value_filename = self.to_dict()['filename']
+        except KeyError as e:
+            raise YamlRecordParsingError(
+                "YAML for ArtifactDescriptor was missing field: %s" % e)
+
+    def is_valid(self):
+        cache_schema_version =\
+            self.to_dict()['provenance']['cache_schema_version']
+        return cache_schema_version == CACHE_SCHEMA_VERSION
 
     def __repr__(self):
-        return 'ArtifactEntry(path=%s)' % self.dir_path
+        return 'ArtifactDescriptor(%s)' % self.entity_name
+
+
+class Provenance(YamlDictRecord):
+    """
+    A compact, unique hash of a (possibly yet-to-be-computed) value.
+    Can be used to determine whether a value needs to be recomputed.
+    """
+
+    @classmethod
+    def from_computation(cls, code_id, case_key, dep_provenances_by_name):
+        return cls(body_dict=dict(
+            cache_schema_version=CACHE_SCHEMA_VERSION,
+            python_major_version=PYTHON_MAJOR_VERSION,
+            code_id=code_id,
+            case_key=dict(case_key),
+            dep_provenance_hashes={
+                name: provenance.hashed_value
+                for name, provenance in dep_provenances_by_name.items()
+            },
+        ))
+
+    def __init__(self, body_dict=None, yaml_str=None):
+        super(Provenance, self).__init__(body_dict, yaml_str)
+        self.hashed_value = hash_to_hex(self.to_yaml().encode('utf-8'))
+
+    def __repr__(self):
+        return 'Provenance(%s...)' % self.hashed_value[:8]

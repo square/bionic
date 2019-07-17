@@ -22,6 +22,13 @@ to install it:
 
     brew install graphviz
 
+If you want your data to be automatically `cached to Google Cloud Storage`_,
+you'll also need to have the `Google Cloud SDK`_ installed and have access to a
+GCS bucket.
+
+.. _cached to Google Cloud Storage: concepts.rst#caching-in-google-cloud-storage
+.. _Google Cloud SDK : https://cloud.google.com/sdk/
+
 Bionic should work on both Python 2.7 and Python 3.x.
 
 Tutorials
