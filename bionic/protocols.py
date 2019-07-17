@@ -253,6 +253,10 @@ class CombinedProtocol(BaseProtocol):
             self._subprotocols[-1].validate(value)
 
     def read(self, file_, extension):
+        if not self.can_read_file_extension(extension):
+            raise ValueError(
+                "This protocol doesn't know how to read a file with "
+                "extension %r" % extension)
         return self._protocol_for_extension(extension).read(file_, extension)
 
     def write(self, value, file_):
