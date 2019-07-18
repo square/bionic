@@ -198,7 +198,7 @@ class ImageProtocol(BaseProtocol):
         return image
 
     def write(self, image, file_):
-        image.save(file_)
+        image.save(file_, format='png')
 
 
 class CombinedProtocol(BaseProtocol):
