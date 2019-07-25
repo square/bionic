@@ -9,7 +9,7 @@ import bionic as bn
 # It would be nice to move the builder setup into fixtures, but since we need
 # to access the bound functions as well (to check the number of times they were
 # called), it's easiest to just have one long test.
-def test_caching_and_invalidation(builder, tmp_path):
+def test_caching_and_invalidation(builder):
     # Set up the builder with singleton values.
 
     builder.assign('x', 2)
