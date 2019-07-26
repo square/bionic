@@ -17,5 +17,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '_helpers'))
 @pytest.fixture(scope='function')
 def builder(tmp_path):
     builder = bn.FlowBuilder('test')
-    builder.set('core__persistent_cache__flow_dir', str(tmp_path))
+    builder.set(
+        'core__persistent_cache__flow_dir', str(tmp_path / 'BNTESTDATA'))
     return builder

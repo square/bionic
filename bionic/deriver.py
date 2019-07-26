@@ -4,7 +4,9 @@ Contains the core logic for resolving Entities by executing Tasks.
 from __future__ import absolute_import
 
 from builtins import object
-from .datatypes import Provenance, Query, Result, ResultGroup
+
+from .datatypes import Query, Result, ResultGroup
+from .cache import Provenance
 from .exception import UndefinedEntityError
 
 import logging
@@ -30,7 +32,7 @@ class EntityDeriver(object):
 
         # This state allows us to do full resolution for external callers.
         self._is_ready_for_full_resolution = False
-        self._persistent_cache = None
+        self._cache_system = None
 
     def get_ready(self):
         """
@@ -215,9 +217,9 @@ class EntityDeriver(object):
         def log_completed_task_exactly_once(task):
             for task_key in task.keys:
                 if task_key not in logged_task_keys:
-                    loggable_str = self._loggable_str_for_task_key(task_key)
+                    readable_name = self._readable_name_for_task_key(task_key)
                     self._log(
-                        'Accessed  %s from in-memory cache', loggable_str)
+                        'Accessed    %s from in-memory cache', readable_name)
                     logged_task_keys.add(task_key)
 
         while ready_task_states:
@@ -282,85 +284,96 @@ class EntityDeriver(object):
             code_id=provider.get_code_id(case_key),
             case_key=case_key,
             dep_provenances_by_name={
-                dep_result.query.name: dep_result.query.provenance
+                dep_result.query.entity_name: dep_result.query.provenance
                 for dep_result in dep_results
             },
         )
-        # We'll use "tk" ("task key") to prefix lists that line up with our
-        # list of task keys.
-        tk_queries = [
-            Query(
-                name=task_key.entity_name,
-                protocol=provider.protocol_for_name(task_key.entity_name),
-                case_key=case_key,
-                provenance=provenance,
+
+        query_states = [
+            QueryState(
+                query=Query(
+                    entity_name=task_key.entity_name,
+                    protocol=provider.protocol_for_name(task_key.entity_name),
+                    case_key=case_key,
+                    provenance=provenance,
+                    readable_name=self._readable_name_for_task_key(task_key),
+                ),
             )
             for task_key in task.keys
         ]
-        tk_loggable_task_strs = [
-            self._loggable_str_for_task_key(task_key)
-            for task_key in task.keys
-        ]
 
+        # If persisting, attempt to load each query.
         should_persist = provider.attrs.should_persist
+
         if should_persist:
             if not self._is_ready_for_full_resolution:
                 raise AssertionError(
                     "Can't apply persistent caching to bootstrap entities %r"
                     % (tuple(provider.attrs.names),))
-            tk_results = []
-            for query, task_str in zip(tk_queries, tk_loggable_task_strs):
-                result = self._persistent_cache.load(query)
-                if result is not None:
-                    self._log('Loaded    %s from file cache', task_str)
-                    tk_results.append(result)
-                else:
-                    results_ready = False
-                    break
-            else:
-                results_ready = True
-        else:
-            results_ready = False
+            cache = self._persistent_cache
 
-        if not results_ready:
-            for task_str in tk_loggable_task_strs:
-                if not task.is_simple_lookup:
-                    self._log('Computing %s ...', task_str)
+            for query_state in query_states:
+                query_state.result = cache.load(query_state.query)
+
+        # If not all entities were already cached, we'll have to compute them.
+        all_results_present = all(
+            query_state.result is not None
+            for query_state in query_states
+        )
+        if all_results_present:
+            for query_state in query_states:
+                self._log(
+                    'Loaded      %s from %s cache',
+                    query_state.readable_name,
+                    query_state.result.cache_source_name,
+                )
+
+                # Even if it was in the cache, we should write it back so it
+                # gets replicated to all tiers (local and cloud).
+                # TODO Should this be the cache's responsibility?
+                self._persistent_cache.save(query_state.result)
+
+        else:
+            if not task.is_simple_lookup:
+                for query_state in query_states:
+                    self._log('Computing   %s ...', query_state.readable_name)
 
             dep_values = [dep_result.value for dep_result in dep_results]
 
-            tk_values = task_state.task.compute(dep_values)
+            values = task_state.task.compute(dep_values)
+            assert len(values) == len(provider.attrs.names)
 
-            assert len(tk_values) == len(provider.attrs.names)
+            for value, query_state in zip(values, query_states):
+                query_state.query.protocol.validate(value)
 
-            tk_results = []
-            for value, query, loggable_task_str in zip(
-                    tk_values, tk_queries, tk_loggable_task_strs):
-                query.protocol.validate(value)
-                result = Result(query, value)
+                result = Result(
+                    query=query_state.query,
+                    value=value,
+                )
                 if should_persist:
-                    self._persistent_cache.save(result)
+                    cache.save(result)
                     # We immediately reload the value and treat that as the
                     # real value.  That way, if the serialized/deserialized
                     # value is not exactly the same as the original, we still
                     # always return the same value.
-                    result = self._persistent_cache.load(query)
+                    result = cache.load(query_state.query)
 
-                if task.is_simple_lookup:
-                    self._log(
-                        'Accessed  %s from definition', loggable_task_str)
-                else:
-                    self._log('Computed  %s', loggable_task_str)
+                query_state.result = result
 
-                tk_results.append(result)
+            if task.is_simple_lookup:
+                self._log(
+                    'Accessed    %s from definition',
+                    query_state.readable_name)
+            else:
+                self._log('Computed    %s', query_state.readable_name)
 
-        assert len(tk_results) == len(task.keys)
+        # Collect the results.
         task_state.results_by_name = {
-            task_key.entity_name: result
-            for task_key, result in zip(task.keys, tk_results)
+            query_state.query.entity_name: query_state.result
+            for query_state in query_states
         }
 
-    def _loggable_str_for_task_key(self, task_key):
+    def _readable_name_for_task_key(self, task_key):
         return '%s(%s)' % (
            task_key.entity_name,
            ', '.join(
@@ -377,6 +390,11 @@ class EntityDeriver(object):
 
 
 class TaskState(object):
+    """
+    Represents the state of a task computation.  Keeps track of its position
+    in the task graph and whether its values have been computed yet.
+    """
+
     def __init__(self, task):
         self.task = task
         self.results_by_name = None
@@ -391,3 +409,17 @@ class TaskState(object):
 
     def __repr__(self):
         return 'TaskState(%r)' % self.task
+
+
+class QueryState(object):
+    """Tracks a query that we may or may not have computed yet."""
+
+    def __init__(self, query):
+        self.query = query
+        self.readable_name = self.query.readable_name
+
+        # This will get written later.
+        self.result = None
+
+    def __repr__(self):
+        return 'QueryState(%r)' % (self.readable_name,)

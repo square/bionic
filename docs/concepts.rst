@@ -249,9 +249,47 @@ two internal entities:
     # Cache this flow's data in /my_cache_dir/
     builder.set('core__persistent_cache__flow_dir', 'my_cache_dir')
 
-In the `future <future.rst#cloud-storage>`__, it will be possible to configure
-Bionic to cache data in cloud storage (such as GCS) instead of on the local
-disk.
+Caching in Google Cloud Storage
+...............................
+
+Bionic can be configured to cache to `Google Cloud Storage`_ as well
+as on the local filesystem:
+
+.. _Google Cloud Storage: https://cloud.google.com/storage/
+
+.. code-block:: python
+
+    builder = bionic.FlowBuilder('my_flow')
+
+    # You need to have an existing, accessible GCS bucket already.
+    builder.set('core__persistent_cache__gcs__bucket_name', 'my-bucket')
+    builder.set('core__persistent_cache__gcs__enabled', True)
+
+By default, Bionic stores its cached files with a prefix of
+``$NAME_OF_USER/bndata/$NAME_OF_FLOW/``; this can be configured by setting the
+``core__persistent_cache__gcs__object_path`` entity:
+
+.. code-block:: python
+
+    builder.set('core__persistent_cache__gcs__bucket_name', 'my-bucket')
+    builder.set('core__persistent_cache__gcs__object_path', 'my/path/')
+    builder.set('core__persistent_cache__gcs__enabled', True)
+
+Alternatively, a single GCS URL can be provided:
+
+.. code-block:: python
+
+    builder.set('core__persistent_cache__gcs__url', 'gs://my-bucket/my/path/')
+    builder.set('core__persistent_cache__gcs__enabled', True)
+
+Bionic will load data from the GCS cache whenever it's not in the local cache,
+and will write back to both caches.  Note that the upload time will make each
+entity computation a bit slower.
+
+In order to use GCS caching, you must have the `gsutil`_ tool installed, and
+you must have GCP credentials configured.
+
+.. _gsutil: https://cloud.google.com/storage/docs/gsutil
 
 Serialization Protocols
 .......................

@@ -27,13 +27,6 @@ Similar to the above: Bionic will eventually be able to dispatch jobs to other
 machines (such as a cloud-based compute cluster) to achieve even more
 parallelization.
 
-Cloud Storage
-.............
-
-Currently Bionic can only persist data to the local hard drive of the machine
-it's running on.  Later it will be able to save to shared cloud storage, such
-as `Google Cloud Storage <https://cloud.google.com/storage/>`_.
-
 Flow Merging and Nesting
 ........................
 

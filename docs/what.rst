@@ -12,7 +12,7 @@ care about into a *workflow*.  This has the following benefits:
   or remember what your file naming scheme is; you just ask for an entity by
   name and Bionic gets it for you.
 * **Automatic Caching**: Every entity is automatically cached on disk
-  or in the cloud [#f_cloud]_, so you only have to compute it once.  If you
+  or in the cloud, so you only have to compute it once.  If you
   redefine an entity, Bionic figures out which entities need to be recomputed.
 * **Scalable Execution**: Entities are computed in parallel [#f_parallel]_,
   either on your local machine or on a cluster [#f_distributed]_.
@@ -28,10 +28,6 @@ care about into a *workflow*.  This has the following benefits:
   files and notebooks -- you can build your flow in a Python file and easily
   use it from a notebook.  This lets you combine the version control and
   reproducibility of files with the rapid iteration environment of notebooks.
-
-.. [#f_cloud] Currently Bionic only supports caching to your local hard disk.
-  In the `future <future.rst#cloud-storage>`_ it will also support storage in
-  cloud buckets like GCS.
 
 .. [#f_parallel] Parallel computation is `not implemented yet
   <future.rst#local-parallelization>`__.
@@ -78,8 +74,7 @@ These things don't matter:
 * Whether you're doing "data science", "data analysis", "machine learning", or
   "statistics".
 
-* Whether you're using a laptop, a desktop, or a cloud host
-  [#f_cloud_notebook]_.
+* Whether you're using a laptop, a desktop, or a cloud host.
 
 * Whether you're working on a small one-off analysis or a large research
   project.
@@ -88,9 +83,6 @@ These things don't matter:
 
 .. [#f_single] This will also be fixed in the `future
   <future.rst#distributed-computation>`__.
-
-.. [#f_cloud_notebook] Well, you probably won't want to use cloud notebooks
-  until `cloud storage <future.rst#cloud-storage>`__ is implemented.
 
 Why Not Just Use...?
 --------------------

@@ -94,5 +94,17 @@ flow = builder.build()
 if __name__ == '__main__':
     bn.util.init_basic_logging()
 
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='Runs a simple ML workflow example')
+    parser.add_argument(
+        '--bucket', '-b', help='Name of GCS bucket to cache in')
+
+    args = parser.parse_args()
+    if args.bucket is not None:
+        flow = flow\
+            .setting('core__persistent_cache__gcs__bucket_name', args.bucket)\
+            .setting('core__persistent_cache__gcs__enabled', True)
+
     with pd.option_context("display.max_rows", 10):
         print(flow.get('precision_recall_frame'))

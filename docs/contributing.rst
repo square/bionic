@@ -52,6 +52,13 @@ and Python 3, run Flake8, and check for any FIX\ ME strings.
 
     script/all_tests.sh
 
+Pytest will skip the Google Cloud Storage tests unless you set an environment
+variable telling it which bucket to use:
+
+.. code-block:: bash
+
+    BIONIC_TEST_GCS_BUCKET=my-bucket pytest
+
 Updating the Documentation
 --------------------------
 
