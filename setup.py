@@ -6,28 +6,27 @@ from setuptools import setup, find_packages
 with open('README.md') as readme_file:
     readme = readme_file.read()
 
-# TODO I guess we might as well start putting these in alphabetical order.
 requirements = [
-    'six',
-    'pyrsistent',
-    'pathlib2',
+    'Cython',
+    'Pillow',
     'PyYAML',
     'dill',
-    'Pillow',
-    'pyarrow',
-    'pandas',
-    'ipython',
-    'sklearn',
-    'matplotlib',
     'future',
+    'google-cloud-storage',
+    'hsluv',
+    'ipdb',
+    'ipython',
     'jupyter',
     'jupyterlab',
-    'ipdb',
-    'Cython',
+    'matplotlib',
     'networkx',
+    'pandas',
+    'pathlib2',
+    'pyarrow',
     'pydot',
-    'hsluv',
-    'google-cloud-storage',
+    'pyrsistent',
+    'six',
+    'sklearn',
 ]
 
 extras_require = {
