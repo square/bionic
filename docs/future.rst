@@ -13,6 +13,9 @@ exact timeline is not fixed.  You can help us prioritize by `giving us feedback
 Future Work
 -----------
 
+(Many of these issues already have
+`JIRA tickets <REDACTED-URL>`_.)
+
 Local Parallelization
 .....................
 

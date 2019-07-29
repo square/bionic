@@ -11,7 +11,14 @@ with:
     git clone ssh://git@REDACTED-URL
 
 Pull requests are welcome!  The best person to review your PR is `REDACTED-PERSON
-<REDACTED-URL>`_.
+<REDACTED-URL>`_.  Bionic development is discussed in
+`REDACTED-CHANNEL <REDACTED-URL>`_.
+
+If you're interested in contributing but not sure what to work on, look for
+`open JIRA issues marked "accessible"
+<REDACTED-URL>`_.  These tasks don't require
+deep familarity with Bionic's architecture.  If you need help getting started,
+please ask!
 
 Setting Up Your Development Environment
 ---------------------------------------
