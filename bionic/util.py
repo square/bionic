@@ -3,13 +3,13 @@ Miscellaneous utility functions.
 '''
 from __future__ import division
 
-from builtins import zip, object
+import pandas as pd
 import logging
+from builtins import zip, object
 from collections import defaultdict
 from hashlib import sha256
 from binascii import hexlify
-
-import pandas as pd
+from google.cloud import storage
 
 
 # TODO I believe this is unused now; should we remove it?
@@ -105,6 +105,18 @@ def hash_to_hex(bytestring, n_bytes=None):
         hex_str = hex_str[:n_chars]
 
     return hex_str
+
+
+def copy_to_gcs(src, dst):
+    """ Copy a local file at src to GCS at dst
+    """
+    bucket = dst.replace('gs://', '').split('/')[0]
+    prefix = "gs://{}".format(bucket)
+    path = dst[len(prefix) + 1:]
+
+    client = storage.Client()
+    blob = storage.Blob(path, client.get_bucket(bucket))
+    blob.upload_from_filename(src)
 
 
 class ImmutableSequence(object):

@@ -1,6 +1,8 @@
 import pytest
-
 import pickle
+from pathlib2 import Path
+from subprocess import check_call
+from helpers import skip_unless_gcs, GCS_TEST_BUCKET
 
 
 @pytest.fixture(scope='function')
@@ -46,3 +48,23 @@ def test_export_to_file(flow, tmp_path):
     flow.export('f', file_path=file_path)
 
     assert pickle.loads(file_path.read_bytes()) == 5
+
+
+@skip_unless_gcs
+def test_export_to_gcs_dir(flow, tmp_path):
+    flow.export('f', dir_path='gs://' + GCS_TEST_BUCKET)
+    src = Path(GCS_TEST_BUCKET) / 'f.pkl'
+    dst = tmp_path / 'f.pkl'
+    check_call('gsutil -m cp gs://{} {}'.format(src, dst), shell=True)
+    assert pickle.loads(dst.read_bytes()) == 5
+    check_call('gsutil -m rm gs://{}'.format(src), shell=True)
+
+
+@skip_unless_gcs
+def test_export_to_gcs_file(flow, tmp_path):
+    src = str(Path(GCS_TEST_BUCKET) / 'f.pkl')
+    flow.export('f', file_path='gs://' + src)
+    dst = tmp_path / 'f.pkl'
+    check_call('gsutil -m cp gs://{} {}'.format(src, dst), shell=True)
+    assert pickle.loads(dst.read_bytes()) == 5
+    check_call('gsutil -m rm gs://{}'.format(src), shell=True)
