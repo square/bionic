@@ -8,23 +8,16 @@ These tests are pretty slow -- they take about 40 seconds for me.
 '''
 
 import pytest
-
-import os
 import random
 import subprocess
 import getpass
 import shutil
 
-from helpers import count_calls
-
-
-GCS_TEST_BUCKET = os.environ.get('BIONIC_GCS_TEST_BUCKET', None)
+from helpers import count_calls, skip_unless_gcs, GCS_TEST_BUCKET
 
 
 # This is detected by pytest and applied to all the tests in this module.
-pytestmark = pytest.mark.skipif(
-    GCS_TEST_BUCKET is None,
-    reason='the BIONIC_GCS_TEST_BUCKET env variable was not set')
+pytestmark = skip_unless_gcs
 
 
 def gsutil_wipe_path(url):

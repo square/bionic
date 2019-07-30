@@ -24,7 +24,7 @@ from .exception import UndefinedEntityError
 from .provider import ValueProvider, multi_index_from_case_keys, as_provider
 from .deriver import EntityDeriver
 from . import decorators
-from .util import group_pairs, check_exactly_one_present
+from .util import group_pairs, check_exactly_one_present, copy_to_gcs
 from . import dagviz
 
 import logging
@@ -655,7 +655,8 @@ class Flow(object):
             # Copies the persisted file to the specified directory.
             export(name, dir_path=path)
 
-        The entity must be persisted and have only one instance.
+        The entity must be persisted and have only one instance. The dir_path and file_path
+        options support paths on GCS, specified like: gs://mybucket/subdir/
         """
 
         result_group = self._deriver.derive(name)
@@ -683,10 +684,16 @@ class Flow(object):
             dst_file_path = Path(file_path)
             dst_dir_path = dst_file_path.parent
 
-        if not dst_dir_path.exists():
+        if not dst_dir_path.exists() and 'gs:/' not in str(dst_dir_path):
             dst_dir_path.mkdir(parents=True)
 
-        shutil.copyfile(str(src_file_path), str(dst_file_path))
+        dst_file_path_str = str(dst_file_path)
+
+        if dst_file_path_str.startswith('gs:/'):
+            # The path object combines // into /, so we revert it here
+            copy_to_gcs(str(src_file_path), dst_file_path_str.replace('gs:/', 'gs://'))
+        else:
+            shutil.copyfile(str(src_file_path), dst_file_path_str)
 
     def setting(self, name, value=None, values=None):
         """
