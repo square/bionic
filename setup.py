@@ -7,17 +7,14 @@ with open('README.md') as readme_file:
     readme = readme_file.read()
 
 requirements = [
-    'Cython',
     'Pillow',
     'PyYAML',
     'dill',
     'future',
     'google-cloud-storage',
     'hsluv',
-    'ipdb',
     'ipython',
     'jupyter',
-    'jupyterlab',
     'matplotlib',
     'networkx',
     'pandas',
@@ -25,8 +22,8 @@ requirements = [
     'pyarrow',
     'pydot',
     'pyrsistent',
+    'scikit-learn',
     'six',
-    'sklearn',
 ]
 
 extras_require = {
