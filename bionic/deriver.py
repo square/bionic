@@ -292,9 +292,8 @@ class EntityDeriver(object):
         query_states = [
             QueryState(
                 query=Query(
-                    entity_name=task_key.entity_name,
+                    task_key=task_key,
                     protocol=provider.protocol_for_name(task_key.entity_name),
-                    case_key=case_key,
                     provenance=provenance,
                     readable_name=self._readable_name_for_task_key(task_key),
                 ),
