@@ -61,8 +61,7 @@ class Query(object):
         return Result(query=self, value=value)
 
     def __repr__(self):
-        return 'Query(%r, %r, %r, %r)' % (
-            self.name, self.protocol, self.case_key, self.provenance)
+        return 'Query(%r, %r)' % (self.readable_name, self.provenance)
 
 
 class Result(object):
