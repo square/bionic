@@ -1,6 +1,6 @@
 import pytest
 
-from helpers import equal_when_sorted
+from .helpers import equal_when_sorted
 
 import bionic.util as util
 
@@ -29,7 +29,7 @@ def test_merge_dicts():
 
 def test_merge_dfs():
     import pandas as pd
-    from helpers import df_from_csv_str, assert_frames_equal_when_sorted
+    from .helpers import df_from_csv_str, assert_frames_equal_when_sorted
 
     from bionic.util import merge_dfs
 
@@ -126,7 +126,7 @@ def test_merge_dfs():
 
 
 def test_merge_dfs_using_inner_outer():
-    from helpers import df_from_csv_str, assert_frames_equal_when_sorted
+    from .helpers import df_from_csv_str, assert_frames_equal_when_sorted
 
     from bionic.util import merge_dfs
 

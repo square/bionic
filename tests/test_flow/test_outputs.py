@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import pandas.testing as pdt
 
-from helpers import RoundingProtocol
+from ..helpers import RoundingProtocol
 
 import bionic as bn
 from bionic.exception import UndefinedEntityError

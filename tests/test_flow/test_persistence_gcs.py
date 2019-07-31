@@ -13,7 +13,7 @@ import subprocess
 import getpass
 import shutil
 
-from helpers import count_calls, skip_unless_gcs, GCS_TEST_BUCKET
+from ..helpers import count_calls, skip_unless_gcs, GCS_TEST_BUCKET
 
 
 # This is detected by pytest and applied to all the tests in this module.

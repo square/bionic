@@ -6,7 +6,7 @@ import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
 
-from helpers import count_calls, df_from_csv_str
+from ..helpers import count_calls, df_from_csv_str
 
 import bionic as bn
 from bionic.protocols import CombinedProtocol, PicklableProtocol
