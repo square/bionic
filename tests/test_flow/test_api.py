@@ -6,7 +6,7 @@ import pandas as pd
 import bionic as bn
 from bionic.exception import UndefinedEntityError
 
-from helpers import count_calls
+from ..helpers import count_calls
 
 
 @pytest.fixture(scope='function')

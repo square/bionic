@@ -2,7 +2,7 @@ import pytest
 import pickle
 from pathlib2 import Path
 from subprocess import check_call
-from helpers import skip_unless_gcs, GCS_TEST_BUCKET
+from ..helpers import skip_unless_gcs, GCS_TEST_BUCKET
 
 
 @pytest.fixture(scope='function')
