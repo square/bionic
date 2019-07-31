@@ -283,8 +283,8 @@ class EntityDeriver(object):
         provenance = Provenance.from_computation(
             code_id=provider.get_code_id(case_key),
             case_key=case_key,
-            dep_provenances_by_name={
-                dep_result.query.entity_name: dep_result.query.provenance
+            dep_provenances_by_task_key={
+                dep_result.query.task_key: dep_result.query.provenance
                 for dep_result in dep_results
             },
         )
@@ -292,9 +292,8 @@ class EntityDeriver(object):
         query_states = [
             QueryState(
                 query=Query(
-                    entity_name=task_key.entity_name,
+                    task_key=task_key,
                     protocol=provider.protocol_for_name(task_key.entity_name),
-                    case_key=case_key,
                     provenance=provenance,
                     readable_name=self._readable_name_for_task_key(task_key),
                 ),
@@ -360,12 +359,12 @@ class EntityDeriver(object):
 
                 query_state.result = result
 
-            if task.is_simple_lookup:
-                self._log(
-                    'Accessed    %s from definition',
-                    query_state.readable_name)
-            else:
-                self._log('Computed    %s', query_state.readable_name)
+                if task.is_simple_lookup:
+                    self._log(
+                        'Accessed    %s from definition',
+                        query_state.readable_name)
+                else:
+                    self._log('Computed    %s', query_state.readable_name)
 
         # Collect the results.
         task_state.results_by_name = {

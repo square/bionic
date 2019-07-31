@@ -216,6 +216,9 @@ def test_gather_cache_invalidation(builder):
     assert builder.build().get('z', set) == {5, 6}
     assert z.times_called() == 0
 
+    assert builder.build().setting('x', values=[2, 3]).get('z', set) == {7, 8}
+    assert z.times_called() == 2
+
     builder.set('y', values=[3, 4])
 
     assert builder.build().get('z', set) == {6, 7}

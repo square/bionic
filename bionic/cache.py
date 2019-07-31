@@ -326,7 +326,7 @@ class InvalidCacheStateError(Exception):
     pass
 
 
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
 
 if six.PY2:
     PYTHON_MAJOR_VERSION = 2
@@ -387,7 +387,7 @@ class ArtifactDescriptor(YamlDictRecord):
         return cls(body_dict=dict(
             entity=entity_name,
             filename=value_filename,
-            provenance=provenance,
+            provenance=provenance.to_dict(),
         ))
 
     def __init__(self, body_dict=None, yaml_str=None):
@@ -416,16 +416,25 @@ class Provenance(YamlDictRecord):
     """
 
     @classmethod
-    def from_computation(cls, code_id, case_key, dep_provenances_by_name):
+    def from_computation(cls, code_id, case_key, dep_provenances_by_task_key):
         return cls(body_dict=dict(
             cache_schema_version=CACHE_SCHEMA_VERSION,
             python_major_version=PYTHON_MAJOR_VERSION,
             code_id=code_id,
             case_key=dict(case_key),
-            dep_provenance_hashes={
-                name: provenance.hashed_value
-                for name, provenance in dep_provenances_by_name.items()
-            },
+            dependencies=[
+                dict(
+                    entity=task_key.entity_name,
+                    case_key=dict(task_key.case_key),
+                    provenance=provenance.hashed_value,
+                )
+                for task_key, provenance
+                # We need to sort this to make sure our final YAML has
+                # deterministic contents.  (When we write to YAML, dict entries
+                # are automatically sorted by sort_keys, but lists will keep
+                # their original order.)
+                in sorted(dep_provenances_by_task_key.items())
+            ],
         ))
 
     def __init__(self, body_dict=None, yaml_str=None):

@@ -50,10 +50,11 @@ class Query(object):
     Represents a request for a specific entity value.
     '''
     def __init__(
-            self, entity_name, protocol, case_key, provenance, readable_name):
-        self.entity_name = entity_name
+            self, task_key, protocol, provenance, readable_name):
+        self.task_key = task_key
+        self.entity_name = task_key.entity_name
+        self.case_key = task_key.case_key
         self.protocol = protocol
-        self.case_key = case_key
         self.provenance = provenance
         self.readable_name = readable_name
 
@@ -61,8 +62,7 @@ class Query(object):
         return Result(query=self, value=value)
 
     def __repr__(self):
-        return 'Query(%r, %r, %r, %r)' % (
-            self.name, self.protocol, self.case_key, self.provenance)
+        return 'Query(%r, %r)' % (self.readable_name, self.provenance)
 
 
 class Result(object):
