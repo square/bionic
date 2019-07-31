@@ -283,8 +283,8 @@ class EntityDeriver(object):
         provenance = Provenance.from_computation(
             code_id=provider.get_code_id(case_key),
             case_key=case_key,
-            dep_provenances_by_name={
-                dep_result.query.entity_name: dep_result.query.provenance
+            dep_provenances_by_task_key={
+                dep_result.query.task_key: dep_result.query.provenance
                 for dep_result in dep_results
             },
         )

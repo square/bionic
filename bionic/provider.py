@@ -535,6 +535,15 @@ class GatherProvider(WrappingProvider):
                         entity_name=dep_name,
                         case_key=gather_case_key.project(dep_key_space),
                     ))
+            # NOTE prepended_keys has a non-deterministic order, because a
+            # set's ordering depends on the hashes of its contents, and TaskKey
+            # hashes depend on string hashes, and string hashes are randomized
+            # in recent versions of Python.
+            # See: https://stackoverflow.com/questions/27522626/hash-function-in-python-3-3-returns-different-results-between-sessions  # noqa: E501
+            # We could fix this by sorting this list, but rather than trying
+            # to eliminate every source of non-deterministic ordering, I think
+            # it's better to sort our values at the point where we actually
+            # need determinism.  (Viz., computing the provenance hash.)
             prepended_keys = list(unique_gather_task_keys)
 
             # Combine the gathering task keys with the keys expected by the
