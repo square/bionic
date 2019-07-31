@@ -359,12 +359,12 @@ class EntityDeriver(object):
 
                 query_state.result = result
 
-            if task.is_simple_lookup:
-                self._log(
-                    'Accessed    %s from definition',
-                    query_state.readable_name)
-            else:
-                self._log('Computed    %s', query_state.readable_name)
+                if task.is_simple_lookup:
+                    self._log(
+                        'Accessed    %s from definition',
+                        query_state.readable_name)
+                else:
+                    self._log('Computed    %s', query_state.readable_name)
 
         # Collect the results.
         task_state.results_by_name = {
