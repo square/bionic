@@ -18,14 +18,14 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
-import warnings
 import yaml
 
 import six
 from pathlib2 import Path, PurePosixPath
 
 from .datatypes import Result
-from .util import check_exactly_one_present, hash_to_hex
+from .util import (
+    check_exactly_one_present, hash_to_hex, get_gcs_client_without_warnings)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -249,20 +249,8 @@ class GcsFileCache(object):
         else:
             bucket_name, object_prefix = url_parts
 
-        from google.cloud import storage as gcs
-        with warnings.catch_warnings():
-            # Google's SDK warns if you use end user credentials instead of a
-            # service account.  I think this warning is intended for production
-            # server code, where you don't want GCP access to be tied to a
-            # particular user.  However, this code is intended to be run by
-            # individuals, so using end user credentials seems appropriate.
-            # Hence, we'll suppress this warning.
-            warnings.filterwarnings(
-                'ignore',
-                'Your application has authenticated using end user credentials'
-            )
-            logger.info('Initializing GCS client ...')
-            client = gcs.Client()
+        logger.info('Initializing GCS client ...')
+        client = get_gcs_client_without_warnings()
 
         self._bucket = client.get_bucket(bucket_name)
         if not object_prefix.endswith('/'):

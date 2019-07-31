@@ -9,7 +9,9 @@ from builtins import zip, object
 from collections import defaultdict
 from hashlib import sha256
 from binascii import hexlify
-from google.cloud import storage
+import warnings
+
+from google.cloud import storage as gcs
 
 
 # TODO I believe this is unused now; should we remove it?
@@ -107,6 +109,21 @@ def hash_to_hex(bytestring, n_bytes=None):
     return hex_str
 
 
+def get_gcs_client_without_warnings():
+    with warnings.catch_warnings():
+        # Google's SDK warns if you use end user credentials instead of a
+        # service account.  I think this warning is intended for production
+        # server code, where you don't want GCP access to be tied to a
+        # particular user.  However, this code is intended to be run by
+        # individuals, so using end user credentials seems appropriate.
+        # Hence, we'll suppress this warning.
+        warnings.filterwarnings(
+            'ignore',
+            'Your application has authenticated using end user credentials'
+        )
+        return gcs.Client()
+
+
 def copy_to_gcs(src, dst):
     """ Copy a local file at src to GCS at dst
     """
@@ -114,8 +131,8 @@ def copy_to_gcs(src, dst):
     prefix = "gs://{}".format(bucket)
     path = dst[len(prefix) + 1:]
 
-    client = storage.Client()
-    blob = storage.Blob(path, client.get_bucket(bucket))
+    client = get_gcs_client_without_warnings()
+    blob = client.get_bucket(bucket).blob(path)
     blob.upload_from_filename(src)
 
 
