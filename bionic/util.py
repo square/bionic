@@ -3,7 +3,6 @@ Miscellaneous utility functions.
 '''
 from __future__ import division
 
-import pandas as pd
 import logging
 from builtins import zip, object
 from collections import defaultdict
@@ -12,48 +11,6 @@ from binascii import hexlify
 import warnings
 
 from google.cloud import storage as gcs
-
-
-# TODO I believe this is unused now; should we remove it?
-def merge_dicts(dicts, allow_overlap=False):
-    merged_dict = {}
-    for dict_ in dicts:
-        if not allow_overlap:
-            for key in dict_:
-                if key in merged_dict:
-                    raise ValueError(
-                        'Key %s appears in multiple input dicts' % key)
-                assert (key not in merged_dict), key
-        merged_dict.update(dict_)
-    return merged_dict
-
-
-# TODO I believe this is unused now; should we remove it?
-def merge_dfs(dfs, how='inner', allow_empty=False):
-    if not dfs:
-        if allow_empty:
-            # Return a DataFrame with a single empty row.  This is the logical
-            # result of merging zero frames (it's the multiplicative identity
-            # of the Cartesian product); however, if the caller is assuming
-            # some additional structure on their input frames, this value may
-            # not be what they expect, which is why we throw an exception by
-            # default.
-            return pd.DataFrame([[]])
-        else:
-            raise ValueError("At least one DataFrame must be provided")
-
-    COMMON_COL = '__tmp_key'
-    COMMON_VAL = 1
-    merged_df = None
-    for df in dfs:
-        df = df.copy()
-        df[COMMON_COL] = COMMON_VAL
-
-        if merged_df is None:
-            merged_df = df
-        else:
-            merged_df = merged_df.merge(df, how=how)
-    return merged_df.sort_index(axis=1).drop(COMMON_COL, axis=1)
 
 
 def n_present(*items):
