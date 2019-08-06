@@ -20,7 +20,7 @@ from . import protocols as protos
 from .cache import (
         LocalFileCache, GcsFileCache, PersistentCache, CACHE_SOURCE_NAME_LOCAL)
 from .datatypes import CaseKey
-from .exception import UndefinedEntityError
+from .exception import UndefinedEntityError, AlreadyDefinedEntityError
 from .provider import ValueProvider, multi_index_from_case_keys, as_provider
 from .deriver import EntityDeriver
 from . import decorators
@@ -77,7 +77,7 @@ class FlowState(pyrs.PClass):
 
     def get_provider(self, name):
         if name not in self.providers_by_name:
-            raise UndefinedEntityError("Entity %r is not defined" % name)
+            raise UndefinedEntityError.for_name(name)
         return self.providers_by_name[name]
 
     def has_provider(self, name):
@@ -85,7 +85,7 @@ class FlowState(pyrs.PClass):
 
     def create_provider(self, name, protocol):
         if name in self.providers_by_name:
-            raise ValueError("Entity %r already exists" % name)
+            raise AlreadyDefinedEntityError.for_name(name)
 
         provider = ValueProvider(name, protocol)
         return self._set_provider(provider).touch()
@@ -93,7 +93,7 @@ class FlowState(pyrs.PClass):
     def install_provider(self, provider, create_if_not_set=False):
         for name in provider.attrs.names:
             if name in self.providers_by_name:
-                raise ValueError("Entity %r already exists" % name)
+                raise AlreadyDefinedEntityError.for_name(name)
 
         return self._set_provider(provider).touch()
 

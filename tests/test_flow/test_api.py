@@ -4,7 +4,7 @@ from pytest import raises
 import pandas as pd
 
 import bionic as bn
-from bionic.exception import UndefinedEntityError
+from bionic.exception import UndefinedEntityError, AlreadyDefinedEntityError
 
 from ..helpers import count_calls
 
@@ -45,11 +45,11 @@ def test_declare(preset_builder):
 
     assert builder.build().get('w') == 7
 
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.declare('x')
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.declare('y')
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.declare('z')
 
 
@@ -74,6 +74,9 @@ def test_set(preset_builder):
     builder.set('f', 8)
     assert builder.build().get('f') == 8
 
+    with pytest.raises(UndefinedEntityError):
+        builder.set('xxx', 9)
+
 
 def test_set_multiple(preset_builder):
     builder = preset_builder
@@ -97,13 +100,13 @@ def test_assign_single(preset_builder):
     builder.assign('w', 7)
     assert builder.build().get('w') == 7
 
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('x', 7)
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('y', 7)
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('z', 7)
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('f', 7)
 
 
@@ -113,13 +116,13 @@ def test_assign_multiple(preset_builder):
     builder.assign('w', values=[1, 2])
     assert builder.build().get('w', set) == {1, 2}
 
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('x', values=[1, 2])
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('y', values=[1, 2])
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('z', values=[1, 2])
-    with raises(ValueError):
+    with raises(AlreadyDefinedEntityError):
         builder.assign('f', values=[1, 2])
 
 
@@ -266,6 +269,9 @@ def test_get_single(preset_flow):
 
     assert flow.get('p') == 4
     assert flow.get('q') == 5
+
+    with raises(UndefinedEntityError):
+        assert flow.get('xxx')
 
 
 def test_get_multiple(preset_flow):
