@@ -14,9 +14,8 @@ from __future__ import absolute_import
 
 from past.builtins import basestring
 from .provider import (
-    VersionedProvider, GatherProvider, AttrUpdateProvider, PyplotProvider,
-    RenamingProvider, NameSplittingProvider, provider_wrapper,
-)
+    GatherProvider, AttrUpdateProvider, PyplotProvider, RenamingProvider,
+    NameSplittingProvider, provider_wrapper)
 from . import interpret
 
 
@@ -48,7 +47,7 @@ def version(version_):
     if not (isinstance(version_, basestring) or isinstance(version_, int)):
         raise ValueError("Version must be an int or string; got %r" % version_)
 
-    return provider_wrapper(VersionedProvider, version_)
+    return provider_wrapper(AttrUpdateProvider, 'code_version', version_)
 
 
 # In the future I expect we'll have other caching options -- disabling in-memory
