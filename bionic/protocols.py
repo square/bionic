@@ -290,7 +290,7 @@ class TypeProtocol(PicklableProtocol):
         assert isinstance(value, self._type)
 
     def __repr__(self):
-        return 'TypeProtocol(%s)' % self.type.__name__
+        return 'TypeProtocol(%s)' % self._type.__name__
 
 
 class EnumProtocol(PicklableProtocol):
