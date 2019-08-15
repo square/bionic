@@ -14,6 +14,7 @@ from builtins import object
 import pickle
 import sys
 
+import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
 from PIL import Image
@@ -199,6 +200,27 @@ class ImageProtocol(BaseProtocol):
 
     def write(self, image, file_):
         image.save(file_, format='png')
+
+
+class NumPyProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values always have the
+    ``numpy.ndarray`` type.
+
+    These values will be serialized to .npy files.
+    """
+
+    def get_fixed_file_extension(self):
+        return '.npy'
+
+    def validate(self, value):
+        assert isinstance(value, np.ndarray)
+
+    def read(self, file_, extension):
+        return np.load(file_)
+
+    def write(self, array, file_):
+        np.save(file_, array)
 
 
 class CombinedProtocol(BaseProtocol):
