@@ -17,6 +17,7 @@ requirements = [
     'jupyter',
     'matplotlib',
     'networkx',
+    'numpy',
     'pandas',
     'pathlib2',
     'pyarrow',

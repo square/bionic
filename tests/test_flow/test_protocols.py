@@ -2,6 +2,7 @@ import pytest
 
 from binascii import hexlify
 
+import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
@@ -158,6 +159,50 @@ def test_image_protocol(builder):
     assert image.width == 4
     assert image.height == 2
     assert hexlify(image.tobytes()) == (b'0000ff' * 8)
+
+
+def test_numpy_protocol_1d(builder):
+    @builder
+    @bn.protocol.numpy
+    def np_array_1d():
+        return np.arange(100)
+
+    arr = builder.build().get('np_array_1d')
+    desired = np.arange(100)
+    assert(np.array_equal(arr, desired))
+
+
+def test_numpy_protocol_2d(builder):
+    @builder
+    @bn.protocol.numpy
+    def np_array_2d():
+        return np.array([[i + j for i in range(3)] for j in range(3)])
+
+    arr = builder.build().get('np_array_2d')
+    desired = np.array([[i + j for i in range(3)] for j in range(3)])
+    assert(np.array_equal(arr, desired))
+
+
+def test_numpy_protocol_3d(builder):
+    @builder
+    @bn.protocol.numpy
+    def np_array_3d():
+        return np.array([[[i + j + k for i in range(3)] for j in range(3)] for k in range(3)])
+
+    arr = builder.build().get('np_array_3d')
+    desired = np.array([[[i + j + k for i in range(3)] for j in range(3)] for k in range(3)])
+    assert(np.array_equal(arr, desired))
+
+
+def test_numpy_protocol_high_d(builder):
+    @builder
+    @bn.protocol.numpy
+    def np_array_high_d():
+        return np.ones(shape=(5, 5, 5, 5, 5))
+
+    arr = builder.build().get('np_array_high_d')
+    desired = np.ones(shape=(5, 5, 5, 5, 5))
+    assert(np.array_equal(arr, desired))
 
 
 def test_type_protocol(builder):
