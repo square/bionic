@@ -9,6 +9,7 @@ import os
 import posixpath
 import shutil
 import functools
+import warnings
 
 import pyrsistent as pyrs
 import pandas as pd
@@ -175,7 +176,7 @@ class FlowBuilder(object):
     A mutable builder for Flows.
 
     Allows ``Flow`` objects to be constructed incrementally.  Use ``declare``,
-    ``assign``, ``set``, and/or ``derive`` to add entities to the builder,
+    ``assign``, ``set``, and/or ``__call__`` to add entities to the builder,
     then use ``build`` to convert it into a Flow.
 
     Parameters
@@ -450,7 +451,7 @@ class FlowBuilder(object):
 
         self._state = self._state.delete_providers(names)
 
-    def derive(self, func_or_provider):
+    def __call__(self, func_or_provider):
         """
         Defines an entity by providing a function that derives its value from
         other entities.
@@ -485,10 +486,14 @@ class FlowBuilder(object):
 
         return provider.get_source_func()
 
-    def __call__(self, func_or_provider):
+    def derive(self, func_or_provider):
         """
-        A convenience wrapper for ``derive``.
+        (Deprecated) An alias for ``__call__``; use that instead.
         """
+        warnings.warn(
+            "FlowBuilder.derive is deprecated and will be repurposed in the "
+            "future; use FlowBuilder.__call__ (i.e., using the builder as a "
+            "decorator) instead.")
 
         return self.derive(func_or_provider)
 
@@ -927,7 +932,7 @@ def create_default_flow_state():
 
     builder.assign('core__persistent_cache__global_dir', 'bndata')
 
-    @builder.derive
+    @builder
     @decorators.immediate
     def core__persistent_cache__flow_dir(
             core__persistent_cache__global_dir, core__flow_name):

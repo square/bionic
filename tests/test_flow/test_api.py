@@ -231,20 +231,15 @@ def test_delete(preset_builder):
         builder.build()
 
 
-def test_derive(builder):
+def test_call(builder):
     builder.assign('a', 1)
     builder.assign('b', 2)
 
-    @builder.derive
+    @builder
     def h(a, b):
         return a + b
 
-    @builder
-    def also_h(a, b):
-        return a + b
-
     assert builder.build().get('h') == 3
-    assert builder.build().get('also_h') == 3
 
     builder.delete('a')
 
