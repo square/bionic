@@ -696,6 +696,21 @@ class Flow(object):
         else:
             shutil.copyfile(str(src_file_path), dst_file_path_str)
 
+    def declaring(self, name, protocol=None):
+        """
+        Like ``FlowBuilder.declare``, but returns a new copy of this flow.
+        """
+
+        return self._updating(lambda builder: builder.declare(name, protocol))
+
+    def assigning(self, name, value=None, values=None, protocol=None):
+        """
+        Like ``FlowBuilder.assign``, but returns a new copy of this flow.
+        """
+
+        return self._updating(lambda builder: builder.assign(
+            name, value, values, protocol))
+
     def setting(self, name, value=None, values=None):
         """
         Like ``FlowBuilder.set``, but returns a new copy of this flow.
