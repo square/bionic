@@ -969,6 +969,7 @@ def create_default_flow_state():
             cloud_cache = None
 
         return PersistentCache(
+            tmp_working_dir_str=os.path.join(local_flow_dir, 'tmp'),
             local_cache=local_cache,
             cloud_cache=cloud_cache,
         )

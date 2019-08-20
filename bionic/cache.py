@@ -43,7 +43,8 @@ class PersistentCache(object):
     Results (computed Queries).
     """
 
-    def __init__(self, local_cache, cloud_cache):
+    def __init__(self, tmp_working_dir_str, local_cache, cloud_cache):
+        self._tmp_working_dir_str = tmp_working_dir_str
         self._local_cache = local_cache
         self._cloud_cache = cloud_cache
 
@@ -152,7 +153,8 @@ class PersistentCache(object):
         return result
 
     def _create_tmp_dir_path(self):
-        return Path(tempfile.mkdtemp())
+        Path(self._tmp_working_dir_str).mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(dir=self._tmp_working_dir_str))
 
     def _remove_tmp_dir_path(self, path):
         if (path.is_file() or path.is_symlink()):
