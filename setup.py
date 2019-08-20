@@ -37,7 +37,7 @@ extras_require = {
 
 setup(
     name='bionic',
-    version='0.3.2',
+    version='0.3.3',
     description='prototype',
     long_description=readme,
     author='',
