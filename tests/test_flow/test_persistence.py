@@ -1,6 +1,8 @@
 from builtins import object
 import math
 
+from pathlib2 import Path
+
 from ..helpers import count_calls, RoundingProtocol
 
 import bionic as bn
@@ -262,3 +264,20 @@ def test_complex_input_type(builder):
     assert x_plus_y.times_called() == 1
     assert flow.get('x_plus_y', set) == {5, 9}
     assert x_plus_y.times_called() == 0
+
+
+def test_all_files_cleaned_up(builder):
+    builder.assign('x', 1)
+
+    @builder
+    def x_plus_one(x):
+        return x + 1
+
+    flow = builder.build()
+    assert flow.get('x_plus_one') == 2
+
+    flow = builder.build()
+    assert flow.get('x_plus_one') == 2
+
+    tmp_dir_path = Path(flow.get('core__persistent_cache__flow_dir')) / 'tmp'
+    assert list(tmp_dir_path.iterdir()) == []
