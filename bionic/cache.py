@@ -50,105 +50,111 @@ class PersistentCache(object):
 
     def save(self, result):
         working_dir_path = self._create_tmp_dir_path()
-        query = result.query
-        virtual_path = self._virtual_path(query)
+        try:
+            query = result.query
+            virtual_path = self._virtual_path(query)
 
-        value = result.value
-        extension = query.protocol.file_extension_for_value(value)
-        value_filename = VALUE_FILENAME_STEM + extension
-        value_path = working_dir_path / value_filename
+            value = result.value
+            extension = query.protocol.file_extension_for_value(value)
+            value_filename = VALUE_FILENAME_STEM + extension
+            value_path = working_dir_path / value_filename
 
-        with value_path.open('wb') as f:
-            query.protocol.write(value, f)
+            with value_path.open('wb') as f:
+                query.protocol.write(value, f)
 
-        descriptor = ArtifactDescriptor.from_content(
-            entity_name=query.entity_name,
-            value_filename=value_filename,
-            provenance=query.provenance,
-        )
-        descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
-        descriptor_path.write_text(descriptor.to_yaml())
+            descriptor = ArtifactDescriptor.from_content(
+                entity_name=query.entity_name,
+                value_filename=value_filename,
+                provenance=query.provenance,
+            )
+            descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
+            descriptor_path.write_text(descriptor.to_yaml())
 
-        if not self._local_cache.has_dir(virtual_path):
-            active_cache = self._local_cache
-            active_cache.copy_in(virtual_path, working_dir_path)
-        if (
-                self._cloud_cache is not None and
-                not self._cloud_cache.has_dir(virtual_path)):
-            logger.info(
-                'Uploading   %s to cloud file cache ...',
-                query.readable_name)
-            self._cloud_cache.copy_in(virtual_path, working_dir_path)
+            if not self._local_cache.has_dir(virtual_path):
+                active_cache = self._local_cache
+                active_cache.copy_in(virtual_path, working_dir_path)
+            if (
+                    self._cloud_cache is not None and
+                    not self._cloud_cache.has_dir(virtual_path)):
+                logger.info(
+                    'Uploading   %s to cloud file cache ...',
+                    query.readable_name)
+                self._cloud_cache.copy_in(virtual_path, working_dir_path)
 
-        self._remove_tmp_dir_path(working_dir_path)
+        finally:
+            self._remove_tmp_dir_path(working_dir_path)
 
     def load(self, query):
         working_dir_path = self._create_tmp_dir_path()
-        virtual_path = self._virtual_path(query)
-
-        active_cache = None
-        if self._local_cache.has_dir(virtual_path):
-            active_cache = self._local_cache
-            cache_source_name = CACHE_SOURCE_NAME_LOCAL
-        elif (
-                self._cloud_cache is not None and
-                self._cloud_cache.has_dir(virtual_path)):
-            active_cache = self._cloud_cache
-            cache_source_name = CACHE_SOURCE_NAME_CLOUD
-            logger.info(
-                'Downloading %s from cloud file cache ...',
-                query.readable_name)
-        else:
-            return None
-
         try:
-            active_cache.copy_out(virtual_path, working_dir_path)
+            virtual_path = self._virtual_path(query)
 
-            descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
-            if not descriptor_path.is_file():
-                raise InvalidCacheStateError(
-                    "Couldn't find descriptor file: %s" % DESCRIPTOR_FILENAME)
+            active_cache = None
+            if self._local_cache.has_dir(virtual_path):
+                active_cache = self._local_cache
+                cache_source_name = CACHE_SOURCE_NAME_LOCAL
+            elif (
+                    self._cloud_cache is not None and
+                    self._cloud_cache.has_dir(virtual_path)):
+                active_cache = self._cloud_cache
+                cache_source_name = CACHE_SOURCE_NAME_CLOUD
+                logger.info(
+                    'Downloading %s from cloud file cache ...',
+                    query.readable_name)
+            else:
+                return None
 
-            descriptor_yaml = descriptor_path.read_text()
             try:
-                descriptor = ArtifactDescriptor.from_yaml(descriptor_yaml)
-            except YamlRecordParsingError as e:
+                active_cache.copy_out(virtual_path, working_dir_path)
+
+                descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
+                if not descriptor_path.is_file():
+                    raise InvalidCacheStateError(
+                        "Couldn't find descriptor file: %s" %
+                        DESCRIPTOR_FILENAME)
+
+                descriptor_yaml = descriptor_path.read_text()
+                try:
+                    descriptor = ArtifactDescriptor.from_yaml(descriptor_yaml)
+                except YamlRecordParsingError as e:
+                    raise InvalidCacheStateError(
+                        "Couldn't parse descriptor file: %s" % e)
+
+                value_filename = descriptor.value_filename
+                value_path = working_dir_path / value_filename
+                extension = value_path.name[len(VALUE_FILENAME_STEM):]
+
+                try:
+                    with value_path.open('rb') as f:
+                        value = query.protocol.read(f, extension)
+                except Exception as e:
+                    raise InvalidCacheStateError(
+                        "Unable to load value %s due to %s: %s" % (
+                            query.readable_name, e.__class__.__name__, e))
+
+            except InvalidCacheStateError as e:
                 raise InvalidCacheStateError(
-                    "Couldn't parse descriptor file: %s" % e)
+                    "Cached data was in an invalid state; "
+                    "this should be impossible but could have resulted from "
+                    "either a bug or a change to the cached files.  You "
+                    "should be able to repair the problem by removing '%s'."
+                    "\nDetails: %s" % (
+                        active_cache.export_path_str(virtual_path), e))
 
-            value_filename = descriptor.value_filename
-            value_path = working_dir_path / value_filename
-            extension = value_path.name[len(VALUE_FILENAME_STEM):]
+            cache_path_str = active_cache.export_path_str(
+                virtual_path / value_filename)
 
-            try:
-                with value_path.open('rb') as f:
-                    value = query.protocol.read(f, extension)
-            except Exception as e:
-                raise InvalidCacheStateError(
-                    "Unable to load value %s due to %s: %s" % (
-                        query.readable_name, e.__class__.__name__, e))
+            result = Result(
+                query=query,
+                value=value,
+                cache_source_name=cache_source_name,
+                cache_path_str=cache_path_str,
+            )
 
-        except InvalidCacheStateError as e:
-            raise InvalidCacheStateError(
-                "Cached data was in an invalid state; "
-                "this should be impossible but could have resulted from either "
-                "a bug or a change to the cached files.  You should be able "
-                "to repair the problem by removing '%s'."
-                "\nDetails: %s" % (
-                    active_cache.export_path_str(virtual_path), e))
+            self.cache_source_name = cache_source_name
 
-        cache_path_str = active_cache.export_path_str(
-            virtual_path / value_filename)
-
-        result = Result(
-            query=query,
-            value=value,
-            cache_source_name=cache_source_name,
-            cache_path_str=cache_path_str,
-        )
-
-        self.cache_source_name = cache_source_name
-        self._remove_tmp_dir_path(working_dir_path)
+        finally:
+            self._remove_tmp_dir_path(working_dir_path)
 
         return result
 
