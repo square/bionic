@@ -202,8 +202,7 @@ class EntityDeriver(object):
     def _compute_result_group_for_entity_name(self, entity_name):
         tasks = self._task_lists_by_entity_name.get(entity_name)
         if tasks is None:
-            raise UndefinedEntityError(
-                "Entity %r is not defined" % entity_name)
+            raise UndefinedEntityError.for_name(entity_name)
         requested_task_states = [
             self._task_states_by_key[task.keys[0]]
             for task in tasks

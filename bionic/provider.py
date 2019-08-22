@@ -86,9 +86,6 @@ class WrappingProvider(BaseProvider):
         super(WrappingProvider, self).__init__(wrapped_provider.attrs)
         self.wrapped_provider = wrapped_provider
 
-    def get_code_id(self, case_key):
-        return self.wrapped_provider.get_code_id(case_key)
-
     def get_dependency_names(self):
         return self.wrapped_provider.get_dependency_names()
 
@@ -235,16 +232,6 @@ class NameSplittingProvider(WrappingProvider):
             )
 
         return [wrap_task(task) for task in inner_tasks]
-
-
-class VersionedProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, version):
-        assert wrapped_provider.attrs.code_version is None
-        super(VersionedProvider, self).__init__(wrapped_provider)
-        self._version = version
-
-    def get_code_id(self, case_key):
-        return 'code_version=%s' % self._version
 
 
 class ValueProvider(BaseProvider):
