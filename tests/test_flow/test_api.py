@@ -231,20 +231,15 @@ def test_delete(preset_builder):
         builder.build()
 
 
-def test_derive(builder):
+def test_call(builder):
     builder.assign('a', 1)
     builder.assign('b', 2)
 
-    @builder.derive
+    @builder
     def h(a, b):
         return a + b
 
-    @builder
-    def also_h(a, b):
-        return a + b
-
     assert builder.build().get('h') == 3
-    assert builder.build().get('also_h') == 3
 
     builder.delete('a')
 
@@ -330,6 +325,16 @@ def test_get_formats(preset_flow):
         assert list(p_series_index_df['q']) == [5]
 
 
+def test_assigning(preset_flow):
+    flow = preset_flow
+
+    assert flow.assigning('a', 2).get('a') == 2
+    assert flow.assigning('a', values=[3, 4]).get('a', set) == {3, 4}
+
+    with raises(AlreadyDefinedEntityError):
+        flow.assigning('x', 1)
+
+
 def test_setting(preset_flow):
     flow = preset_flow
 
@@ -341,6 +346,15 @@ def test_setting(preset_flow):
         flow.setting('xxx', 1)
 
     assert flow.get('y') == 1
+
+
+def test_declaring(preset_flow):
+    flow = preset_flow
+
+    assert flow.declaring('a').setting('a', 1).get('a') == 1
+
+    with raises(AlreadyDefinedEntityError):
+        flow.assigning('x', 1)
 
 
 def test_adding_case(preset_flow):
