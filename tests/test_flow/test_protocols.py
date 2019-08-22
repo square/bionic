@@ -149,6 +149,53 @@ def test_dataframe_index_cols(builder):
     assert df.loc['Asia'].loc['Japan']['count'] == 2
 
 
+def test_dataframe_with_categoricals_fails(builder):
+    df_value = pd.DataFrame()
+    df_value['cat'] = pd.Categorical(
+        ['red', 'blue', 'red'],
+        categories=['blue', 'red'],
+        ordered=True)
+
+    @builder
+    def df():
+        return df_value
+
+    with pytest.raises(ValueError):
+        builder.build().get('df')
+
+
+def test_dataframe_with_categoricals_ignored(builder):
+    df_value = pd.DataFrame()
+    df_value['cat'] = pd.Categorical(
+        ['red', 'blue', 'red'],
+        categories=['blue', 'red'],
+        ordered=True)
+
+    @builder
+    @bn.protocol.frame(check_dtypes=False)
+    def df():
+        return df_value
+
+    pdt.assert_series_equal(
+        builder.build().get('df')['cat'],
+        df_value['cat'].astype(object))
+
+
+def test_dataframe_with_categorical_works_with_feather(builder):
+    df_value = pd.DataFrame()
+    df_value['cat'] = pd.Categorical(
+        ['red', 'blue', 'red'],
+        categories=['blue', 'red'],
+        ordered=True)
+
+    @builder
+    @bn.protocol.frame(file_format='feather')
+    def df():
+        return df_value
+
+    pdt.assert_frame_equal(builder.build().get('df'), df_value)
+
+
 def test_image_protocol(builder):
     @builder
     @bn.protocol.image
