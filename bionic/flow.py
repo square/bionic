@@ -31,7 +31,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
-    protos.DataFrameProtocol(),
+    protos.ParquetDataFrameProtocol(),
     protos.ImageProtocol(),
     protos.NumPyProtocol(),
     protos.PicklableProtocol(),

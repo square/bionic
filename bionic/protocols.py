@@ -156,13 +156,22 @@ class DillableProtocol(BaseProtocol):
         return self._dill.load(file_)
 
 
-class DataFrameProtocol(BaseProtocol):
+class ParquetDataFrameProtocol(BaseProtocol):
     """
     Decorator indicating that an entity's values always have the
     ``pandas.DataFrame`` type.
 
     These values will be serialized to Parquet files.
+
+    Parameters:
+        check_dtypes: boolean (default: True)
+            Attempt to check for column types not supported by the file format.
     """
+
+    def __init__(self, check_dtypes=True):
+        super(ParquetDataFrameProtocol, self).__init__()
+
+        self._check_dtypes = check_dtypes
 
     def get_fixed_file_extension(self):
         return 'pq'
@@ -174,7 +183,46 @@ class DataFrameProtocol(BaseProtocol):
         return parquet.read_table(file_).to_pandas()
 
     def write(self, df, file_):
+        if self._check_dtypes:
+            self._check_no_categorical_cols(df)
         parquet.write_table(Table.from_pandas(df), file_)
+
+    def _check_no_categorical_cols(self, df):
+        categorical_cols = [
+            col for col in df.columns
+            if df[col].dtype.name == 'category'
+        ]
+
+        if categorical_cols:
+            raise ValueError(
+                "Attempted to serialize to Parquet a dataframe which has "
+                "categorical columns: %r -- these columns may be transformed "
+                "to another type and/or lose some information.  You can fix "
+                "this by using (a) ``@frame(file_format='feather')`` to use "
+                "the Feather format instead, or (b) "
+                "``@frame(check_dtypes=False)`` to ignore this check." % (
+                    categorical_cols))
+
+
+class FeatherDataFrameProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values always have the
+    ``pandas.DataFrame`` type.
+
+    These values will be serialized to Feather files.
+    """
+
+    def get_fixed_file_extension(self):
+        return 'feather'
+
+    def validate(self, value):
+        assert isinstance(value, pd.DataFrame)
+
+    def read(self, file_, extension):
+        return pd.read_feather(file_)
+
+    def write(self, df, file_):
+        df.to_feather(file_)
 
 
 class ImageProtocol(BaseProtocol):
