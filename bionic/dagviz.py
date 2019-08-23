@@ -1,9 +1,17 @@
+"""
+Contains code for visualizing Bionic flow graphs.  Importing this module will
+pull in several optional dependencies as well.  The external Graphviz library
+is also required.
+"""
+
 from collections import defaultdict
 from io import BytesIO
 
-import pydot
-import hsluv
-from PIL import Image
+from .optdep import import_optional_dependency
+module_purpose = 'rendering the flow DAG'
+hsluv = import_optional_dependency('hsluv', purpose=module_purpose)
+pydot = import_optional_dependency('pydot', purpose=module_purpose)
+PIL = import_optional_dependency('PIL', purpose=module_purpose)
 
 
 def hpluv_color_dict(keys, saturation, lightness):
@@ -82,5 +90,4 @@ def image_from_dot(dot):
     '''
     Given a pydot graph object, renders it into a Pillow Image.
     '''
-
-    return Image.open(BytesIO(dot.create_png()))
+    return PIL.Image.open(BytesIO(dot.create_png()))

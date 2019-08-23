@@ -3,36 +3,27 @@
 
 from setuptools import setup, find_packages
 
+import os
+from runpy import run_path
+
+# This appears to be the least annoying Python-version-agnostic way of loading
+# an external file.
+extras_require = run_path(os.path.join(
+    os.path.dirname(__file__), 'bionic', 'extras.py'))['extras_require']
+
 with open('README.md') as readme_file:
     readme = readme_file.read()
 
 requirements = [
-    'Pillow',
     'PyYAML',
-    'dill',
     'future',
-    'google-cloud-storage',
-    'hsluv',
-    'matplotlib',
-    'networkx',
     'numpy',
     'pandas',
     'pathlib2',
     'pyarrow',
-    'pydot',
     'pyrsistent',
-    'scikit-learn',
     'six',
 ]
-
-extras_require = {
-    'dev': [
-        'pytest', 'flake8',
-        'sphinx', 'sphinx_rtd_theme', 'sphinx-autobuild', 'nbsphinx',
-        'bumpversion',
-        'jupyter',
-    ]
-}
 
 setup(
     name='bionic',
@@ -48,7 +39,7 @@ setup(
     zip_safe=False,
     keywords='bionic',
     classifiers=[
-        'Development Status :: 2 - Alpha',
+        'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Natural Language :: English',
         'Programming Language :: Python :: 2',

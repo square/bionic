@@ -29,7 +29,6 @@ from .provider import (
 from .deriver import EntityDeriver
 from . import decorators
 from .util import group_pairs, check_exactly_one_present, copy_to_gcs
-from . import dagviz
 
 import logging
 logger = logging.getLogger(__name__)
@@ -962,7 +961,8 @@ class Flow(object):
 
         if dst_file_path_str.startswith('gs:/'):
             # The path object combines // into /, so we revert it here
-            copy_to_gcs(str(src_file_path), dst_file_path_str.replace('gs:/', 'gs://'))
+            copy_to_gcs(
+                str(src_file_path), dst_file_path_str.replace('gs:/', 'gs://'))
         else:
             shutil.copyfile(str(src_file_path), dst_file_path_str)
 
@@ -1031,6 +1031,8 @@ class Flow(object):
 
         Will fail if Graphviz is not installed on the system.
         """
+
+        from . import dagviz
 
         graph = self._deriver.export_dag(include_core)
         dot = dagviz.dot_from_graph(graph, vertical, curvy_lines)

@@ -10,7 +10,7 @@ from hashlib import sha256
 from binascii import hexlify
 import warnings
 
-from google.cloud import storage as gcs
+from .optdep import import_optional_dependency
 
 
 def n_present(*items):
@@ -67,6 +67,9 @@ def hash_to_hex(bytestring, n_bytes=None):
 
 
 def get_gcs_client_without_warnings():
+    gcs = import_optional_dependency(
+        'google.cloud.storage', purpose='caching to GCS')
+
     with warnings.catch_warnings():
         # Google's SDK warns if you use end user credentials instead of a
         # service account.  I think this warning is intended for production
@@ -257,7 +260,8 @@ def init_matplotlib():
     This only has an effect if you call it before matplotlib.pyplot is
     imported.
     '''
-    import matplotlib
+    matplotlib = import_optional_dependency('matplotlib', purpose='plotting')
+
     if matplotlib.get_backend() == 'MacOSX':
         matplotlib.use('TkAgg', warn=False)
     else:
