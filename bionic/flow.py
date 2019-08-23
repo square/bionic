@@ -21,8 +21,11 @@ from . import protocols as protos
 from .cache import (
         LocalFileCache, GcsFileCache, PersistentCache, CACHE_SOURCE_NAME_LOCAL)
 from .datatypes import CaseKey
-from .exception import UndefinedEntityError, AlreadyDefinedEntityError
-from .provider import ValueProvider, multi_index_from_case_keys, as_provider
+from .exception import (
+    UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
+from .provider import (
+    ValueProvider, multi_index_from_case_keys, as_provider, provider_wrapper,
+    AttrUpdateProvider)
 from .deriver import EntityDeriver
 from . import decorators
 from .util import group_pairs, check_exactly_one_present, copy_to_gcs
@@ -57,6 +60,7 @@ class FlowState(pyrs.PClass):
     """
 
     providers_by_name = pyrs.field(initial=pyrs.pmap())
+    default_provider_names = pyrs.field(initial=pyrs.pset())
     last_added_case_key = pyrs.field(initial=None)
 
     # These are used to keep track of whether a flow state is safe to reload.
@@ -92,7 +96,7 @@ class FlowState(pyrs.PClass):
         provider = ValueProvider(name, protocol)
         return self._set_provider(provider).touch()
 
-    def install_provider(self, provider, create_if_not_set=False):
+    def install_provider(self, provider):
         for name in provider.attrs.names:
             if name in self.providers_by_name:
                 raise AlreadyDefinedEntityError.for_name(name)
@@ -158,14 +162,32 @@ class FlowState(pyrs.PClass):
                             name, list(entity_names)))
 
             # Delete it.
-            state = state.set(
-                providers_by_name=state.providers_by_name.remove(name))
+            state = state._erase_provider(name)
 
         return state.touch()
+
+    def mark_all_providers_default(self):
+        state = self
+
+        new_default_names = pyrs.pset(state.providers_by_name.keys())
+        state = state.set(default_provider_names=new_default_names)
+
+        return state.touch()
+
+    def _erase_provider(self, name):
+        state = self
+        if name in state.providers_by_name:
+            state = state.set(
+                providers_by_name=state.providers_by_name.remove(name))
+        if name in state.default_provider_names:
+            state = state.set(default_provider_names=(
+                state.default_provider_names.remove(name)))
+        return state
 
     def _set_provider(self, provider):
         state = self
         for name in provider.attrs.names:
+            state = state._erase_provider(name)
             state = state.set(
                 providers_by_name=state.providers_by_name.set(name, provider))
         return state
@@ -451,6 +473,210 @@ class FlowBuilder(object):
 
         self._state = self._state.delete_providers(names)
 
+    def merge(self, flow, keep='error', allow_name_match=False):
+        """
+        Updates this builder by importing all entities from another flow.
+
+        If any incoming entity has the same name as an existing entity, the
+        conflict is resolved by apply the following rules, in order:
+
+        1. The name (`core__flow_name`) of this builder is never changed; the
+           original value is always kept.
+        2. Entities that were set by default (not explicitly set by the user)
+           are never imported and can be overwritten.
+        3. Assignments (definitions with values) take precedence over
+           declarations (definitions with no values).
+        4. Otherwise, the ``keep`` parameter can be used to specify which
+           entity to keep.
+
+        Parameters
+        ----------
+
+        flow: Flow
+            Any Bionic Flow.
+
+        keep: 'error', 'old', or 'new' (default: 'error')
+            How to handle conflicting entity names.  Options:
+
+            * 'error': throw an ``AlreadyDefinedEntityError``
+            * 'old': use the definition from this builder
+            * 'new': use the definition from ``flow``
+
+        allow_name_match: boolean (default: False)
+            Allows the incoming flow to have the same name as this builder.
+            (If this is False, we handle duplicate names by throwing an
+            exception.  It's technically possible to share a name between
+            flows, but it's generally not good practice.)
+        """
+
+        # These are the two states we're going to merge.
+        new_state = flow._state
+        old_state = self._state
+
+        # Check that the flows don't have the same name.
+        # TODO The mechanics of this check really suck, since this builder's
+        # name is stored like any other entity, but we have to figure it out
+        # without using an EntityDeriver.  Since this is a best-effort check, I
+        # guess it's not a huge deal.  But overall, the way we store a flow's
+        # name might deserve to be revisited later.
+        if not allow_name_match:
+            old_name_provider = old_state.providers_by_name.get(
+                'core__flow_name')
+            if (
+                    old_name_provider is not None and
+                    isinstance(old_name_provider, ValueProvider) and
+                    len(old_name_provider._values_by_case_key.keys()) == 1):
+                old_flow_name, = old_name_provider._values_by_case_key.values()
+                new_flow_name = flow.name
+                if old_flow_name == new_flow_name and not allow_name_match:
+                    raise ValueError(
+                        "Attempting to merge two flows with the same name (%r). "
+                        "Sharing names between flows is generally unwise, since "
+                        "they will then also share the same cache space; however, "
+                        "you can disable this check by passing "
+                        "``allow_name_match=True``" % new_flow_name)
+
+        # Identify all the names that could appear in the merged flow, and
+        # associate each one with a potential conflict.
+        all_names = set(old_state.providers_by_name.keys()).union(
+                new_state.providers_by_name.keys())
+        conflicts_by_name = {
+            name: MergeConflict(
+                old_state=old_state, new_state=new_state, name=name)
+            for name in all_names
+        }
+
+        # Resolve each conflict individually.
+        for conflict in conflicts_by_name.values():
+            if conflict.old_provider is None:
+                conflict.resolve('new', 'no conflicting definition')
+                continue
+
+            if conflict.new_provider is None:
+                conflict.resolve('old', 'no conflicting definition')
+                continue
+
+            if conflict.name == 'core__flow_name':
+                conflict.resolve('old', 'flow name is never merged')
+                continue
+
+            if conflict.new_is_default:
+                conflict.resolve('old', 'conflicting definition is default')
+                continue
+
+            if conflict.old_is_default:
+                conflict.resolve('new', 'conflicting definition is default')
+                continue
+
+            if conflict.old_protocol is conflict.new_protocol:
+                if conflict.new_is_only_declaration:
+                    conflict.resolve(
+                        'old',
+                        'conflicting definition has matching protocol and '
+                        'no value')
+                    continue
+                elif conflict.old_is_only_declaration:
+                    conflict.resolve(
+                        'new',
+                        'conflicting definition has matching protocol and '
+                        'no value')
+                    continue
+
+            if keep == 'error':
+                raise AlreadyDefinedEntityError(
+                    "Merge failure: Entity %r exists in both old and new "
+                    "flows; use the ``keep`` argument to specify which to "
+                    "keep" % conflict.name)
+
+            elif keep == 'old':
+                conflict.resolve('old', 'keep=old')
+                continue
+
+            elif keep == 'new':
+                conflict.resolve('new', 'keep=new')
+                continue
+
+            raise ValueError(
+                "Value of ``keep`` must be one of {'error', 'old', 'new'}; "
+                "got %r" % keep)
+
+        # For both states, check that each jointly-defined name group is kept
+        # or discarded as a whole.
+        for state_name, state in [
+                    ('old', old_state),
+                    ('new', new_state),
+                ]:
+            for provider in state.providers_by_name.values():
+                names = provider.get_joint_names()
+                if len(names) == 1:
+                    continue
+
+                conflicts = [conflicts_by_name[name] for name in names]
+                kept_conflicts = [
+                    conflict for conflict in conflicts
+                    if conflict.resolution == state_name
+                ]
+                discarded_conflicts = [
+                    conflict for conflict in conflicts
+                    if conflict.resolution != state_name
+                ]
+                if kept_conflicts and discarded_conflicts:
+                    raise IncompatibleEntityError(
+                        "Merge failure: Names %r in %s state are defined "
+                        "jointly and must be kept or discarded together, but "
+                        "merge logic dictates that we keep [%s] and discard "
+                        "[%s]; you should manually remove some of these names "
+                        "from one of the flows before merging" % (
+                            names,
+                            state_name,
+                            ', '.join(
+                                '%s (%s)' % (c.name, c.reason)
+                                for c in kept_conflicts),
+                            ', '.join(
+                                '%s (%s)' % (c.name, c.reason)
+                                for c in discarded_conflicts),
+                        ))
+
+        # Now we start building up our final, merged state.
+        cur_state = old_state
+
+        conflicts_keeping_new = [
+            conflict for conflict in conflicts_by_name.values()
+            if conflict.resolution == 'new'
+        ]
+
+        # First, delete all old providers that collide with our incoming ones.
+        names_to_delete = [
+            conflict.name
+            for conflict in conflicts_keeping_new
+        ]
+        try:
+            cur_state = cur_state.delete_providers(names_to_delete)
+        except IncompatibleEntityError as e:
+            raise IncompatibleEntityError("Merge failure: " + e)
+
+        # Then install each new provider -- keeping in mind that a provider
+        # may have multiple names and hence multiple conflicts, but should be
+        # installed exactly once.
+        providers_to_install = (
+            {
+                tuple(conflict.new_provider.attrs.names): conflict.new_provider
+                for conflict in conflicts_keeping_new
+            }.values())
+        for provider in providers_to_install:
+            # For function providers, we attach the name of their original flow
+            # so that their cached data won't be confused with whatever we
+            # had before.
+            if (
+                    not isinstance(provider, ValueProvider) and
+                    provider.attrs.orig_flow_name is None):
+                provider = provider_wrapper(
+                    AttrUpdateProvider, 'orig_flow_name', new_flow_name
+                )(provider)
+            cur_state = cur_state.install_provider(provider)
+
+        self._state = cur_state
+
     def __call__(self, func_or_provider):
         """
         Defines an entity by providing a function that derives its value from
@@ -520,6 +746,45 @@ class FlowBuilder(object):
                 "A case must have been added before calling this method")
 
         self._set_for_case_key(last_case_key, name, value)
+
+
+class MergeConflict(object):
+    def __init__(self, old_state, new_state, name):
+        self.name = name
+        self.old_provider = old_state.providers_by_name.get(name)
+        self.new_provider = new_state.providers_by_name.get(name)
+        self.old_is_default = name in old_state.default_provider_names
+        self.new_is_default = name in new_state.default_provider_names
+
+    @property
+    def old_protocol(self):
+        return self._protocol_for_provider(self.old_provider)
+
+    @property
+    def new_protocol(self):
+        return self._protocol_for_provider(self.new_provider)
+
+    def _protocol_for_provider(self, provider):
+        assert provider is not None
+        name_ix = provider.attrs.names.index(self.name)
+        return provider.attrs.protocols[name_ix]
+
+    @property
+    def old_is_only_declaration(self):
+        return self._provider_is_only_declaration(self.old_provider)
+
+    @property
+    def new_is_only_declaration(self):
+        return self._provider_is_only_declaration(self.new_provider)
+
+    def _provider_is_only_declaration(self, provider):
+        return (
+            isinstance(provider, ValueProvider) and
+            not provider.has_any_cases())
+
+    def resolve(self, resolution, reason):
+        self.resolution = resolution
+        self.reason = reason
 
 
 class FlowCase(object):
@@ -746,6 +1011,13 @@ class Flow(object):
         """
 
         return self._updating(lambda builder: builder.clear_cases(*names))
+
+    def merging(self, flow, keep='error'):
+        """
+        Like ``FlowBuilder.merge``, but returns a new copy of this flow.
+        """
+
+        return self._updating(lambda builder: builder.merge(flow, keep))
 
     @property
     def name(self):
@@ -995,4 +1267,4 @@ def create_default_flow_state():
             cloud_cache=cloud_cache,
         )
 
-    return builder._state
+    return builder._state.mark_all_providers_default()

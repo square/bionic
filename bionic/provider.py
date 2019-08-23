@@ -29,11 +29,15 @@ logger = logging.getLogger(__name__)
 
 class ProviderAttributes(object):
     def __init__(
-            self, names, protocols=None, code_version=None, should_persist=None):
+            self, names,
+            protocols=None, code_version=None, orig_flow_name=None,
+            should_persist=None, is_default_value=None):
         self.names = names
         self.protocols = protocols
         self.code_version = code_version
-        self.should_persist = None
+        self.orig_flow_name = orig_flow_name
+        self.should_persist = should_persist
+        self.is_default_value = is_default_value
 
 
 class BaseProvider(object):
@@ -41,8 +45,13 @@ class BaseProvider(object):
         self.attrs = attrs
         self.is_mutable = is_mutable
 
+    def get_joint_names(self):
+        return self.attrs.names
+
     def get_code_id(self, case_key):
-        return 'code_version=%s' % self.attrs.code_version
+        return 'orig_flow=%s code_version=%s' % (
+            self.attrs.orig_flow_name,
+            self.attrs.code_version)
 
     def get_dependency_names(self):
         return []
@@ -284,6 +293,15 @@ class ValueProvider(BaseProvider):
 
         self._values_by_case_key[case_key] = value
         self._code_ids_by_key[case_key] = code_id
+
+    def has_any_cases(self):
+        return self._has_any_values
+
+    def get_joint_names(self):
+        if self._has_any_values:
+            return list(self.key_space)
+        else:
+            return self.attrs.names
 
     def get_code_id(self, case_key):
         return self._code_ids_by_key[case_key]

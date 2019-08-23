@@ -571,3 +571,25 @@ This attempts to reload all modules associated with the flow, and then return
 a re-imported version of the flow.  (This is a fairly magical procedure -- in
 complicated cases, it may not be able to figure out how to do this.  In these
 cases it will try to throw an exception rather than fail silently.)
+
+Combining Flows
+...............
+
+When building a flow, you can import entities from another flow using the
+:meth:`merge <bionic.FlowBuilder.merge>` method:
+
+.. code-block:: python
+
+    builder.merge(flow)
+
+This allows you to extend the functionality of a flow, or to combine multiple
+flows into one.  You can also combine two already-built flows using the
+analogous :meth:`merging <bionic.Flow.merging>` method.
+
+If the two flows being merged have any entity names in common and Bionic can't
+figure out which one to keep, it will throw an exception.  You can resolve the
+conflict by using the ``keep`` argument to specify which definitions to keep:
+
+.. code-block:: python
+
+    builder.merge(flow, keep='old')

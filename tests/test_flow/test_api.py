@@ -246,6 +246,39 @@ def test_call(builder):
     with raises(UndefinedEntityError):
         builder.build().get('h')
 
+
+def test_merge(builder):
+    # This is just a basic test; there's a more thorough test suite in
+    # test_merge.py.
+
+    builder.assign('a', 1)
+    builder.declare('b')
+
+    @builder
+    def h(a, b):
+        return a + b
+
+    builder2 = bn.FlowBuilder('flow2')
+    builder2.assign('b', 2)
+    builder.merge(builder2.build())
+
+    assert builder.build().get('h') == 3
+
+    builder3 = bn.FlowBuilder('flow3')
+    builder3.declare('a')
+    builder3.declare('b')
+
+    @builder3  # noqa: F811
+    def h(a, b):
+        return a * b
+
+    builder.merge(builder3.build(), keep='new')
+
+    # Notice: we correctly find the new value for `h`, rather than the cached
+    # version.
+    assert builder.build().get('h') == 2
+
+
 # --- Flow API tests.
 
 
@@ -355,6 +388,24 @@ def test_declaring(preset_flow):
 
     with raises(AlreadyDefinedEntityError):
         flow.assigning('x', 1)
+
+
+def test_merging(preset_flow):
+    flow = preset_flow
+
+    new_flow = (
+        bn.FlowBuilder('new_flow').build()
+        .assigning('x', 5)
+        .assigning('y', 6)
+    )
+
+    assert flow.get('f', set) == set()
+
+    with pytest.raises(AlreadyDefinedEntityError):
+        assert flow.merging(new_flow)
+
+    assert flow.merging(new_flow, keep='old').get('f') == 6
+    assert flow.merging(new_flow, keep='new').get('f') == 11
 
 
 def test_adding_case(preset_flow):
