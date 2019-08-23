@@ -13,8 +13,6 @@ requirements = [
     'future',
     'google-cloud-storage',
     'hsluv',
-    'ipython',
-    'jupyter',
     'matplotlib',
     'networkx',
     'numpy',
@@ -32,6 +30,7 @@ extras_require = {
         'pytest', 'flake8',
         'sphinx', 'sphinx_rtd_theme', 'sphinx-autobuild', 'nbsphinx',
         'bumpversion',
+        'jupyter',
     ]
 }
 
