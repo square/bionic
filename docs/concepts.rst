@@ -287,7 +287,8 @@ and will write back to both caches.  Note that the upload time will make each
 entity computation a bit slower.
 
 In order to use GCS caching, you must have the `gsutil`_ tool installed, and
-you must have GCP credentials configured.
+you must have GCP credentials configured.  You should also use ``pip install
+bionic[gcp]`` to install the required Python libraries.
 
 .. _gsutil: https://cloud.google.com/storage/docs/gsutil
 
@@ -593,3 +594,20 @@ conflict by using the ``keep`` argument to specify which definitions to keep:
 .. code-block:: python
 
     builder.merge(flow, keep='old')
+
+Visualizing Flows
+.................
+
+Bionic can visualize any flow as a `directed acyclic graph
+<https://en.wikipedia.org/wiki/Directed_acyclic_graph>`_, or "DAG":
+
+.. code-block:: python
+
+    flow.render_dag()
+
+Each entity in the flow is represented as a box, with arrows representing
+dependencies (the arrow points from the depended-on entity to the depending
+one).  See the `ML tutorial`_ an example.  This functionality `requires the
+Graphviz library`_.
+
+.. _requires the Graphviz library: get-started.rst#installation

@@ -18,10 +18,10 @@ import functools
 from io import BytesIO
 
 import pandas as pd
-from PIL import Image
 
 from .datatypes import Task, TaskKey, CaseKey, CaseKeySpace
 from .util import groups_dict, init_matplotlib
+from .optdep import import_optional_dependency
 
 import logging
 logger = logging.getLogger(__name__)
@@ -646,6 +646,10 @@ class PyplotProvider(WrappingProvider):
     def __init__(self, wrapped_provider, name='pyplot'):
         super(PyplotProvider, self).__init__(wrapped_provider)
 
+        PIL = import_optional_dependency(
+            'PIL', purpose='the @pyplot decorator')
+        self._Image = PIL.Image
+
         self._pyplot_name = name
 
         inner_dep_names = wrapped_provider.get_dependency_names()
@@ -727,7 +731,7 @@ class PyplotProvider(WrappingProvider):
                 # read from the beginning.
                 bio.seek(0)
                 # Load the buffer into an Image object.
-                image = Image.open(bio)
+                image = self._Image.open(bio)
 
                 return [image]
 

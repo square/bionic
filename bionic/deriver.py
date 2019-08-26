@@ -8,6 +8,7 @@ from builtins import object
 from .datatypes import Query, Result, ResultGroup
 from .cache import Provenance
 from .exception import UndefinedEntityError
+from .optdep import import_optional_dependency
 
 import logging
 # TODO At some point it might be good to have the option of Bionic handling its
@@ -63,7 +64,8 @@ class EntityDeriver(object):
             task_ix: the task key's index in the ordered series of case keys
                      for its entity
         '''
-        import networkx as nx
+        nx = import_optional_dependency(
+            'networkx', purpose='constructing the flow DAG')
 
         def should_include_entity_name(name):
             return include_core or not self.entity_is_internal(entity_name)

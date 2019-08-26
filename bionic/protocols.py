@@ -17,9 +17,9 @@ import sys
 import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
-from PIL import Image
 
 from .provider import provider_wrapper, ProtocolUpdateProvider
+from .optdep import import_optional_dependency
 from . import tokenization
 
 
@@ -142,18 +142,26 @@ class DillableProtocol(BaseProtocol):
     def __init__(self, suppress_dill_side_effects=True):
         super(DillableProtocol, self).__init__()
 
-        dill_already_imported = 'dill' in sys.modules
-        import dill
-        if not dill_already_imported and suppress_dill_side_effects:
-            dill.extend(False)
+        self._suppress_dill_side_effects = suppress_dill_side_effects
+        self._dill = None
 
-        self._dill = dill
+    def _get_dill_module(self):
+        if self._dill is not None:
+            return self._dill
+
+        dill_already_imported = 'dill' in sys.modules
+        self._dill = import_optional_dependency(
+            'dill', purpose='the @dillable protocol')
+        if not dill_already_imported and self._suppress_dill_side_effects:
+            self._dill.extend(False)
+
+        return self._dill
 
     def write(self, value, file_):
-        self._dill.dump(value, file_)
+        self._get_dill_module().dump(value, file_)
 
     def read(self, file_, extension):
-        return self._dill.load(file_)
+        return self._get_dill_module().load(file_)
 
 
 class ParquetDataFrameProtocol(BaseProtocol):
@@ -225,10 +233,13 @@ class FeatherDataFrameProtocol(BaseProtocol):
         df.to_feather(file_)
 
 
+Image = import_optional_dependency('PIL.Image', raise_on_missing=False)
+
+
 class ImageProtocol(BaseProtocol):
     """
     Decorator indicating that an entity's values always have the
-    ``Pillow.Imag`` type.
+    ``Pillow.Image`` type.
 
     These values will be serialized to PNG files.
     """
@@ -237,12 +248,18 @@ class ImageProtocol(BaseProtocol):
         return 'png'
 
     def validate(self, value):
+        # If Image is None, then the PIL library is not present, which
+        # presumably means this value is not a PIL image, and hence should fail
+        # validation.
+        assert Image is not None
         assert isinstance(value, Image.Image)
 
     def read(self, file_, extension):
+        Image = import_optional_dependency(
+            'PIL.Image', purpose='the @image decorator')
         image = Image.open(file_)
-        # Image.open() is lazy; if we don't call load() now, the file can be
-        # closed or possibly invalidated before it actually gets read.
+        # Image.open() is lazy; if we don't call load() now, the file can
+        # be closed or possibly invalidated before it actually gets read.
         image.load()
         return image
 
