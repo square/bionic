@@ -27,7 +27,7 @@ requirements = [
 
 setup(
     name='bionic',
-    version='0.3.3',
+    version='0.4.0',
     description='prototype',
     long_description=readme,
     author='',
