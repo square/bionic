@@ -34,6 +34,7 @@ setup(
     license='Apache License 2.0',
     author='Janek Klawe',
     author_email='janek@squareup.com',
+    url='https://github.com/square/bionic',
     packages=find_packages(),
     include_package_data=True,
     install_requires=requirements,
