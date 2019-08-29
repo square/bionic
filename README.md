@@ -12,8 +12,9 @@ over time.)  The API will continue to evolve; we will attempt to keep it
 backwards-compatible as long as possible, but there will probably be at least
 one breaking API change in the future.
 
-Since we recently open-sourced this project, we haven't set up our public
-documentation hosting yet.  Check back soon for a link to the docs.
+Check out the [full documentation](https://bionic.readthedocs.io/en/latest/),
+or go straight to [Get
+Started](https://bionic.readthedocs.io/en/latest/get-started.html).
 
 ## Installation
 
@@ -22,6 +23,9 @@ Bionic can be installed from PyPI:
     pip install bionic[standard]
 
 You'll probably want to install [Graphviz](https://www.graphviz.org/) as well.
+See the [Installation
+docs](https://bionic.readthedocs.io/en/latest/get-started.html#installation)
+for more details on installing and configuring Bionic's dependencies.
 
 ## License
 
