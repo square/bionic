@@ -2,23 +2,16 @@
 Contributing to Bionic
 ======================
 
-Bionic's source is maintained `here
-<REDACTED-URL>`_.  You can clone it
-with:
+Bionic's source is maintained on `GitHub <https://github.com/square/bionic>`_.
+You can clone it with:
 
 .. code-block:: bash
 
-    git clone ssh://git@REDACTED-URL
+    git clone git@github.com:square/bionic.git
 
-Pull requests are welcome!  The best person to review your PR is `REDACTED-PERSON
-<REDACTED-URL>`_.  Bionic development is discussed in
-`REDACTED-CHANNEL <REDACTED-URL>`_.
-
-If you're interested in contributing but not sure what to work on, look for
-`open JIRA issues marked "accessible"
-<REDACTED-URL>`_.  These tasks don't require
-deep familarity with Bionic's architecture.  If you need help getting started,
-please ask!
+Pull requests are welcome!  (However, for large changes, we recommend
+discussing the proposed change on our `Issues page
+<https://github.com/square/bionic/issues>`_ first.)
 
 Setting Up Your Development Environment
 ---------------------------------------
@@ -51,13 +44,7 @@ like this:
     pytest
     flake8
 
-Kochiku should automatically run these for you when you submit a PR.  As a
-convenience, the ``all_tests.sh`` script will run the tests on both Python 2
-and Python 3, run Flake8, and check for any FIX\ ME strings.
-
-.. code-block:: bash
-
-    script/all_tests.sh
+Travis should automatically run these for you when you submit a PR.
 
 Pytest will skip the Google Cloud Storage tests unless you set an environment
 variable telling it which bucket to use:
@@ -99,25 +86,3 @@ these, you need to remember two things:
    metadata can't be changed by current versions of Jupyter Notebook or Jupyter
    Lab; you have to manually edit the ``.ipynb`` file.  If you add any new text
    cells to a notebook, you'll probably want to add this metadata as well.
-
-Pushing Documentation Changes
------------------------------
-
-Bionic's documentation is hosted by the Bitbucket Pages plugin.  We maintain a
-separate ``docs`` branch in Git which tracks ``master`` but also contains the
-built documentation.  After committing a documentation change to ``master``,
-you can automatically update the ``docs`` branch with the following script:
-
-.. code-block:: bash
-
-    script/update_docs_branch.py
-
-This script builds the latest version of the docs and merges any changes to
-your local ``docs`` branch.  Assuming the update succeeds, the script will
-instruct you to push your changes to the shared branch:
-
-.. code-block:: bash
-
-    git push origin docs
-
-After pushing, the updated docs should be visible to everyone.

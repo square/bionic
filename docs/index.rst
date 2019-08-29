@@ -5,7 +5,7 @@ Bionic
 .. note::  Bionic is in alpha and under active development.
 
 **Release:** v\ |version| ---
-**Quick Links:** `Stash <REDACTED-URL>`_ | `Slack <REDACTED-URL>`_ | `JIRA <REDACTED-URL>`_ | `Get Started <get-started.html>`_
+**Quick Links:** `Source <https://github.com/square/bionic>`_ | `Issues <https://github.com/square/bionic/issues>`_ | `Get Started <get-started.html>`_
 
 Bionic is a Python framework for building, running, and sharing data science
 workflows.  It's designed for writing *research code*: code where the point is
@@ -21,9 +21,6 @@ refactor your code more confidently; and your colleagues can understand and
 reuse your work more easily.
 
 .. _dependency injection: https://en.wikipedia.org/wiki/Dependency_injection
-
-Bionic is also the infrastructure layer for the new version of `REDACTED-TOOL
-<REDACTED-URL>`_.
 
 Contents
 --------

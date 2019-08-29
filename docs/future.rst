@@ -7,14 +7,10 @@ Development Status
 
 Bionic is still at an early stage, and many features have been planned but not
 implemented.  All of these features should be developed at some point, but the
-exact timeline is not fixed.  You can help us prioritize by `giving us feedback
-<get-help.rst>`_!
+exact timeline is not fixed.
 
 Future Work
 -----------
-
-(Many of these issues already have
-`JIRA tickets <REDACTED-URL>`_.)
 
 Local Parallelization
 .....................

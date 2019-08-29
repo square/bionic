@@ -5,9 +5,7 @@ Get Started
 Installation
 ------------
 
-If you're using `Square's internal PyPI server
-<REDACTED-URL>`_, you
-can install Bionic using ``pip``:
+Bionic can be installed using ``pip``:
 
 .. code-block:: bash
 

@@ -1,23 +1,27 @@
 # Bionic
 
 Bionic is a Python framework for building, running, and sharing data science
-research workflows.
+research workflows.  It uses dependency injection to automatically gather
+together your Python functions into a reusable, configurable tool.
 
 Bionic is currently in alpha.  It is suitable for small-to-medium-size research
-projects, but probably not for large projects or in production code.  We will
-attempt to keep the API backwards compatible as long as possible, but there
-will probably be at least one breaking API change in the future.
+projects: i.e., projects that fit in memory, have a small number of
+collaborators, and are intended to generate insight or some data artifact (like
+a model) rather than run in production.  (These constraints will be eliminated
+over time.)  The API will continue to evolve; we will attempt to keep it
+backwards-compatible as long as possible, but there will probably be at least
+one breaking API change in the future.
 
-Check out the [full documentation][1], or go straight to [Getting Started][2].
-
-[1]: https://pages.sqcorp.co/pages/PY/bionic/docs/browse/docs/_build/html/index.html
-[2]: https://pages.sqcorp.co/pages/PY/bionic/docs/browse/docs/_build/html/get-started.html
+Since we recently open-sourced this project, we haven't set up our public
+documentation hosting yet.  Check back soon for a link to the docs.
 
 ## Installation
 
-Bionic can be installed from Square's PyPI server:
+Bionic can be installed from PyPI:
 
     pip install bionic[standard]
+
+You'll probably want to install [Graphviz](https://www.graphviz.org/) as well.
 
 ## License
 

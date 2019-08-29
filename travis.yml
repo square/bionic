@@ -1,0 +1,11 @@
+language: python
+python:
+ - "2.7"
+ - "3.7"
+before_install:
+  - sudo apt-get install graphviz
+  - pip install --upgrade .[dev]
+script:
+  - pytest
+  - flake8
+
