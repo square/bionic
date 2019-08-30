@@ -8,5 +8,5 @@ For help using Bionic, please post your question on `Stack Overflow
 words in your question so we can find it easily: "bionic", "framework", and
 "python".
 
-For bug reports and feature requests: please please use our `GitHub Issue
-Tracker <https://github.com/square/bionic/issues`_.
+For bug reports and feature requests: please use our `GitHub Issue
+Tracker <https://github.com/square/bionic/issues>`_.
