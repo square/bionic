@@ -5,8 +5,6 @@ Why Should I Use Bionic?
 Bionic lets you automate your data analysis by combining the *entities* you
 care about into a *workflow*.  This has the following benefits:
 
-*(NOTE: Items with footnotes are not complete yet!)*
-
 * **File-Object Mapping**: Bionic knows how to convert each entity between
   a Python object and a file.  You never have to read or write intermediate files
   or remember what your file naming scheme is; you just ask for an entity by
@@ -14,8 +12,6 @@ care about into a *workflow*.  This has the following benefits:
 * **Automatic Caching**: Every entity is automatically cached on disk
   or in the cloud, so you only have to compute it once.  If you
   redefine an entity, Bionic figures out which entities need to be recomputed.
-* **Scalable Execution**: Entities are computed in parallel [#f_parallel]_,
-  either on your local machine or on a cluster [#f_distributed]_.
 * **Automatic Plumbing**: Each entity is specified independently and only knows
   about its immediate dependencies.  You don't need to manually assemble the
   dependency graph: Bionic does it automatically, making refactoring easy.
@@ -23,21 +19,13 @@ care about into a *workflow*.  This has the following benefits:
   so you can easily compare multiple variations within a single workflow.
 * **Reuseable Packaging**: Your workflow is packaged into a single Python
   object that provides a nice API, making it easy for your colleagues to reuse,
-  reconfigure, and recombine [#f_combine]_ your work.
+  reconfigure, and recombine your work.
 * **Notebook-Friendly API**: Bionic is designed for use in both Python module
   files and notebooks -- you can build your flow in a Python file and easily
   use it from a notebook.  This lets you combine the version control and
   reproducibility of files with the rapid iteration environment of notebooks.
-
-.. [#f_parallel] Parallel computation is `not implemented yet
-  <future.rst#local-parallelization>`__.
-
-.. [#f_distributed] Distributed computation is especially `not implemented yet
-  <future.rst#distributed-computation>`__.
-
-.. [#f_combine] Workflows can be reused and reconfigured, but combining
-  multiple workflows is also `not implemented yet
-  <future.rst#flow-merging-and-nesting>`__.
+* **Scalable Execution (Work In Progress)**: In future versions of Bionic, entities
+  will be computed in parallel, either on your local machine or on a cluster.
 
 When Should I Use It?
 ---------------------
@@ -50,7 +38,7 @@ Bionic can help you if you have any of these needs:
 
 * You want to replicate part of your workflow multiple times.
 
-* You're creating a lot of artifact files and are having trouble keeping track
+* You're creating a lot of data files and are having trouble keeping track
   of which file goes where.
 
 * You want a reproducible, one-click way to generate your entire set of plots,
