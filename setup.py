@@ -27,8 +27,10 @@ requirements = [
 
 setup(
     name='bionic',
-    version='0.4.1',
-    description='prototype',
+    version='0.4.2',
+    description=(
+        'A Python framework for building, running, and sharing data science '
+        'workflows'),
     long_description=readme,
     long_description_content_type="text/markdown",
     license='Apache License 2.0',
