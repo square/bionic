@@ -4,7 +4,8 @@ from pytest import raises
 import pandas as pd
 
 import bionic as bn
-from bionic.exception import UndefinedEntityError, AlreadyDefinedEntityError
+from bionic.exception import (
+    UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
 
 from ..helpers import count_calls
 
@@ -26,6 +27,11 @@ def preset_builder(builder):
     builder.declare('p')
     builder.declare('q')
     builder.add_case('p', 4, 'q', 5)
+
+    @builder
+    @bn.outputs('y_plus', 'y_plus_plus')
+    def y_pluses(y):
+        return (y + 1), (y + 2)
 
     return builder
 
@@ -160,6 +166,11 @@ def test_add_case(preset_builder):
     with raises(ValueError):
         builder.add_case('p', 1, 'q', 2, 'r', 3)
 
+    with raises(IncompatibleEntityError):
+        builder.add_case('y_plus', 2)
+    with raises(IncompatibleEntityError):
+        builder.add_case('y_plus', 2, 'y_plus_plus', 3)
+
 
 def test_then_set(preset_builder):
     builder = preset_builder
@@ -207,9 +218,13 @@ def test_clear_cases(preset_builder):
     builder.set('f', 10)
     assert builder.build().get('f') == 10
 
-    with raises(ValueError):
+    with raises(IncompatibleEntityError):
         builder.clear_cases('p')
     builder.clear_cases('p', 'q')
+
+    with raises(IncompatibleEntityError):
+        builder.clear_cases('y_plus')
+        builder.clear_cases('y_plus', 'y_plus_plus')
 
 
 def test_delete(preset_builder):
@@ -297,6 +312,9 @@ def test_get_single(preset_flow):
 
     assert flow.get('p') == 4
     assert flow.get('q') == 5
+
+    assert flow.get('y_plus') == 2
+    assert flow.get('y_plus_plus') == 3
 
     with raises(UndefinedEntityError):
         assert flow.get('xxx')
@@ -479,7 +497,7 @@ def test_clearing_cases(preset_flow):
 
 def test_all_entity_names(preset_flow):
     assert set(preset_flow.all_entity_names()) == {
-        'x', 'y', 'z', 'f', 'g', 'p', 'q'
+        'x', 'y', 'z', 'f', 'g', 'p', 'q', 'y_plus', 'y_plus_plus'
     }
 
 
