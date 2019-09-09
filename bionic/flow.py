@@ -144,21 +144,12 @@ class FlowState(pyrs.PClass):
                 continue
             provider = state.get_provider(name)
 
-            if isinstance(provider, ValueProvider):
-                for related_name in provider.key_space:
-                    if related_name not in names:
-                        raise ValueError(
-                            "Can't remove cases for entity %r without also "
-                            "removing entities %r" % (
-                                name, list(provider.key_space)))
-
-            entity_names = provider.attrs.names
-            for related_name in entity_names:
+            joint_names = provider.get_joint_names()
+            for related_name in joint_names:
                 if related_name not in names:
-                    raise ValueError(
+                    raise IncompatibleEntityError(
                         "Can't remove cases for entity %r without also "
-                        "removing entities %r" % (
-                            name, list(entity_names)))
+                        "removing entities %r" % (name, joint_names))
 
             # Delete it.
             state = state._erase_provider(name)
@@ -418,7 +409,7 @@ class FlowBuilder(object):
         for name, value in name_value_pairs:
             provider = state.get_provider(name)
             if len(provider.attrs.protocols) > 1:
-                raise ValueError(
+                raise IncompatibleEntityError(
                     "Can't add case for entity co-generated with other "
                     "entities %r" % (tuple(provider.attr.names),))
             protocol, = provider.attrs.protocols

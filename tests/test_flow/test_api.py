@@ -4,7 +4,8 @@ from pytest import raises
 import pandas as pd
 
 import bionic as bn
-from bionic.exception import UndefinedEntityError, AlreadyDefinedEntityError
+from bionic.exception import (
+    UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
 
 from ..helpers import count_calls
 
@@ -207,7 +208,7 @@ def test_clear_cases(preset_builder):
     builder.set('f', 10)
     assert builder.build().get('f') == 10
 
-    with raises(ValueError):
+    with raises(IncompatibleEntityError):
         builder.clear_cases('p')
     builder.clear_cases('p', 'q')
 
