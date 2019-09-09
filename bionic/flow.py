@@ -411,7 +411,7 @@ class FlowBuilder(object):
             if len(provider.attrs.protocols) > 1:
                 raise IncompatibleEntityError(
                     "Can't add case for entity co-generated with other "
-                    "entities %r" % (tuple(provider.attr.names),))
+                    "entities %r" % (tuple(provider.attrs.names),))
             protocol, = provider.attrs.protocols
             protocol.validate(value)
             token = protocol.tokenize(value)
