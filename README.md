@@ -27,6 +27,12 @@ See the [Installation
 docs](https://bionic.readthedocs.io/en/latest/get-started.html#installation)
 for more details on installing and configuring Bionic's dependencies.
 
+## Contributing
+
+See the
+[Contribution](https://bionic.readthedocs.io/en/latest/contributing.html)
+section of our docs.
+
 ## License
 
 Copyright 2019 Square, Inc.
