@@ -11,7 +11,11 @@ You can clone it with:
 
 Pull requests are welcome!  (However, for large changes, we recommend
 discussing the proposed change on our `Issues page
-<https://github.com/square/bionic/issues>`_ first.)
+<https://github.com/square/bionic/issues>`_ first.)  Because Bionic is
+supported by Square, all new contributors will be asked to sign `Square's
+Contributor License Agreement
+<https://gist.github.com/square-cla/0dac5a22575ecf5e4f40825e7de51d5d>`_ as part
+of the pull request process.
 
 Setting Up Your Development Environment
 ---------------------------------------
