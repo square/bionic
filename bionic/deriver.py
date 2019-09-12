@@ -137,7 +137,7 @@ class EntityDeriver(object):
         for name in self._flow_state.providers_by_name.keys():
             self._populate_entity_info(name)
 
-        # Initialize a state object for each task.
+        # Create a state object for each task.
         self._task_states_by_key = {}
         for tasks in self._task_lists_by_entity_name.values():
             for task in tasks:
@@ -145,17 +145,49 @@ class EntityDeriver(object):
                 for key in task.keys:
                     self._task_states_by_key[key] = task_state
 
-        # Connect the task states to each other in a graph.
+        # Initialize each of the task states.
         for tasks in self._task_lists_by_entity_name.values():
             for task in tasks:
                 task_state = self._task_states_by_key[task.keys[0]]
-                for dep_key in task.dep_keys:
-                    dep_state = self._task_states_by_key[dep_key]
-
-                    task_state.parents.append(dep_state)
-                    dep_state.children.append(task_state)
+                self._initialize_task_state(task_state)
 
         self._is_ready_for_bootstrap_resolution = True
+
+    def _initialize_task_state(self, task_state):
+        if task_state.is_initialized:
+            return
+
+        task = task_state.task
+
+        dep_states = [
+            self._task_states_by_key[dep_key]
+            for dep_key in task.dep_keys
+        ]
+
+        for dep_state in dep_states:
+            self._initialize_task_state(dep_state)
+
+            task_state.parents.append(dep_state)
+            dep_state.children.append(task_state)
+
+        # All names in this task should point to the same provider.
+        task_state.provider, = set(
+            self._flow_state.get_provider(task_key.entity_name)
+            for task_key in task.keys
+        )
+        # And all the task keys should have the same case key.
+        task_state.case_key, = set(task_key.case_key for task_key in task.keys)
+
+        task_state.provenance = Provenance.from_computation(
+            code_id=task_state.provider.get_code_id(task_state.case_key),
+            case_key=task_state.case_key,
+            dep_provenances_by_task_key={
+                dep_key: dep_state.provenance
+                for dep_key, dep_state in zip(task.dep_keys, dep_states)
+            },
+        )
+
+        task_state.is_initialized = True
 
     def _populate_entity_info(self, entity_name):
         if entity_name in self._task_lists_by_entity_name:
@@ -273,29 +305,13 @@ class EntityDeriver(object):
                 .results_by_name[dep_key.entity_name]
             for dep_key in dep_keys
         ]
-
-        # All names should point to the same provider.
-        provider, = set(
-            self._flow_state.get_provider(task_key.entity_name)
-            for task_key in task.keys
-        )
-        # And all the task keys should have the same case key.
-        case_key, = set(task_key.case_key for task_key in task.keys)
-        provenance = Provenance.from_computation(
-            code_id=provider.get_code_id(case_key),
-            case_key=case_key,
-            dep_provenances_by_task_key={
-                dep_result.query.task_key: dep_result.query.provenance
-                for dep_result in dep_results
-            },
-        )
-
+        provider = task_state.provider
         query_states = [
             QueryState(
                 query=Query(
                     task_key=task_key,
                     protocol=provider.protocol_for_name(task_key.entity_name),
-                    provenance=provenance,
+                    provenance=task_state.provenance,
                     readable_name=self._readable_name_for_task_key(task_key),
                 ),
             )
@@ -331,7 +347,7 @@ class EntityDeriver(object):
                 # Even if it was in the cache, we should write it back so it
                 # gets replicated to all tiers (local and cloud).
                 # TODO Should this be the cache's responsibility?
-                self._persistent_cache.save(query_state.result)
+                cache.save(query_state.result)
 
         else:
             if not task.is_simple_lookup:
@@ -397,9 +413,17 @@ class TaskState(object):
 
     def __init__(self, task):
         self.task = task
-        self.results_by_name = None
+
+        # These are set together by EntityDeriver._initialize_task_state().
+        self.is_initialized = False
         self.parents = []
         self.children = []
+        self.provenance = None
+        self.case_key = None
+        self.provider = None
+
+        # This is set by EntityDeriver._compute_task_state().
+        self.results_by_name = None
 
     def is_complete(self):
         return self.results_by_name is not None
