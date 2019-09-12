@@ -78,7 +78,7 @@ class PersistentCache(object):
                     not self._cloud_cache.has_dir(virtual_path)):
                 logger.info(
                     'Uploading   %s to cloud file cache ...',
-                    query.readable_name)
+                    query.task_key)
                 self._cloud_cache.copy_in(virtual_path, working_dir_path)
 
         finally:
@@ -100,7 +100,7 @@ class PersistentCache(object):
                 cache_source_name = CACHE_SOURCE_NAME_CLOUD
                 logger.info(
                     'Downloading %s from cloud file cache ...',
-                    query.readable_name)
+                    query.task_key)
             else:
                 return None
 
@@ -130,7 +130,7 @@ class PersistentCache(object):
                 except Exception as e:
                     raise InvalidCacheStateError(
                         "Unable to load value %s due to %s: %s" % (
-                            query.readable_name, e.__class__.__name__, e))
+                            query.task_key, e.__class__.__name__, e))
 
             except InvalidCacheStateError as e:
                 raise InvalidCacheStateError(
