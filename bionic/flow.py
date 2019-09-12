@@ -18,8 +18,7 @@ from six.moves import reload_module
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
-from .cache import (
-        LocalFileCache, GcsFileCache, PersistentCache, CACHE_SOURCE_NAME_LOCAL)
+from .cache import LocalFileCache, GcsFileCache, PersistentCache
 from .datatypes import CaseKey
 from .exception import (
     UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
@@ -928,9 +927,9 @@ class Flow(object):
 
         result, = result_group
 
-        if result.cache_source_name != CACHE_SOURCE_NAME_LOCAL:
+        if result.local_cache_path is None:
             raise ValueError("Entity %r is not locally persisted" % name)
-        src_file_path = Path(result.cache_path_str)
+        src_file_path = result.local_cache_path
 
         if dir_path is None and file_path is None:
             return src_file_path

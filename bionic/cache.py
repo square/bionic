@@ -2,12 +2,6 @@
 Contains the PersistentCache class, which handles persistent local caching.
 This including artifact naming, invalidation, and saving/loading.
 
-The PersistentCache is backed by two "file caches", which can be used to
-replicate files to a persistent store.  Both classes implement the same
-interface, which is based on copying temporary directories in and out of a
-managed cache.  Directories within the cache are referred to by "virtual
-paths", which the cache translates into either filesystem paths or GCS object
-prefixes.
 """
 
 from __future__ import absolute_import
@@ -30,9 +24,6 @@ from .util import (
 import logging
 logger = logging.getLogger(__name__)
 
-CACHE_SOURCE_NAME_LOCAL = 'local'
-CACHE_SOURCE_NAME_CLOUD = 'cloud'
-
 VALUE_FILENAME_STEM = 'value.'
 DESCRIPTOR_FILENAME = 'descriptor.yaml'
 
@@ -49,128 +40,170 @@ class PersistentCache(object):
         self._cloud_cache = cloud_cache
 
     def save(self, result):
-        working_dir_path = self._create_tmp_dir_path()
-        try:
-            query = result.query
-            virtual_path = self._virtual_path(query)
-
-            value = result.value
-            extension = query.protocol.file_extension_for_value(value)
-            value_filename = VALUE_FILENAME_STEM + extension
-            value_path = working_dir_path / value_filename
-
-            with value_path.open('wb') as f:
-                query.protocol.write(value, f)
-
-            descriptor = ArtifactDescriptor.from_content(
-                entity_name=query.entity_name,
-                value_filename=value_filename,
-                provenance=query.provenance,
-            )
-            descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
-            descriptor_path.write_text(descriptor.to_yaml())
-
-            if not self._local_cache.has_dir(virtual_path):
-                active_cache = self._local_cache
-                active_cache.copy_in(virtual_path, working_dir_path)
-            if (
-                    self._cloud_cache is not None and
-                    not self._cloud_cache.has_dir(virtual_path)):
-                logger.info(
-                    'Uploading   %s to cloud file cache ...',
-                    query.task_key)
-                self._cloud_cache.copy_in(virtual_path, working_dir_path)
-
-        finally:
-            self._remove_tmp_dir_path(working_dir_path)
+        translator = self.translator_for_query(result.query)
+        translator.save_result_in_local_if_needed(result)
+        translator.copy_local_to_cloud_if_needed()
 
     def load(self, query):
-        working_dir_path = self._create_tmp_dir_path()
+        translator = self.translator_for_query(query)
+
+        if translator.has_data_in_local():
+            result = translator.load_result_from_local()
+            # We don't copy to the cloud until we've successfully loaded from
+            # local -- just in case the local data is corrupt.
+            translator.copy_local_to_cloud_if_needed()
+            return result
+
+        elif translator.has_data_in_cloud():
+            translator.copy_cloud_to_local()
+            return translator.load_result_from_local(
+                data_originated_in_cloud=True)
+
+        else:
+            return None
+
+    def translator_for_query(self, query):
+        return Translator(self, query)
+
+
+class Translator(object):
+    """
+    Translates the value of a query among three representations:
+    - in memory, as a Python object
+    - on the local filesystem
+    - in Google Cloud Storage
+    """
+
+    def __init__(self, parent_cache, query):
+        self._tmp_working_dir_str = parent_cache._tmp_working_dir_str
+        self._local_cache = parent_cache._local_cache
+        self._cloud_cache = parent_cache._cloud_cache
+        self._query = query
+
+        artifact_dir_str = query.provenance.hashed_value
+        self._virtual_path = Path(query.entity_name) / artifact_dir_str
+
+    def save_result_in_local_if_needed(self, result):
+        working_dir = self._create_tmp_dir()
+
         try:
-            virtual_path = self._virtual_path(query)
+            self._save_result_to_dir(result, working_dir)
 
-            active_cache = None
-            if self._local_cache.has_dir(virtual_path):
-                active_cache = self._local_cache
-                cache_source_name = CACHE_SOURCE_NAME_LOCAL
-            elif (
-                    self._cloud_cache is not None and
-                    self._cloud_cache.has_dir(virtual_path)):
-                active_cache = self._cloud_cache
-                cache_source_name = CACHE_SOURCE_NAME_CLOUD
-                logger.info(
-                    'Downloading %s from cloud file cache ...',
-                    query.task_key)
-            else:
-                return None
-
-            try:
-                active_cache.copy_out(virtual_path, working_dir_path)
-
-                descriptor_path = working_dir_path / DESCRIPTOR_FILENAME
-                if not descriptor_path.is_file():
-                    raise InvalidCacheStateError(
-                        "Couldn't find descriptor file: %s" %
-                        DESCRIPTOR_FILENAME)
-
-                descriptor_yaml = descriptor_path.read_text()
-                try:
-                    descriptor = ArtifactDescriptor.from_yaml(descriptor_yaml)
-                except YamlRecordParsingError as e:
-                    raise InvalidCacheStateError(
-                        "Couldn't parse descriptor file: %s" % e)
-
-                value_filename = descriptor.value_filename
-                value_path = working_dir_path / value_filename
-                extension = value_path.name[len(VALUE_FILENAME_STEM):]
-
-                try:
-                    with value_path.open('rb') as f:
-                        value = query.protocol.read(f, extension)
-                except Exception as e:
-                    raise InvalidCacheStateError(
-                        "Unable to load value %s due to %s: %s" % (
-                            query.task_key, e.__class__.__name__, e))
-
-            except InvalidCacheStateError as e:
-                raise InvalidCacheStateError(
-                    "Cached data was in an invalid state; "
-                    "this should be impossible but could have resulted from "
-                    "either a bug or a change to the cached files.  You "
-                    "should be able to repair the problem by removing '%s'."
-                    "\nDetails: %s" % (
-                        active_cache.export_path_str(virtual_path), e))
-
-            cache_path_str = active_cache.export_path_str(
-                virtual_path / value_filename)
-
-            result = Result(
-                query=query,
-                value=value,
-                cache_source_name=cache_source_name,
-                cache_path_str=cache_path_str,
-            )
-
-            self.cache_source_name = cache_source_name
+            if not self.has_data_in_local():
+                self._local_cache.move_in(self._virtual_path, working_dir)
 
         finally:
-            self._remove_tmp_dir_path(working_dir_path)
+            self._remove_dir(working_dir)
 
-        return result
+    def copy_local_to_cloud_if_needed(self):
+        if self._cloud_cache is None:
+            return
+        if self._cloud_cache.has_dir(self._virtual_path):
+            return
 
-    def _create_tmp_dir_path(self):
+        logger.info(
+            'Uploading   %s to cloud file cache ...',
+            self._query.task_key)
+        local_dir = self._local_cache.get_real_path(self._virtual_path)
+        self._cloud_cache.copy_in(self._virtual_path, local_dir)
+
+    def copy_cloud_to_local(self):
+        working_dir = self._create_tmp_dir()
+
+        try:
+            logger.info(
+                'Downloading %s from cloud file cache ...',
+                self._query.task_key)
+            self._cloud_cache.copy_out(self._virtual_path, working_dir)
+            self._local_cache.move_in(self._virtual_path, working_dir)
+
+        finally:
+            self._remove_dir(working_dir)
+
+    def has_data_in_local(self):
+        return self._local_cache.has_dir(self._virtual_path)
+
+    def has_data_in_cloud(self):
+        return self._cloud_cache is not None and\
+            self._cloud_cache.has_dir(self._virtual_path)
+
+    def load_result_from_local(self, data_originated_in_cloud=False):
+        local_dir = self._local_cache.get_real_path(self._virtual_path)
+        return self._load_result_from_dir(local_dir)
+
+    def _create_tmp_dir(self):
         Path(self._tmp_working_dir_str).mkdir(parents=True, exist_ok=True)
         return Path(tempfile.mkdtemp(dir=self._tmp_working_dir_str))
 
-    def _remove_tmp_dir_path(self, path):
-        if (path.is_file() or path.is_symlink()):
-            path.unlink()
-        else:
-            shutil.rmtree(str(path))
+    def _remove_dir(self, dir_path):
+        shutil.rmtree(str(dir_path), ignore_errors=True)
 
-    def _virtual_path(self, query):
-        artifact_dir_str = query.provenance.hashed_value
-        return Path(query.entity_name) / artifact_dir_str
+    def _save_result_to_dir(self, result, working_dir):
+        value = result.value
+        extension = self._query.protocol.file_extension_for_value(value)
+        value_filename = VALUE_FILENAME_STEM + extension
+        value_path = working_dir / value_filename
+
+        with value_path.open('wb') as f:
+            self._query.protocol.write(value, f)
+
+        descriptor = ArtifactDescriptor.from_content(
+            entity_name=self._query.entity_name,
+            value_filename=value_filename,
+            provenance=self._query.provenance,
+        )
+        descriptor_path = working_dir / DESCRIPTOR_FILENAME
+        descriptor_path.write_text(descriptor.to_yaml())
+
+    def _load_result_from_dir(
+            self, working_dir, data_originated_in_cloud=False):
+        try:
+            descriptor_path = working_dir / DESCRIPTOR_FILENAME
+            if not descriptor_path.is_file():
+                raise InvalidCacheStateError(
+                    "Couldn't find descriptor file: %s" %
+                    DESCRIPTOR_FILENAME)
+
+            descriptor_yaml = descriptor_path.read_text()
+            try:
+                descriptor = ArtifactDescriptor.from_yaml(descriptor_yaml)
+            except YamlRecordParsingError as e:
+                raise InvalidCacheStateError(
+                    "Couldn't parse descriptor file: %s" % e)
+
+            value_filename = descriptor.value_filename
+            value_path = working_dir / value_filename
+            extension = value_path.name[len(VALUE_FILENAME_STEM):]
+
+            try:
+                with value_path.open('rb') as f:
+                    value = self._query.protocol.read(f, extension)
+            except Exception as e:
+                raise InvalidCacheStateError(
+                    "Unable to load value %s due to %s: %s" % (
+                        self._query.task_key, e.__class__.__name__, e))
+
+        except InvalidCacheStateError as e:
+            problem_sources = [
+                str(self._local_cache.get_real_path(self._virtual_path))]
+            if data_originated_in_cloud:
+                problem_sources.append(
+                    self._cloud_cache.get_url(self._virtual_path))
+
+            raise InvalidCacheStateError(
+                "Cached data was in an invalid state; "
+                "this should be impossible but could have resulted from "
+                "either a bug or a change to the cached files.  You "
+                "should be able to repair the problem by removing %s."
+                "\nDetails: %s" % (' and '.join(problem_sources), e))
+
+        result = Result(
+            query=self._query,
+            value=value,
+            local_cache_path=value_path,
+        )
+
+        return result
 
 
 class LocalFileCache(object):
@@ -186,14 +219,9 @@ class LocalFileCache(object):
         dir_path = self.root_path / virtual_path
         return dir_path.is_dir()
 
-    def copy_in(self, virtual_path, src_path):
+    def move_in(self, virtual_path, src_path):
         """
-        Copies a (temporary) directory into the cache filesystem.
-
-        If the directory is not already a symlink, it will simply get moved
-        into the managed filesystem and replaced with a symlink to the moved
-        directory.  Since we're assuming the original directory is temporary,
-        this is safe and cheaper than copying the files.
+        Moves a directory into the cache filesystem.
         """
 
         dst_path = self.root_path / virtual_path
@@ -201,29 +229,11 @@ class LocalFileCache(object):
             dst_path.unlink()
         dst_path.mkdir(parents=True, exist_ok=True)
 
-        if src_path.is_symlink():
-            shutil.copytree(src_path, dst_path)
-        else:
-            src_path.rename(dst_path)
-            src_path.symlink_to(dst_path.absolute(), target_is_directory=True)
+        src_path.rename(dst_path)
 
-    def copy_out(self, virtual_path, dst_path):
-        """
-        Creates new directory which is a symlink to a directory in the cache
-        filesystem.
-        """
-        src_path = self.root_path / virtual_path
-        if src_path.is_file():
-            raise InvalidCacheStateError(
-                "Expected %s to be a directory, but it was a file" % dst_path)
-
-        if dst_path.is_dir():
-            dst_path.rmdir()
-        dst_path.symlink_to(src_path.absolute(), target_is_directory=True)
-
-    def export_path_str(self, virtual_path):
-        """Returns a real path corresponding to the provided virtual path."""
-        return str(self.root_path / virtual_path)
+    def get_real_path(self, virtual_path):
+        """Returns the real path corresponding to the provided virtual path."""
+        return self.root_path / virtual_path
 
 
 def normalize_path(path):
@@ -286,7 +296,7 @@ class GcsFileCache(object):
 
         self._gsutil_rsync(
             src_url=str(src_path),
-            dst_url=self._gs_url_from_path(virtual_path),
+            dst_url=self.get_url(virtual_path),
         )
 
         self._marker_blob(virtual_path).upload_from_string(
@@ -296,15 +306,12 @@ class GcsFileCache(object):
         """Copies a cached directory into a local file directory."""
         dst_path.mkdir(parents=True, exist_ok=True)
         self._gsutil_rsync(
-            src_url=self._gs_url_from_path(virtual_path),
+            src_url=self.get_url(virtual_path),
             dst_url=str(dst_path),
         )
 
-    def export_path_str(self, virtual_path):
+    def get_url(self, virtual_path):
         """Returns a ``gs://` URL corresponding to a virtual path."""
-        return self._gs_url_from_path(virtual_path)
-
-    def _gs_url_from_path(self, virtual_path):
         return 'gs://%s/%s' % (
             self._bucket.name,
             normalize_path(self._object_prefix + str(virtual_path) + '/'))
