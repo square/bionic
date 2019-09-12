@@ -187,6 +187,16 @@ class EntityDeriver(object):
             },
         )
 
+        task_state.queries = [
+            Query(
+                task_key=task_key,
+                protocol=task_state.provider.protocol_for_name(
+                    task_key.entity_name),
+                provenance=task_state.provenance
+            )
+            for task_key in task.keys
+        ]
+
         task_state.is_initialized = True
 
     def _populate_entity_info(self, entity_name):
@@ -250,9 +260,7 @@ class EntityDeriver(object):
         def log_completed_task_exactly_once(task):
             for task_key in task.keys:
                 if task_key not in logged_task_keys:
-                    readable_name = self._readable_name_for_task_key(task_key)
-                    self._log(
-                        'Accessed    %s from in-memory cache', readable_name)
+                    self._log('Accessed    %s from in-memory cache', task_key)
                     logged_task_keys.add(task_key)
 
         while ready_task_states:
@@ -262,9 +270,12 @@ class EntityDeriver(object):
                 log_completed_task_exactly_once(state.task)
                 continue
 
-            if not state.is_blocked():
+            self._attempt_to_load_task_state_results(state)
+
+            if not state.is_complete() and not state.is_blocked():
                 self._compute_task_state(state)
 
+            if state.is_complete():
                 for task_key in state.task.keys:
                     logged_task_keys.add(task_key)
 
@@ -295,10 +306,41 @@ class EntityDeriver(object):
             key_space=self._key_spaces_by_entity_name[entity_name],
         )
 
+    def _attempt_to_load_task_state_results(self, task_state):
+        if not task_state.provider.attrs.should_persist:
+            return
+
+        task = task_state.task
+        if task.is_simple_lookup:
+            return
+
+        results = []
+        for query in task_state.queries:
+            result = self._persistent_cache.load(query)
+            if result is None:
+                return
+
+            results.append(result)
+
+        for result in results:
+            self._log(
+                'Loaded      %s from %s cache',
+                result.query.task_key, result.cache_source_name)
+
+            # Even if it was in the cache, we should write it back so it
+            # gets replicated to all tiers (local and cloud).
+            # TODO Should this be the cache's responsibility?
+            self._persistent_cache.save(result)
+
+        task_state.results_by_name = {
+            result.query.entity_name: result
+            for result in results
+        }
+
     def _compute_task_state(self, task_state):
         assert not task_state.is_blocked()
-        task = task_state.task
 
+        task = task_state.task
         dep_keys = task.dep_keys
         dep_results = [
             self._task_states_by_key[dep_key]
@@ -306,96 +348,41 @@ class EntityDeriver(object):
             for dep_key in dep_keys
         ]
         provider = task_state.provider
-        query_states = [
-            QueryState(
-                query=Query(
-                    task_key=task_key,
-                    protocol=provider.protocol_for_name(task_key.entity_name),
-                    provenance=task_state.provenance,
-                    readable_name=self._readable_name_for_task_key(task_key),
-                ),
+
+        if not task.is_simple_lookup:
+            for task_key in task.keys:
+                self._log('Computing   %s ...', task_key)
+
+        dep_values = [dep_result.value for dep_result in dep_results]
+
+        values = task_state.task.compute(dep_values)
+        assert len(values) == len(provider.attrs.names)
+
+        results_by_name = {}
+        for query, value in zip(task_state.queries, values):
+            query.protocol.validate(value)
+
+            result = Result(
+                query=query,
+                value=value,
             )
-            for task_key in task.keys
-        ]
 
-        # If persisting, attempt to load each query.
-        should_persist = provider.attrs.should_persist
+            if provider.attrs.should_persist:
+                self._persistent_cache.save(result)
+                # We immediately reload the value and treat that as the
+                # real value.  That way, if the serialized/deserialized
+                # value is not exactly the same as the original, we still
+                # always return the same value.
+                result = self._persistent_cache.load(query)
 
-        if should_persist:
-            if not self._is_ready_for_full_resolution:
-                raise AssertionError(
-                    "Can't apply persistent caching to bootstrap entities %r"
-                    % (tuple(provider.attrs.names),))
-            cache = self._persistent_cache
+            results_by_name[query.entity_name] = result
 
-            for query_state in query_states:
-                query_state.result = cache.load(query_state.query)
+            if task.is_simple_lookup:
+                self._log('Accessed    %s from definition', query.task_key)
+            else:
+                self._log('Computed    %s', query.task_key)
 
-        # If not all entities were already cached, we'll have to compute them.
-        all_results_present = all(
-            query_state.result is not None
-            for query_state in query_states
-        )
-        if all_results_present:
-            for query_state in query_states:
-                self._log(
-                    'Loaded      %s from %s cache',
-                    query_state.readable_name,
-                    query_state.result.cache_source_name,
-                )
-
-                # Even if it was in the cache, we should write it back so it
-                # gets replicated to all tiers (local and cloud).
-                # TODO Should this be the cache's responsibility?
-                cache.save(query_state.result)
-
-        else:
-            if not task.is_simple_lookup:
-                for query_state in query_states:
-                    self._log('Computing   %s ...', query_state.readable_name)
-
-            dep_values = [dep_result.value for dep_result in dep_results]
-
-            values = task_state.task.compute(dep_values)
-            assert len(values) == len(provider.attrs.names)
-
-            for value, query_state in zip(values, query_states):
-                query_state.query.protocol.validate(value)
-
-                result = Result(
-                    query=query_state.query,
-                    value=value,
-                )
-                if should_persist:
-                    cache.save(result)
-                    # We immediately reload the value and treat that as the
-                    # real value.  That way, if the serialized/deserialized
-                    # value is not exactly the same as the original, we still
-                    # always return the same value.
-                    result = cache.load(query_state.query)
-
-                query_state.result = result
-
-                if task.is_simple_lookup:
-                    self._log(
-                        'Accessed    %s from definition',
-                        query_state.readable_name)
-                else:
-                    self._log('Computed    %s', query_state.readable_name)
-
-        # Collect the results.
-        task_state.results_by_name = {
-            query_state.query.entity_name: query_state.result
-            for query_state in query_states
-        }
-
-    def _readable_name_for_task_key(self, task_key):
-        return '%s(%s)' % (
-           task_key.entity_name,
-           ', '.join(
-               '%s=%s' % (name, value)
-               for name, value in task_key.case_key.items())
-        )
+        task_state.results_by_name = results_by_name
 
     def _log(self, message, *args):
         if self._is_ready_for_full_resolution:
@@ -421,6 +408,7 @@ class TaskState(object):
         self.provenance = None
         self.case_key = None
         self.provider = None
+        self.queries = None
 
         # This is set by EntityDeriver._compute_task_state().
         self.results_by_name = None
@@ -433,17 +421,3 @@ class TaskState(object):
 
     def __repr__(self):
         return 'TaskState(%r)' % self.task
-
-
-class QueryState(object):
-    """Tracks a query that we may or may not have computed yet."""
-
-    def __init__(self, query):
-        self.query = query
-        self.readable_name = self.query.readable_name
-
-        # This will get written later.
-        self.result = None
-
-    def __repr__(self):
-        return 'QueryState(%r)' % (self.readable_name,)

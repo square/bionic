@@ -203,6 +203,50 @@ def test_all_returned_results_are_deserialized(builder):
     assert pi.times_called() == 1
 
 
+def test_deps_of_cached_values_not_needed(builder):
+    class ReadCountingProtocol(bn.protocols.PicklableProtocol):
+        def __init__(self):
+            self.times_read_called = 0
+            super(ReadCountingProtocol, self).__init__()
+
+        def read(self, file_, extension):
+            self.times_read_called += 1
+            return super(ReadCountingProtocol, self).read(file_, extension)
+
+    y_protocol = ReadCountingProtocol()
+    z_protocol = ReadCountingProtocol()
+
+    builder.assign('x', 2)
+
+    @builder
+    @y_protocol
+    def y(x):
+        return x + 1
+
+    @builder
+    @z_protocol
+    def z(y):
+        return y + 1
+
+    flow = builder.build()
+    assert flow.get('x') == 2
+    assert flow.get('y') == 3
+    assert flow.get('z') == 4
+
+    assert flow.get('x') == 2
+    assert flow.get('y') == 3
+    assert flow.get('z') == 4
+
+    assert y_protocol.times_read_called == 1
+    assert z_protocol.times_read_called == 1
+
+    flow = builder.build()
+    assert flow.get('z') == 4
+
+    assert y_protocol.times_read_called == 1
+    assert z_protocol.times_read_called == 2
+
+
 def test_gather_cache_invalidation(builder):
     builder.assign('x', values=[1, 2])
     builder.assign('y', values=[2, 3])

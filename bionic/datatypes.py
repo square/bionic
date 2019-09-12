@@ -20,6 +20,14 @@ class TaskKey(namedtuple('TaskKey', 'entity_name case_key')):
     def __repr__(self):
         return 'TaskKey(%r, %r)' % (self.entity_name, self.case_key)
 
+    def __str__(self):
+        return '%s(%s)' % (
+           self.entity_name,
+           ', '.join(
+               '%s=%s' % (name, value)
+               for name, value in self.case_key.items())
+        )
+
 
 class Task(object):
     '''
@@ -50,19 +58,18 @@ class Query(object):
     Represents a request for a specific entity value.
     '''
     def __init__(
-            self, task_key, protocol, provenance, readable_name):
+            self, task_key, protocol, provenance):
         self.task_key = task_key
         self.entity_name = task_key.entity_name
         self.case_key = task_key.case_key
         self.protocol = protocol
         self.provenance = provenance
-        self.readable_name = readable_name
 
     def to_result(self, value):
         return Result(query=self, value=value)
 
     def __repr__(self):
-        return 'Query(%r, %r)' % (self.readable_name, self.provenance)
+        return 'Query(%s, %r)' % (self.task_key, self.provenance)
 
 
 class Result(object):
