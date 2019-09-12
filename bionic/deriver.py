@@ -257,24 +257,30 @@ class EntityDeriver(object):
 
         logged_task_keys = set()
 
-        def log_completed_task_exactly_once(task):
-            for task_key in task.keys:
-                if task_key not in logged_task_keys:
-                    self._log('Accessed    %s from in-memory cache', task_key)
-                    logged_task_keys.add(task_key)
-
         while ready_task_states:
             state = ready_task_states.pop()
 
+            # If this task is already complete, we don't need to do any work.
+            # But if this is this is the first time we've seen this task, we
+            # should should log a message .
             if state.is_complete():
-                log_completed_task_exactly_once(state.task)
+                for task_key in state.task.keys:
+                    if task_key not in logged_task_keys:
+                        self._log(
+                            'Accessed    %s from in-memory cache', task_key)
+                        logged_task_keys.add(task_key)
                 continue
 
+            # First, see if we can load it from the cache.
             self._attempt_to_load_task_state_results(state)
 
+            # If we weren't able to load it but it's ready to compute, let's
+            # compute it!
             if not state.is_complete() and not state.is_blocked():
                 self._compute_task_state(state)
 
+            # If we successfully loaded or computed it, see if we can unblock
+            # its children.
             if state.is_complete():
                 for task_key in state.task.keys:
                     logged_task_keys.add(task_key)
@@ -285,14 +291,10 @@ class EntityDeriver(object):
                         ready_task_states.append(child_state)
                         blocked_task_key_tuples.remove(child_state.task.keys)
 
-                continue
-
-            for dep_state in state.parents:
-                if dep_state.is_complete():
-                    log_completed_task_exactly_once(dep_state.task)
-                else:
-                    ready_task_states.append(dep_state)
-            blocked_task_key_tuples.add(state.task.keys)
+            # If not, let's mark it as blocked and try to derive its parents.
+            else:
+                ready_task_states.extend(state.parents)
+                blocked_task_key_tuples.add(state.task.keys)
 
         assert len(blocked_task_key_tuples) == 0, blocked_task_key_tuples
         for state in requested_task_states:
