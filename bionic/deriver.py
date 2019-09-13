@@ -326,13 +326,7 @@ class EntityDeriver(object):
 
         for result in results:
             self._log(
-                'Loaded      %s from %s cache',
-                result.query.task_key, result.cache_source_name)
-
-            # Even if it was in the cache, we should write it back so it
-            # gets replicated to all tiers (local and cloud).
-            # TODO Should this be the cache's responsibility?
-            self._persistent_cache.save(result)
+                'Loaded      %s from disk cache', result.query.task_key)
 
         task_state.results_by_name = {
             result.query.entity_name: result

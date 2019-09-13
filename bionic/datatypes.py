@@ -77,11 +77,10 @@ class Result(object):
     Represents one value for one entity.
     '''
     def __init__(
-            self, query, value, cache_source_name=None, cache_path_str=None):
+            self, query, value, local_cache_path=None):
         self.query = query
         self.value = value
-        self.cache_source_name = cache_source_name
-        self.cache_path_str = cache_path_str
+        self.local_cache_path = local_cache_path
 
     def __repr__(self):
         return 'Result(%r, %r)' % (self.query, self.value)
