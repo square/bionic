@@ -57,10 +57,10 @@ class BaseProtocol(object):
             for type_ in self.get_all_supported_types()
         )
 
-    def write(self, value, file_):
+    def write(self, value, path):
         raise NotImplementedError()
 
-    def read(self, file_):
+    def read(self, path):
         raise NotImplementedError()
 
     SIMPLE_TYPES = {
@@ -121,11 +121,13 @@ class PicklableProtocol(BaseProtocol):
     def get_fixed_file_extension(self):
         return 'pkl'
 
-    def write(self, value, file_):
-        pickle.dump(value, file_)
+    def write(self, value, path):
+        with path.open('wb') as file_:
+            pickle.dump(value, file_)
 
-    def read(self, file_, extension):
-        return pickle.load(file_)
+    def read(self, path, extension):
+        with path.open('rb') as file_:
+            return pickle.load(file_)
 
 
 class DillableProtocol(BaseProtocol):
@@ -157,11 +159,13 @@ class DillableProtocol(BaseProtocol):
 
         return self._dill
 
-    def write(self, value, file_):
-        self._get_dill_module().dump(value, file_)
+    def write(self, value, path):
+        with path.open('wb') as file_:
+            self._get_dill_module().dump(value, file_)
 
-    def read(self, file_, extension):
-        return self._get_dill_module().load(file_)
+    def read(self, path, extension):
+        with path.open('rb') as file_:
+            return self._get_dill_module().load(file_)
 
 
 class ParquetDataFrameProtocol(BaseProtocol):
@@ -187,13 +191,15 @@ class ParquetDataFrameProtocol(BaseProtocol):
     def validate(self, value):
         assert isinstance(value, pd.DataFrame)
 
-    def read(self, file_, extension):
-        return parquet.read_table(file_).to_pandas()
+    def read(self, path, extension):
+        with path.open('rb') as file_:
+            return parquet.read_table(file_).to_pandas()
 
-    def write(self, df, file_):
+    def write(self, df, path):
         if self._check_dtypes:
             self._check_no_categorical_cols(df)
-        parquet.write_table(Table.from_pandas(df), file_)
+        with path.open('wb') as file_:
+            parquet.write_table(Table.from_pandas(df), file_)
 
     def _check_no_categorical_cols(self, df):
         categorical_cols = [
@@ -226,11 +232,13 @@ class FeatherDataFrameProtocol(BaseProtocol):
     def validate(self, value):
         assert isinstance(value, pd.DataFrame)
 
-    def read(self, file_, extension):
-        return pd.read_feather(file_)
+    def read(self, path, extension):
+        with path.open('rb') as file_:
+            return pd.read_feather(file_)
 
-    def write(self, df, file_):
-        df.to_feather(file_)
+    def write(self, df, path):
+        with path.open('wb') as file_:
+            df.to_feather(file_)
 
 
 Image = import_optional_dependency('PIL.Image', raise_on_missing=False)
@@ -254,17 +262,19 @@ class ImageProtocol(BaseProtocol):
         assert Image is not None
         assert isinstance(value, Image.Image)
 
-    def read(self, file_, extension):
-        Image = import_optional_dependency(
-            'PIL.Image', purpose='the @image decorator')
-        image = Image.open(file_)
-        # Image.open() is lazy; if we don't call load() now, the file can
-        # be closed or possibly invalidated before it actually gets read.
-        image.load()
-        return image
+    def read(self, path, extension):
+        with path.open('rb') as file_:
+            Image = import_optional_dependency(
+                'PIL.Image', purpose='the @image decorator')
+            image = Image.open(file_)
+            # Image.open() is lazy; if we don't call load() now, the file can
+            # be closed or possibly invalidated before it actually gets read.
+            image.load()
+            return image
 
-    def write(self, image, file_):
-        image.save(file_, format='png')
+    def write(self, image, path):
+        with path.open('wb') as file_:
+            image.save(file_, format='png')
 
 
 class NumPyProtocol(BaseProtocol):
@@ -281,11 +291,13 @@ class NumPyProtocol(BaseProtocol):
     def validate(self, value):
         assert isinstance(value, np.ndarray)
 
-    def read(self, file_, extension):
-        return np.load(file_)
+    def read(self, path, extension):
+        with path.open('rb') as file_:
+            return np.load(file_)
 
-    def write(self, array, file_):
-        np.save(file_, array)
+    def write(self, array, path):
+        with path.open('wb') as file_:
+            np.save(file_, array)
 
 
 class CombinedProtocol(BaseProtocol):
@@ -339,15 +351,15 @@ class CombinedProtocol(BaseProtocol):
         else:
             self._subprotocols[-1].validate(value)
 
-    def read(self, file_, extension):
+    def read(self, path, extension):
         if not self.can_read_file_extension(extension):
             raise ValueError(
                 "This protocol doesn't know how to read a file with "
                 "extension %r" % extension)
-        return self._protocol_for_extension(extension).read(file_, extension)
+        return self._protocol_for_extension(extension).read(path, extension)
 
-    def write(self, value, file_):
-        self._protocol_for_value(value).write(value, file_)
+    def write(self, value, path):
+        self._protocol_for_value(value).write(value, path)
 
     def __repr__(self):
         return 'CombinedProtocol%r' % (tuple(self._subprotocols),)

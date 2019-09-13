@@ -209,9 +209,9 @@ def test_deps_of_cached_values_not_needed(builder):
             self.times_read_called = 0
             super(ReadCountingProtocol, self).__init__()
 
-        def read(self, file_, extension):
+        def read(self, path, extension):
             self.times_read_called += 1
-            return super(ReadCountingProtocol, self).read(file_, extension)
+            return super(ReadCountingProtocol, self).read(path, extension)
 
     y_protocol = ReadCountingProtocol()
     z_protocol = ReadCountingProtocol()
