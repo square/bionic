@@ -144,8 +144,7 @@ class Translator(object):
         value_filename = VALUE_FILENAME_STEM + extension
         value_path = working_dir / value_filename
 
-        with value_path.open('wb') as f:
-            self._query.protocol.write(value, f)
+        self._query.protocol.write(value, value_path)
 
         descriptor = ArtifactDescriptor.from_content(
             entity_name=self._query.entity_name,
@@ -176,8 +175,7 @@ class Translator(object):
             extension = value_path.name[len(VALUE_FILENAME_STEM):]
 
             try:
-                with value_path.open('rb') as f:
-                    value = self._query.protocol.read(f, extension)
+                value = self._query.protocol.read(value_path, extension)
             except Exception as e:
                 raise InvalidCacheStateError(
                     "Unable to load value %s due to %s: %s" % (

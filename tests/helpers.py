@@ -83,8 +83,8 @@ class RoundingProtocol(bn.protocols.BaseProtocol):
     def get_fixed_file_extension(self):
         return 'round'
 
-    def write(self, value, file_):
-        file_.write(str(round(value)).encode('utf-8'))
+    def write(self, value, path):
+        path.write_bytes(str(round(value)).encode('utf-8'))
 
-    def read(self, file_, extension):
-        return float(file_.read())
+    def read(self, path, extension):
+        return float(path.read_bytes())

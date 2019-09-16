@@ -6,9 +6,11 @@ from __future__ import absolute_import
 from __future__ import division
 
 from future import standard_library
+from pathlib2 import Path
 standard_library.install_aliases() # NOQA
 from builtins import str, chr, range
-from io import BytesIO
+import shutil
+import tempfile
 
 from .util import hash_to_hex
 
@@ -53,6 +55,7 @@ def clean_str(string):
 HASH_LEN = 5
 
 
+# TODO: add optional directory parameter for where to write/read from
 def tokenize(value, serialize_func=None):
     '''
     Convert an arbitrary value to a nice, unique string that could be used as a
@@ -63,9 +66,14 @@ def tokenize(value, serialize_func=None):
     '''
 
     if serialize_func is not None:
-        buf = BytesIO()
-        serialize_func(value, buf)
-        token = hash_to_hex(buf.getvalue(), HASH_LEN)
+        file_name = "temp_file"
+        temp_dir = Path(tempfile.mkdtemp())
+        try:
+            temp_file_path = temp_dir / file_name
+            serialize_func(value, temp_file_path)
+            token = hash_to_hex(temp_file_path.read_bytes(), HASH_LEN)
+        finally:
+            shutil.rmtree(str(temp_dir))
     else:
         value_str = str(value)
         token = clean_str(value_str)

@@ -61,12 +61,12 @@ API changes may break your implementation.)
             """Returns the extension that persisted files should end with."""
             raise NotImplementedError()
 
-        def write(self, value, file_):
-            """Write the contents of ``value`` to file object ``file_``."""
+        def write(self, value, path):
+            """Write the contents of ``value`` to path object ``path``."""
             raise NotImplementedError()
 
-        def read(self, file_):
-            """Read an object from file object ``file_``, and return it."""
+        def read(self, path):
+            """Read an object from path object ``path``, and return it."""
             raise NotImplementedError()
 
 Protocol Decorators
@@ -76,6 +76,7 @@ Protocol Decorators
 .. autofunction:: bionic.protocol.enum
 .. autofunction:: bionic.protocol.frame
 .. autofunction:: bionic.protocol.image
+.. autofunction:: bionic.protocol.numpy
 .. autofunction:: bionic.protocol.picklable
 .. autofunction:: bionic.protocol.type
 
