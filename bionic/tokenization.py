@@ -6,11 +6,8 @@ from __future__ import absolute_import
 from __future__ import division
 
 from future import standard_library
-from pathlib2 import Path
 standard_library.install_aliases() # NOQA
 from builtins import str, chr, range
-import shutil
-import tempfile
 
 from .util import hash_to_hex
 
@@ -66,14 +63,8 @@ def tokenize(value, serialize_func=None):
     '''
 
     if serialize_func is not None:
-        file_name = "temp_file"
-        temp_dir = Path(tempfile.mkdtemp())
-        try:
-            temp_file_path = temp_dir / file_name
-            serialize_func(value, temp_file_path)
-            token = hash_to_hex(temp_file_path.read_bytes(), HASH_LEN)
-        finally:
-            shutil.rmtree(str(temp_dir))
+        bytestring = serialize_func(value)
+        token = hash_to_hex(bytestring, HASH_LEN)
     else:
         value_str = str(value)
         token = clean_str(value_str)

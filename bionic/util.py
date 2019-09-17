@@ -96,6 +96,46 @@ def copy_to_gcs(src, dst):
     blob.upload_from_filename(src)
 
 
+def num_as_bytes(n):
+    """
+    Encodes an integer in UTF-8 bytes.
+    """
+    return str(n).encode('utf-8')
+
+
+def read_hashable_bytes_from_file_or_dir(path):
+    """
+    Reads the contents of a file or directory (and all nested
+    files/directories) into a single byte array.  This function is intended to
+    generate the input to a hash function, so it includes some extra metadata
+    to reduce the chance of collisions.
+    """
+    if not path.exists():
+        raise ValueError("%r doesn't exist" % path)
+    elif path.is_file():
+        return b'F' + num_as_bytes(path.stat().st_size) + b':' +\
+            path.read_bytes()
+    elif path.is_dir():
+        # We could just concatenate all the file byte strings together, but
+        # since we expect to hash this, it'd be nice to avoid returning the
+        # same value for different file structures.  For example, if a
+        # directory contains one file with contents 'AB', we'd like that to
+        # look different from two files with contents 'A' and 'B'.  To
+        # accomplish this, we prefix each type of data with a letter and the
+        # length of the data.
+        sub_paths = list(sorted(path.iterdir()))
+        return b'D' + num_as_bytes(len(sub_paths)) + b':' + b':'.join(
+            b'N' + num_as_bytes(len(sub_path.name)) + b':' +
+            sub_path.name + b':' +
+            read_hashable_bytes_from_file_or_dir(sub_path)
+            for sub_path in sub_paths
+        )
+    else:
+        raise ValueError(
+            "%r is neither a file nor a directory; "
+            "not sure what to do with it!" % path)
+
+
 class ImmutableSequence(object):
     def __init__(self, items):
         self.__items = tuple(items)

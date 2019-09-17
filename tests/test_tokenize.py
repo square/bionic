@@ -33,13 +33,8 @@ class Point(object):
         self.y = y
 
 
-def serialize_to_path(value, path):
-    with path.open('wb') as file_:
-        pickle.dump(value, file_)
-
-
 def test_tokenize_complex_type():
-    token = tokenize(Point(1, 2), serialize_to_path)
+    token = tokenize(Point(1, 2), pickle.dumps)
     assert isinstance(token, string_types)
     assert len(token) == 10
 
@@ -51,7 +46,7 @@ def test_tokenize_no_collisions():
         for y in range(100)
     ]
     tokens = [
-        tokenize(point, serialize_to_path)
+        tokenize(point, pickle.dumps)
         for point in points
     ]
     assert len(set(tokens)) == len(points)

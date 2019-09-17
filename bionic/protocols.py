@@ -13,13 +13,17 @@ from __future__ import absolute_import
 from builtins import object
 import pickle
 import sys
+import tempfile
+import shutil
 
 import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
+from pathlib2 import Path
 
 from .provider import provider_wrapper, ProtocolUpdateProvider
 from .optdep import import_optional_dependency
+from .util import read_hashable_bytes_from_file_or_dir
 from . import tokenization
 
 
@@ -73,7 +77,17 @@ class BaseProtocol(object):
         if type(value) in self.SIMPLE_TYPES:
             return tokenization.tokenize(value)
         else:
-            return tokenization.tokenize(value, self.write)
+            return tokenization.tokenize(value, self._write_to_bytes)
+
+    def _write_to_bytes(self, value):
+        file_name = 'temp_file'
+        temp_dir = Path(tempfile.mkdtemp())
+        try:
+            temp_file_path = temp_dir / file_name
+            self.write(value, temp_file_path)
+            return read_hashable_bytes_from_file_or_dir(temp_file_path)
+        finally:
+            shutil.rmtree(str(temp_dir))
 
     # This lets a protocol object be used in two different ways:
     # - called with a function or provider and used as a decorator
