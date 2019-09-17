@@ -6,6 +6,7 @@ from . import protocols
 # why we instantiate them here.
 picklable = protocols.PicklableProtocol()  # noqa: F401
 dillable = protocols.DillableProtocol()  # noqa: F401
+dask = protocols.DaskProtocol()  # noqa: F401
 image = protocols.ImageProtocol()  # noqa: F401
 numpy = protocols.NumPyProtocol()  # noqa: F401
 

@@ -17,6 +17,7 @@ import yaml
 import six
 from pathlib2 import Path, PurePosixPath
 
+from bionic.exception import UnsupportedSerializedValueError
 from .datatypes import Result
 from .util import (
     check_exactly_one_present, hash_to_hex, get_gcs_client_without_warnings)
@@ -176,6 +177,8 @@ class Translator(object):
 
             try:
                 value = self._query.protocol.read(value_path, extension)
+            except UnsupportedSerializedValueError:
+                raise
             except Exception as e:
                 raise InvalidCacheStateError(
                     "Unable to load value %s due to %s: %s" % (

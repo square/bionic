@@ -15,12 +15,15 @@ import pickle
 import sys
 import tempfile
 import shutil
+import warnings
 
 import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
 from pathlib2 import Path
+import six
 
+from .exception import UnsupportedSerializedValueError
 from .provider import provider_wrapper, ProtocolUpdateProvider
 from .optdep import import_optional_dependency
 from .util import read_hashable_bytes_from_file_or_dir
@@ -312,6 +315,45 @@ class NumPyProtocol(BaseProtocol):
     def write(self, array, path):
         with path.open('wb') as file_:
             np.save(file_, array)
+
+
+dd = import_optional_dependency('dask.dataframe', raise_on_missing=False)
+
+
+class DaskProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values always have the
+    ``dask.dataframe.DataFrame`` type.
+
+    These values will be serialized a .dask.pq directory.
+    """
+
+    def get_fixed_file_extension(self):
+        return 'pq.dask'
+
+    def validate(self, value):
+        # If dd is None, then dask with dataframe (i.e. dask[dataframe]) is not present,
+        # which presumably means this value is not a dask dataframe, and hence should fail
+        # validation.
+        assert dd is not None
+        assert isinstance(value, dd.DataFrame)
+
+    def read(self, path, extension):
+        if six.PY2:
+            path = str(path)
+        dd = import_optional_dependency('dask.dataframe', purpose='the @dask decorator')
+        with warnings.catch_warnings():
+            warnings.filterwarnings('error', message=r".*cannot\s+autodetect\s+index.*")
+            try:
+                return dd.read_parquet(path)
+            except RuntimeWarning as e:
+                raise UnsupportedSerializedValueError(
+                    "Reading dataframe failed due to present MultiIndex: %s" % e)
+
+    def write(self, df, path):
+        if six.PY2:
+            path = str(path)
+        dd.to_parquet(df, path, write_index=True)
 
 
 class CombinedProtocol(BaseProtocol):

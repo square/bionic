@@ -55,6 +55,8 @@ Subpackage  Installation Command              Enables
 dev        ``pip install bionic[dev]``        every feature; testing; building
                                               documentation
 ---------- ---------------------------------- ---------------------------------
+dask       ``pip install bionic[dask]``       the ``@dask`` decorator
+---------- ---------------------------------- ---------------------------------
 dill       ``pip install bionic[dill]``       the ``@dillable`` decorator
 ---------- ---------------------------------- ---------------------------------
 examples   ``pip install bionic[examples]``   the tutorial example code

@@ -25,6 +25,7 @@ def first_token_from_package_desc(desc):
 alias_lists_by_package = {
     'google-cloud-storage': ['google.cloud.storage'],
     'Pillow': ['PIL', 'PIL.Image'],
+    'dask[dataframe]': ['dask.dataframe']
 }
 
 # Now we contruct a new data structure to allow us to give helpful error
