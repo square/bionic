@@ -15,12 +15,15 @@ import pickle
 import sys
 import tempfile
 import shutil
+import warnings
 
+import dask.dataframe as dd
 import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
 from pathlib2 import Path
 
+from .exception import DaskMultiIndexError
 from .provider import provider_wrapper, ProtocolUpdateProvider
 from .optdep import import_optional_dependency
 from .util import read_hashable_bytes_from_file_or_dir
@@ -312,6 +315,33 @@ class NumPyProtocol(BaseProtocol):
     def write(self, array, path):
         with path.open('wb') as file_:
             np.save(file_, array)
+
+
+class DaskProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values always have the
+    ``dask.dataframe.DataFrame`` type.
+
+    These values will be serialized to .dask.pq files.
+    """
+
+    def get_fixed_file_extension(self):
+        return 'dask.pq'
+
+    def validate(self, value):
+        assert isinstance(value, dd.DataFrame)
+
+    def read(self, path, extension):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('error')
+            try:
+                return dd.read_parquet(path)
+            except RuntimeWarning as e:
+                raise DaskMultiIndexError(
+                    "Reading dataframe failed due to present MultiIndex: %s" % e)
+
+    def write(self, df, path):
+        dd.to_parquet(df, path, write_index=True)
 
 
 class CombinedProtocol(BaseProtocol):

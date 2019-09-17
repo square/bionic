@@ -7,9 +7,11 @@ import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
 
-from ..helpers import count_calls, df_from_csv_str
+from ..helpers import count_calls, df_from_csv_str, equal_frame_and_index_content
 
 import bionic as bn
+import dask.dataframe as dd
+from bionic.exception import DaskMultiIndexError
 from bionic.protocols import CombinedProtocol, PicklableProtocol
 
 
@@ -194,6 +196,79 @@ def test_dataframe_with_categorical_works_with_feather(builder):
         return df_value
 
     pdt.assert_frame_equal(builder.build().get('df'), df_value)
+
+
+def test_simple_dask_dataframe(builder):
+    df_value = df_from_csv_str('''
+    color,number
+    red,1
+    blue,2
+    green,3
+    ''')
+    dask_df = dd.from_pandas(df_value, npartitions=1)
+
+    @builder
+    @bn.protocol.dask
+    @count_calls
+    def df():
+        return dask_df
+
+    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
+    assert df.times_called() == 1
+
+
+def test_typed_dask_dataframe(builder):
+    df_value = pd.DataFrame()
+    df_value['int'] = [1, 2, 3]
+    df_value['float'] = [1.0, 1.5, float('nan')]
+    df_value['str'] = ['red', 'blue', None]
+    df_value['time'] = pd.to_datetime([
+        '2011-02-07',
+        '2011-03-17',
+        '2011-04-27',
+    ])
+    dask_df = dd.from_pandas(df_value, npartitions=1)
+
+    @builder
+    @bn.protocol.dask
+    def df():
+        return dask_df
+
+    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
+    assert builder.build().get('df').compute().dtypes.to_dict() ==\
+        dask_df.compute().dtypes.to_dict()
+
+
+def test_dask_dataframe_index_cols(builder):
+    df_value = df_from_csv_str('''
+        city,country,continent,metro_pop_mil
+        Tokyo,Japan,Asia,38
+        Delhi,India,Asia,26
+        Shanghai,China,Asia,24
+        Sao Paulo,Brazil,South America,21
+        Mumbai,India,21
+        Mexico City,Mexico,North America,21
+        Beijing,China,Asia,20
+        Osaka,Japan,Asia,20
+        Cairo,Egypt,Africa,19
+        New York,USA,North America,19
+        ''')
+    dask_df = dd.from_pandas(df_value, npartitions=1)
+
+    @builder
+    @bn.protocol.dask
+    def raw_df():
+        return dask_df
+
+    @builder
+    @bn.protocol.dask
+    def counts_df(raw_df):
+        return raw_df.groupby(['continent', 'country']).size()\
+            .to_frame('count')
+
+    with pytest.raises(DaskMultiIndexError):
+        builder.build().get('counts_df')
 
 
 def test_image_protocol(builder):
