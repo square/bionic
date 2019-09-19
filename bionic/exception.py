@@ -17,3 +17,7 @@ class AlreadyDefinedEntityError(ValueError):
 
 class IncompatibleEntityError(ValueError):
     pass
+
+
+class UnsupportedSerializedValueError(Exception):
+    pass

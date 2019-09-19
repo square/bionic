@@ -28,6 +28,7 @@ extras['viz'] = combine(['hsluv', 'networkx', 'pydot'], extras['image'])
 extras['standard'] = combine(extras['matplotlib'], extras['viz'])
 
 extras['dill'] = ['dill']
+extras['dask'] = ['dask[dataframe]']
 extras['gcp'] = ['google-cloud-storage']
 
 extras['examples'] = combine(extras['standard'], ['scikit-learn'])

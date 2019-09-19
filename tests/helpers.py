@@ -38,6 +38,15 @@ def assert_frames_equal_when_sorted(df1, df2):
     pdt.assert_frame_equal(df1, df2)
 
 
+def equal_frame_and_index_content(df1, df2):
+    '''
+    Checks whether the passed dataframes have the same content and index values.  This ignores
+    index type, so a dataframe with RangeIndex(start=0, stop=3, step=1) will be considered equal
+    to Int64Index([0, 1, 2], dtype='int64', name='index')
+    '''
+    return df1.equals(df2) and list(df1.index) == list(df2.index)
+
+
 def df_from_csv_str(string):
     bytestring = dedent(string).encode('utf-8')
     return pd.read_csv(BytesIO(bytestring))
