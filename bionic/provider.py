@@ -19,8 +19,10 @@ from io import BytesIO
 
 import pandas as pd
 
-from .datatypes import Task, TaskKey, CaseKey, CaseKeySpace
-from .util import groups_dict, init_matplotlib
+from .datatypes import (
+    Task, TaskKey, CaseKey, CaseKeySpace, CodeDescriptor, CodeVersion)
+from .bytecode import canonical_bytecode_bytes_from_func
+from .util import groups_dict, init_matplotlib, hash_to_hex
 from .optdep import import_optional_dependency
 
 import logging
@@ -48,10 +50,25 @@ class BaseProvider(object):
     def get_joint_names(self):
         return self.attrs.names
 
-    def get_code_id(self, case_key):
-        return 'orig_flow=%s code_version=%s' % (
-            self.attrs.orig_flow_name,
-            self.attrs.code_version)
+    def get_code_descriptor(self, case_key):
+        source_func = self.get_source_func()
+        bytecode_hash = (
+            None
+            if source_func is None else
+            hash_to_hex(canonical_bytecode_bytes_from_func(source_func))
+        )
+
+        code_version = (
+            CodeVersion(None, None)
+            if self.attrs.code_version is None else
+            self.attrs.code_version
+        )
+
+        return CodeDescriptor(
+            version=code_version,
+            orig_flow_name=self.attrs.orig_flow_name,
+            bytecode_hash=bytecode_hash,
+        )
 
     def get_dependency_names(self):
         return []
@@ -261,14 +278,14 @@ class ValueProvider(BaseProvider):
         provider.key_space = self.key_space
         provider._has_any_values = self._has_any_values
         provider._values_by_case_key = self._values_by_case_key.copy()
-        provider._code_ids_by_key = self._code_ids_by_key.copy()
+        provider._tokens_by_case_key = self._tokens_by_case_key.copy()
         return provider
 
     def clear_cases(self):
         self.key_space = CaseKeySpace()
         self._has_any_values = False
         self._values_by_case_key = {}
-        self._code_ids_by_key = {}
+        self._tokens_by_case_key = {}
 
     def check_can_add_case(self, case_key, value):
         self.protocol.validate(value)
@@ -285,14 +302,14 @@ class ValueProvider(BaseProvider):
                     % (case_key, self.name))
 
     def add_case(self, case_key, value):
-        code_id = self.protocol.tokenize(value)
+        token = self.protocol.tokenize(value)
 
         if not self._has_any_values:
             self.key_space = case_key.space
             self._has_any_values = True
 
         self._values_by_case_key[case_key] = value
-        self._code_ids_by_key[case_key] = code_id
+        self._tokens_by_case_key[case_key] = token
 
     def has_any_cases(self):
         return self._has_any_values
@@ -303,8 +320,16 @@ class ValueProvider(BaseProvider):
         else:
             return self.attrs.names
 
-    def get_code_id(self, case_key):
-        return self._code_ids_by_key[case_key]
+    def get_code_descriptor(self, case_key):
+        value_token = self._tokens_by_case_key[case_key]
+        return CodeDescriptor(
+            version=CodeVersion(
+                major=value_token,
+                minor=None,
+            ),
+            bytecode_hash=None,
+            orig_flow_name=None,
+        )
 
     def get_source_func(self):
         return None
@@ -543,6 +568,7 @@ class GatherProvider(WrappingProvider):
                         entity_name=dep_name,
                         case_key=gather_case_key.project(dep_key_space),
                     ))
+
             # NOTE prepended_keys has a non-deterministic order, because a
             # set's ordering depends on the hashes of its contents, and TaskKey
             # hashes depend on string hashes, and string hashes are randomized
@@ -835,7 +861,9 @@ def multi_index_from_case_keys(case_keys, ordered_key_names):
 # -- Helpers for working with providers.
 
 PROVIDER_METHODS = [
-    'get_code_id', 'get_dependency_names', 'get_tasks', 'get_source_func']
+    'get_code_descriptor', 'get_dependency_names', 'get_tasks',
+    'get_source_func',
+]
 
 
 def is_provider(obj):

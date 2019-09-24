@@ -21,3 +21,7 @@ class IncompatibleEntityError(ValueError):
 
 class UnsupportedSerializedValueError(Exception):
     pass
+
+
+class CodeVersioningError(Exception):
+    pass
