@@ -45,6 +45,9 @@ coverage.xml
 *,cover
 .hypothesis/
 
+# Pytest-profiling reports
+prof/
+
 # Translations
 *.mo
 *.pot
