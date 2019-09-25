@@ -354,6 +354,12 @@ class EntityDeriver(object):
         values = task_state.task.compute(dep_values)
         assert len(values) == len(provider.attrs.names)
 
+        for query in task_state.queries:
+            if task.is_simple_lookup:
+                self._log('Accessed    %s from definition', query.task_key)
+            else:
+                self._log('Computed    %s', query.task_key)
+
         results_by_name = {}
         for query, value in zip(task_state.queries, values):
             query.protocol.validate(value)
@@ -372,11 +378,6 @@ class EntityDeriver(object):
                 result = self._persistent_cache.load(query)
 
             results_by_name[query.entity_name] = result
-
-            if task.is_simple_lookup:
-                self._log('Accessed    %s from definition', query.task_key)
-            else:
-                self._log('Computed    %s', query.task_key)
 
         task_state.results_by_name = results_by_name
 
