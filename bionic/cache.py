@@ -25,6 +25,16 @@ from .util import (
 import logging
 logger = logging.getLogger(__name__)
 
+try:
+    # The C-based YAML emitter is much faster, but requires separate bindings
+    # which may not be installed.
+    # I'm not sure if it's possible to use a C-based loader, since we're using
+    # yaml.full_load.  This is less important since we dump much more than we
+    # load.
+    YamlDumper = yaml.CDumper
+except ImportError:
+    YamlDumper = yaml.Dumper
+
 VALUE_FILENAME_STEM = 'value.'
 DESCRIPTOR_FILENAME = 'descriptor.yaml'
 
@@ -372,6 +382,7 @@ class YamlDictRecord(object):
                 default_flow_style=False,
                 encoding=None,
                 sort_keys=True,
+                Dumper=YamlDumper,
             )
         else:
             try:
