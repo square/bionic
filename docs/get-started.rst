@@ -32,6 +32,13 @@ GCS bucket, and install the ``bionic[gcp]`` subpackage.
 .. _cached to Google Cloud Storage: concepts.rst#caching-in-google-cloud-storage
 .. _Google Cloud SDK : https://cloud.google.com/sdk/
 
+Finally, installing `LibYAML <https://github.com/yaml/libyaml>`_ will improve
+performance for some workloads.  LibYAML is also available via Homebrew:
+
+.. code-block:: bash
+
+    brew install libyaml
+
 Bionic should work on both Python 2.7 and Python 3.x.
 
 .. _extra-packages:

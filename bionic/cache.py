@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import textwrap
 import yaml
+import warnings
 
 import six
 from pathlib2 import Path, PurePosixPath
@@ -32,7 +33,12 @@ try:
     # yaml.full_load.  This is less important since we dump much more than we
     # load.
     YamlDumper = yaml.CDumper
-except ImportError:
+except AttributeError:
+    warnings.warn(
+        "Failed to find LibYAML bindings; "
+        "falling back to slower Python implementation. "
+        "This may reduce performance on large flows. "
+        "Installing LibYAML should resolve this.")
     YamlDumper = yaml.Dumper
 
 VALUE_FILENAME_STEM = 'value.'
