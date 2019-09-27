@@ -271,6 +271,32 @@ def test_gather_cache_invalidation(builder):
     assert z.times_called() == 1
 
 
+def test_gather_cache_invalidation_with_over_vars(builder):
+    builder.assign('x', values=[1, 2])
+    builder.assign('y', values=[2, 3])
+
+    @builder
+    @bn.gather('x', 'y', 'df')
+    @count_calls
+    def z(df):
+        return df.sum().sum()
+
+    assert builder.build().get('z', set) == {7, 9}
+    assert z.times_called() == 2
+    assert builder.build().get('z', set) == {7, 9}
+    assert z.times_called() == 0
+
+    # If we change one of the values of `x`, both values of `z` should change
+    # (because each instance depends on both values of `x`).
+    assert builder.build().setting('x', values=[2, 3]).get('z', set) == {9, 11}
+    assert z.times_called() == 2
+
+    # If we change one of the values of `y`, only one value of `z` should
+    # change.
+    assert builder.build().setting('y', values=[3, 4]).get('z', set) == {9, 11}
+    assert z.times_called() == 1
+
+
 class Point(object):
     def __init__(self, x, y):
         self.x = x
