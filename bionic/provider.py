@@ -535,7 +535,10 @@ class GatherProvider(WrappingProvider):
             unique_gather_task_keys = set()
             for dep_name in self._gather_names:
                 dep_key_space = dep_key_spaces_by_name[dep_name]
-                for gather_case_key in gather_case_keys:
+
+                relevant_gather_case_keys =\
+                    gather_case_key_lists_by_delta_case_key[delta_case_key]
+                for gather_case_key in relevant_gather_case_keys:
                     unique_gather_task_keys.add(TaskKey(
                         entity_name=dep_name,
                         case_key=gather_case_key.project(dep_key_space),
