@@ -34,6 +34,7 @@ try:
     # yaml.full_load.  This is less important since we dump much more than we
     # load.
     YamlDumper = yaml.CDumper
+    YamlLoader = yaml.CLoader
 except AttributeError:
     import os
     running_under_readthedocs = os.environ.get('READTHEDOCS') == 'True'
@@ -44,6 +45,7 @@ except AttributeError:
             "This may reduce performance on large flows. "
             "Installing LibYAML should resolve this.")
     YamlDumper = yaml.Dumper
+    YamlLoader = yaml.Loader
 
 VALUE_FILENAME_STEM = 'value.'
 DESCRIPTOR_FILENAME = 'descriptor.yaml'
@@ -402,7 +404,7 @@ class YamlDictRecord(object):
             )
         else:
             try:
-                self._body_dict = yaml.full_load(yaml_str)
+                self._body_dict = yaml.load(yaml_str, Loader=YamlLoader)
             except yaml.error.YAMLError as e:
                 raise_chained(
                     YamlRecordParsingError,
