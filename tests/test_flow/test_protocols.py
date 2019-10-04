@@ -184,6 +184,17 @@ def test_dataframe_with_categoricals_ignored(builder):
         df_value['cat'].astype(object))
 
 
+def test_dataframe_with_duplicate_columns_fails(builder):
+    df_value = pd.DataFrame(columns=['a', 'b', 'a'], data=[[1, 2, 3]])
+
+    @builder
+    def df():
+        return df_value
+
+    with pytest.raises(ValueError):
+        builder.build().get('df')
+
+
 def test_dataframe_with_categorical_works_with_feather(builder):
     df_value = pd.DataFrame()
     df_value['cat'] = pd.Categorical(
