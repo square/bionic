@@ -180,7 +180,10 @@ def test_dataframe_with_categoricals_ignored(builder):
         return df_value
 
     pdt.assert_series_equal(
-        builder.build().get('df')['cat'],
+        # Whether or not the deserialized column has the Categorical Dtype can
+        # depend on the version of pyarrow being used, so we'll just convert
+        # both columns to the same type here.
+        builder.build().get('df')['cat'].astype(object),
         df_value['cat'].astype(object))
 
 
@@ -210,6 +213,13 @@ def test_dataframe_with_categorical_works_with_feather(builder):
     pdt.assert_frame_equal(builder.build().get('df'), df_value)
 
 
+# Dask no longer supports Python 2, and the last released version basically
+# doesn't work with the latest version of pyarrow.
+# TODO We need to just stop supporting Python 2.
+dask_py3_only = pytest.mark.skipif(six.PY2, reason="Dask requires Python 3")
+
+
+@dask_py3_only
 def test_simple_dask_dataframe(builder):
     df_value = df_from_csv_str('''
     color,number
@@ -230,6 +240,7 @@ def test_simple_dask_dataframe(builder):
     assert df.times_called() == 1
 
 
+@dask_py3_only
 def test_multiple_partitions_dask_dataframe(builder):
     df_value = df_from_csv_str('''
     color,number
@@ -250,6 +261,7 @@ def test_multiple_partitions_dask_dataframe(builder):
     assert df.times_called() == 1
 
 
+@dask_py3_only
 def test_typed_dask_dataframe(builder):
     df_value = pd.DataFrame()
     df_value['int'] = [1, 2, 3]
@@ -272,7 +284,7 @@ def test_typed_dask_dataframe(builder):
         dask_df.compute().dtypes.to_dict()
 
 
-@pytest.mark.skipif(six.PY2, reason="requires python 3")
+@dask_py3_only
 def test_dask_dataframe_index_cols(builder):
     df_value = df_from_csv_str('''
         city,country,continent,metro_pop_mil
