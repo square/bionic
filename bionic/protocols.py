@@ -11,6 +11,7 @@ This module contains a BaseProtocol class and various subclasses.
 from __future__ import absolute_import
 
 from builtins import object
+from collections import Counter
 import pickle
 import sys
 import tempfile
@@ -213,10 +214,21 @@ class ParquetDataFrameProtocol(BaseProtocol):
             return parquet.read_table(file_).to_pandas()
 
     def write(self, df, path):
+        self._check_no_duplicate_cols(df)
         if self._check_dtypes:
             self._check_no_categorical_cols(df)
         with path.open('wb') as file_:
             parquet.write_table(Table.from_pandas(df), file_)
+
+    def _check_no_duplicate_cols(self, df):
+        duplicate_cols = {elem: count for elem, count in Counter(df.columns).items() if count > 1}
+        if duplicate_cols:
+            raise ValueError(
+                "Attempted to serialize to Parquet a dataframe which has "
+                "duplicate columns with the following counts: {}"
+                "You can fix this by dropping duplicate columns with something like:\n"
+                "df = df.loc[:, ~df.columns.duplicated()]".format(duplicate_cols)
+            )
 
     def _check_no_categorical_cols(self, df):
         categorical_cols = [
