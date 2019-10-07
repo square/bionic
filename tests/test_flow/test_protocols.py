@@ -180,7 +180,10 @@ def test_dataframe_with_categoricals_ignored(builder):
         return df_value
 
     pdt.assert_series_equal(
-        builder.build().get('df')['cat'],
+        # Whether or not the deserialized column has the Categorical Dtype can
+        # depend on the version of pyarrow being used, so we'll just convert
+        # both columns to the same type here.
+        builder.build().get('df')['cat'].astype(object),
         df_value['cat'].astype(object))
 
 
