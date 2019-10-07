@@ -21,7 +21,8 @@ from pathlib2 import Path, PurePosixPath
 from bionic.exception import UnsupportedSerializedValueError
 from .datatypes import Result
 from .util import (
-    check_exactly_one_present, hash_to_hex, get_gcs_client_without_warnings)
+    check_exactly_one_present, hash_to_hex, get_gcs_client_without_warnings,
+    raise_chained)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -187,8 +188,10 @@ class Translator(object):
             try:
                 descriptor = ArtifactDescriptor.from_yaml(descriptor_yaml)
             except YamlRecordParsingError as e:
-                raise InvalidCacheStateError(
-                    "Couldn't parse descriptor file: %s" % e)
+                raise_chained(
+                    InvalidCacheStateError,
+                    "Couldn't parse descriptor file",
+                    e)
 
             value_filename = descriptor.value_filename
             value_path = working_dir / value_filename
@@ -199,9 +202,11 @@ class Translator(object):
             except UnsupportedSerializedValueError:
                 raise
             except Exception as e:
-                raise InvalidCacheStateError(
-                    "Unable to load value %s due to %s: %s" % (
-                        self._query.task_key, e.__class__.__name__, e))
+                raise_chained(
+                    InvalidCacheStateError,
+                    "Unable to load value %s due to %s" % (
+                        self._query.task_key, e.__class__.__name__),
+                    e)
 
         except InvalidCacheStateError as e:
             problem_sources = [
@@ -210,12 +215,14 @@ class Translator(object):
                 problem_sources.append(
                     self._cloud_cache.get_url(self._virtual_path))
 
-            raise InvalidCacheStateError(
+            raise_chained(
+                InvalidCacheStateError,
                 "Cached data was in an invalid state; "
                 "this should be impossible but could have resulted from "
                 "either a bug or a change to the cached files.  You "
-                "should be able to repair the problem by removing %s."
-                "\nDetails: %s" % (' and '.join(problem_sources), e))
+                "should be able to repair the problem by removing %s." % (
+                    ' and '.join(problem_sources)),
+                e)
 
         result = Result(
             query=self._query,
@@ -397,9 +404,10 @@ class YamlDictRecord(object):
             try:
                 self._body_dict = yaml.full_load(yaml_str)
             except yaml.error.YAMLError as e:
-                raise YamlRecordParsingError(
-                    "Couldn't parse %s: %s" % (
-                        self.__class__.__name__, str(e)))
+                raise_chained(
+                    YamlRecordParsingError,
+                    "Couldn't parse %s: %s" % self.__class__.__name__,
+                    e)
             self._yaml_str = yaml_str
 
     def to_yaml(self):
@@ -433,8 +441,10 @@ class ArtifactDescriptor(YamlDictRecord):
             self.entity_name = self.to_dict()['entity']
             self.value_filename = self.to_dict()['filename']
         except KeyError as e:
-            raise YamlRecordParsingError(
-                "YAML for ArtifactDescriptor was missing field: %s" % e)
+            raise_chained(
+                YamlRecordParsingError,
+                "YAML for ArtifactDescriptor was missing field",
+                e)
 
     def is_valid(self):
         cache_schema_version =\
