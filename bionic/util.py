@@ -10,6 +10,8 @@ from hashlib import sha256
 from binascii import hexlify
 import warnings
 
+import six
+
 from .optdep import import_optional_dependency
 
 
@@ -281,6 +283,25 @@ class ExtensibleLogger(object):
     def exception(self, msg, *args, **kwargs):
         self._custom_log_if_enabled(
             logging.ERROR, msg, *args, exc_info=True, **kwargs)
+
+
+def raise_chained(exc_ctor, message, from_exc):
+    """
+    Raises a chained exception in a Python-2-compatible way.
+
+    Works like six.raise_from(), except:
+
+    1. Requires an exception constructor and a message instead of an
+    already-constructed exception.
+
+    2. In Python 2, adds the text of ``from_exc`` to the raised exception (as
+    opposed to ``raise_from``, which just ignores the second argument).
+    """
+
+    if six.PY2:
+        raise exc_ctor('%s\nCaused by: %s' % (message, from_exc))
+    else:
+        six.raise_from(exc_ctor(message), from_exc)
 
 
 def init_basic_logging(level=logging.INFO):
