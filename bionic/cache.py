@@ -34,11 +34,14 @@ try:
     # load.
     YamlDumper = yaml.CDumper
 except AttributeError:
-    warnings.warn(
-        "Failed to find LibYAML bindings; "
-        "falling back to slower Python implementation. "
-        "This may reduce performance on large flows. "
-        "Installing LibYAML should resolve this.")
+    import os
+    running_under_readthedocs = os.environ.get('READTHEDOCS') == 'True'
+    if not running_under_readthedocs:
+        warnings.warn(
+            "Failed to find LibYAML bindings; "
+            "falling back to slower Python implementation. "
+            "This may reduce performance on large flows. "
+            "Installing LibYAML should resolve this.")
     YamlDumper = yaml.Dumper
 
 VALUE_FILENAME_STEM = 'value.'
