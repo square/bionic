@@ -88,6 +88,24 @@ def count_calls(func):
     return wrapped
 
 
+class ResettingCounter(object):
+    """
+    A class for manually counting the number of times something happens.
+    Used mainly in situations whre ``count_calls`` can't be used.
+    """
+
+    def __init__(self):
+        self._count = 0
+
+    def mark(self):
+        self._count += 1
+
+    def times_called(self):
+        count = self._count
+        self._count = 0
+        return count
+
+
 class RoundingProtocol(bn.protocols.BaseProtocol):
     def get_fixed_file_extension(self):
         return 'round'

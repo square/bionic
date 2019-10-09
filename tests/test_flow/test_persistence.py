@@ -1,9 +1,10 @@
+import pytest
+
 from builtins import object
 import math
 
-from pathlib2 import Path
-
-from ..helpers import count_calls, RoundingProtocol
+from ..helpers import count_calls, ResettingCounter, RoundingProtocol
+from bionic.exception import CodeVersioningError
 
 import bionic as bn
 
@@ -134,60 +135,462 @@ def test_caching_and_invalidation(builder):
 
 
 def test_versioning(builder):
+    call_counter = ResettingCounter()
+
     builder.assign('x', 2)
     builder.assign('y', 3)
 
     @builder
-    @count_calls
     def f(x, y):
+        call_counter.mark()
         return x + y
 
     assert builder.build().get('f') == 5
     assert builder.build().get('f') == 5
-    assert f.times_called() == 1
+    assert call_counter.times_called() == 1
 
     builder.delete('f')
 
-    @builder
-    @count_calls
+    @builder  # noqa: F811
     def f(x, y):
+        call_counter.mark()
         return x * y
 
     assert builder.build().get('f') == 5
-    assert f.times_called() == 0
+    assert call_counter.times_called() == 0
 
     builder.delete('f')
 
-    @builder
+    @builder  # noqa: F811
     @bn.version(1)
-    @count_calls
     def f(x, y):
+        call_counter.mark()
         return x * y
 
     assert builder.build().get('f') == 6
-    assert f.times_called() == 1
+    assert call_counter.times_called() == 1
 
     builder.delete('f')
 
-    @builder
+    @builder  # noqa: F811
     @bn.version(1)
-    @count_calls
     def f(x, y):
+        call_counter.mark()
+        return y * x
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 0
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(major=1, minor=1)
+    def f(x, y):
+        call_counter.mark()
+        return y * x
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 0
+
+    @builder  # noqa: F811
+    @bn.version(major=1, minor=1)
+    def f(x, y):
+        call_counter.mark()
         return x ** y
 
     assert builder.build().get('f') == 6
-    assert f.times_called() == 0
+    assert call_counter.times_called() == 0
 
     builder.delete('f')
 
-    @builder
-    @bn.version(2)
-    @count_calls
+    @builder  # noqa: F811
+    @bn.version(major=2)
     def f(x, y):
+        call_counter.mark()
         return x ** y
 
     assert builder.build().get('f') == 8
-    assert f.times_called() == 1
+    assert call_counter.times_called() == 1
+
+
+def test_indirect_versioning(builder):
+    y_call_counter = ResettingCounter()
+    f_call_counter = ResettingCounter()
+
+    builder.assign('x', 2)
+
+    @builder
+    def y():
+        y_call_counter.mark()
+        return 3
+
+    @builder
+    def f(x, y):
+        f_call_counter.mark()
+        return x + y
+
+    assert builder.build().get('f') == 5
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    def y():
+        y_call_counter.mark()
+        return 4
+
+    assert builder.build().get('f') == 5
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def y():
+        y_call_counter.mark()
+        return 4
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def y():
+        y_call_counter.mark()
+        return len('xxxx')
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
+
+    @builder  # noqa: F811
+    @bn.version(1, minor=1)
+    def y():
+        y_call_counter.mark()
+        return len('xxxx')
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
+
+    builder.set('x', 5)
+
+    assert builder.build().get('f') == 9
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 1
+
+    builder.set('x', 2)
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
+
+
+def test_versioning_assist(builder):
+    call_counter = ResettingCounter()
+
+    builder.set('core__versioning_mode', 'assist')
+
+    builder.assign('x', 2)
+    builder.assign('y', 3)
+
+    @builder
+    def f(x, y):
+        call_counter.mark()
+        return x + y
+
+    assert builder.build().get('f') == 5
+    assert builder.build().get('f') == 5
+    assert call_counter.times_called() == 1
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    def f(x, y):
+        call_counter.mark()
+        return x * y
+
+    with pytest.raises(CodeVersioningError):
+        builder.build().get('f')
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def f(x, y):
+        call_counter.mark()
+        return x * y
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 1
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def f(x, y):
+        call_counter.mark()
+        return y * x
+
+    with pytest.raises(CodeVersioningError):
+        builder.build().get('f')
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(major=1, minor=1)
+    def f(x, y):
+        call_counter.mark()
+        return y * x
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 0
+
+    @builder  # noqa: F811
+    @bn.version(major=1, minor=1)
+    def f(x, y):
+        call_counter.mark()
+        return x ** y
+
+    with pytest.raises(CodeVersioningError):
+        builder.build().get('f')
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(major=2)
+    def f(x, y):
+        call_counter.mark()
+        return x ** y
+
+    assert builder.build().get('f') == 8
+    assert call_counter.times_called() == 1
+
+
+def test_indirect_versioning_assist(builder):
+    y_call_counter = ResettingCounter()
+    f_call_counter = ResettingCounter()
+
+    builder.set('core__versioning_mode', 'assist')
+
+    builder.assign('x', 2)
+
+    @builder
+    def y():
+        y_call_counter.mark()
+        return 3
+
+    @builder
+    def f(x, y):
+        f_call_counter.mark()
+        return x + y
+
+    assert builder.build().get('f') == 5
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    def y():
+        y_call_counter.mark()
+        return 4
+
+    with pytest.raises(CodeVersioningError):
+        builder.build().get('f')
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def y():
+        y_call_counter.mark()
+        return 4
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def y():
+        y_call_counter.mark()
+        return len('xxxx')
+
+    with pytest.raises(CodeVersioningError):
+        builder.build().get('f')
+
+    @builder  # noqa: F811
+    @bn.version(1, minor=1)
+    def y():
+        y_call_counter.mark()
+        return len('xxxx')
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
+
+    builder.set('x', 5)
+
+    assert builder.build().get('f') == 9
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 1
+
+    builder.set('x', 2)
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
+
+
+def test_versioning_auto(builder):
+    call_counter = ResettingCounter()
+
+    builder.set('core__versioning_mode', 'auto')
+
+    builder.assign('x', 2)
+    builder.assign('y', 3)
+
+    @builder
+    def f(x, y):
+        call_counter.mark()
+        return x + y
+
+    assert builder.build().get('f') == 5
+    assert builder.build().get('f') == 5
+    assert call_counter.times_called() == 1
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    def f(x, y):
+        call_counter.mark()
+        return x * y
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 1
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def f(x, y):
+        call_counter.mark()
+        return x * y
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 1
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def f(x, y):
+        call_counter.mark()
+        return y * x
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 1
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(major=1, minor=1)
+    def f(x, y):
+        call_counter.mark()
+        return y * x
+
+    assert builder.build().get('f') == 6
+    assert call_counter.times_called() == 0
+
+    @builder  # noqa: F811
+    @bn.version(major=1, minor=1)
+    def f(x, y):
+        call_counter.mark()
+        return x ** y
+
+    assert builder.build().get('f') == 8
+    assert call_counter.times_called() == 1
+
+    builder.delete('f')
+
+    @builder  # noqa: F811
+    @bn.version(major=2)
+    def f(x, y):
+        call_counter.mark()
+        return x ** y
+
+    assert builder.build().get('f') == 8
+    assert call_counter.times_called() == 1
+
+
+def test_indirect_versioning_auto(builder):
+    y_call_counter = ResettingCounter()
+    f_call_counter = ResettingCounter()
+
+    builder.set('core__versioning_mode', 'auto')
+
+    builder.assign('x', 2)
+
+    @builder
+    def y():
+        y_call_counter.mark()
+        return 3
+
+    @builder
+    def f(x, y):
+        f_call_counter.mark()
+        return x + y
+
+    assert builder.build().get('f') == 5
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    def y():
+        y_call_counter.mark()
+        return 4
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def y():
+        y_call_counter.mark()
+        return 4
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def y():
+        y_call_counter.mark()
+        return len('xxxx')
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    @bn.version(1, minor=1)
+    def y():
+        y_call_counter.mark()
+        return len('xxxx')
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
+
+    builder.set('x', 5)
+
+    assert builder.build().get('f') == 9
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 1
+
+    builder.set('x', 2)
+
+    assert builder.build().get('f') == 6
+    assert y_call_counter.times_called() == 0
+    assert f_call_counter.times_called() == 0
 
 
 def test_all_returned_results_are_deserialized(builder):
@@ -334,20 +737,3 @@ def test_complex_input_type(builder):
     assert x_plus_y.times_called() == 1
     assert flow.get('x_plus_y', set) == {5, 9}
     assert x_plus_y.times_called() == 0
-
-
-def test_all_files_cleaned_up(builder):
-    builder.assign('x', 1)
-
-    @builder
-    def x_plus_one(x):
-        return x + 1
-
-    flow = builder.build()
-    assert flow.get('x_plus_one') == 2
-
-    flow = builder.build()
-    assert flow.get('x_plus_one') == 2
-
-    tmp_dir_path = Path(flow.get('core__persistent_cache__flow_dir')) / 'tmp'
-    assert list(tmp_dir_path.iterdir()) == []

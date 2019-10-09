@@ -6,6 +6,8 @@ from __future__ import absolute_import
 from builtins import object
 from collections import namedtuple
 
+import six
+
 from .util import ImmutableSequence, ImmutableMapping
 
 
@@ -77,10 +79,10 @@ class Result(object):
     Represents one value for one entity.
     '''
     def __init__(
-            self, query, value, local_cache_path=None):
+            self, query, value, file_path=None):
         self.query = query
         self.value = value
-        self.local_cache_path = local_cache_path
+        self.file_path = file_path
 
     def __repr__(self):
         return 'Result(%r, %r)' % (self.query, self.value)
@@ -202,3 +204,42 @@ class ResultGroup(ImmutableSequence):
 
     def __repr__(self):
         return 'ResultGroup(%r)' % list(self)
+
+
+class CodeVersion(object):
+    '''
+    Contains the user-designated version of a piece of code, consisting of a
+    major and a minor version string.  The convention is that changing the
+    major version indicates a functional change, while changing the minor
+    version indicates a nonfunctional change.
+    '''
+
+    def __init__(self, major, minor):
+        self.major = str_from_version_value(major)
+        self.minor = str_from_version_value(minor)
+
+    def __repr__(self):
+        return 'CodeVersion(%r, %r)' % (self.major, self.minor)
+
+
+def str_from_version_value(value):
+    if value is None:
+        return '0'
+    elif isinstance(value, int):
+        return str(value)
+    elif isinstance(value, six.text_type):
+        return value
+    else:
+        raise ValueError(
+            "Version values must be str, int, or None: got %r" % value)
+
+
+# Describes the code of a function.
+CodeDescriptor = namedtuple(
+    'CodeDescriptor', 'version bytecode_hash orig_flow_name')
+
+
+# Encodes the versioning rules to use when computing entity values.
+VersioningPolicy = namedtuple(
+    'VersioningPolicy',
+    'check_for_bytecode_errors treat_bytecode_as_functional')

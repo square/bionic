@@ -6,7 +6,6 @@ from __future__ import absolute_import
 
 from builtins import object
 import os
-import posixpath
 import shutil
 import functools
 import warnings
@@ -18,8 +17,8 @@ from six.moves import reload_module
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
-from .cache import LocalFileCache, GcsFileCache, PersistentCache
-from .datatypes import CaseKey
+from .cache import LocalStore, GcsCloudStore, PersistentCache
+from .datatypes import CaseKey, VersioningPolicy
 from .exception import (
     UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
 from .provider import (
@@ -27,7 +26,10 @@ from .provider import (
     AttrUpdateProvider)
 from .deriver import EntityDeriver
 from . import decorators
-from .util import group_pairs, check_exactly_one_present, copy_to_gcs
+from .util import (
+    group_pairs, check_exactly_one_present, check_at_most_one_present,
+    copy_to_gcs,
+)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -272,8 +274,8 @@ class FlowBuilder(object):
             protocol.
         """
 
-        check_exactly_one_present(value=value, values=values)
-        if value is not None:
+        check_at_most_one_present(value=value, values=values)
+        if values is None:
             values = [value]
 
         if protocol is None:
@@ -310,8 +312,8 @@ class FlowBuilder(object):
             A sequence of values for the entity.
         """
 
-        check_exactly_one_present(value=value, values=values)
-        if value is not None:
+        check_at_most_one_present(value=value, values=values)
+        if values is None:
             values = [value]
 
         state = self._state
@@ -916,8 +918,9 @@ class Flow(object):
             # Copies the persisted file to the specified directory.
             export(name, dir_path=path)
 
-        The entity must be persisted and have only one instance. The dir_path and file_path
-        options support paths on GCS, specified like: gs://mybucket/subdir/
+        The entity must be persisted and have only one instance. The dir_path
+        and file_path options support paths on GCS, specified like:
+        gs://mybucket/subdir/
         """
 
         result_group = self._deriver.derive(name)
@@ -928,9 +931,9 @@ class Flow(object):
 
         result, = result_group
 
-        if result.local_cache_path is None:
+        if result.file_path is None:
             raise ValueError("Entity %r is not locally persisted" % name)
-        src_file_path = result.local_cache_path
+        src_file_path = result.file_path
 
         if dir_path is None and file_path is None:
             return src_file_path
@@ -1193,9 +1196,32 @@ def create_default_flow_state():
     builder = FlowBuilder._with_empty_state()
 
     builder.declare('core__flow_name')
-    builder.declare('core__persistent_cache__cloud_cache')
 
     builder.assign('core__persistent_cache__global_dir', 'bndata')
+    builder.assign('core__versioning_mode', 'manual')
+
+    @builder
+    @decorators.immediate
+    def core__versioning_policy(core__versioning_mode):
+        if core__versioning_mode == 'manual':
+            return VersioningPolicy(
+                treat_bytecode_as_functional=False,
+                check_for_bytecode_errors=False,
+            )
+        elif core__versioning_mode == 'assist':
+            return VersioningPolicy(
+                treat_bytecode_as_functional=False,
+                check_for_bytecode_errors=True,
+            )
+        elif core__versioning_mode == 'auto':
+            return VersioningPolicy(
+                treat_bytecode_as_functional=True,
+                check_for_bytecode_errors=False,
+            )
+        else:
+            raise ValueError(
+                "core__versioning_mode must be one of %r; got %r" % (
+                    ('manual', 'assist', 'auto'), core__versioning_mode))
 
     @builder
     @decorators.immediate
@@ -1204,11 +1230,7 @@ def create_default_flow_state():
         return os.path.join(
             core__persistent_cache__global_dir, core__flow_name)
 
-    # TODO I'm not sure what happens if an entity value is None, or whether
-    # we want to allow it at all.  So for now we'll use a sentinel value to
-    # indicate that this entity hasn't been set.
-    SENTINEL_VALUE = '__IGNORE__'
-    builder.assign('core__persistent_cache__gcs__bucket_name', SENTINEL_VALUE)
+    builder.assign('core__persistent_cache__gcs__bucket_name', None)
     builder.assign('core__persistent_cache__gcs__enabled', False)
 
     @builder
@@ -1225,39 +1247,46 @@ def create_default_flow_state():
         bucket_name = core__persistent_cache__gcs__bucket_name
         object_path_str = core__persistent_cache__gcs__object_path
 
-        if bucket_name == SENTINEL_VALUE:
-            return SENTINEL_VALUE
+        if bucket_name is None:
+            return None
 
         path = PosixPath(bucket_name) / object_path_str
         return 'gs://%s' % path
 
     @builder
     @decorators.immediate
-    def core__persistent_cache(
+    def core__persistent_cache__local_store(
                 core__persistent_cache__flow_dir,
+            ):
+        local_flow_dir = core__persistent_cache__flow_dir
+        return LocalStore(local_flow_dir)
+
+    @builder
+    @decorators.immediate
+    def core__persistent_cache__cloud_store(
                 core__persistent_cache__gcs__url,
                 core__persistent_cache__gcs__enabled,
             ):
-        local_flow_dir = core__persistent_cache__flow_dir
         gcs_url = core__persistent_cache__gcs__url
         gcs_enabled = core__persistent_cache__gcs__enabled
-
-        entity_cache_dir = os.path.join(local_flow_dir, 'artifacts')
-        local_cache = LocalFileCache(Path(entity_cache_dir))
-
         if gcs_enabled:
-            if gcs_url == SENTINEL_VALUE:
+            if gcs_url is None:
                 raise AssertionError(
-                    'core__persistent_cache__gcs__url has invalid sentinel '
-                    'value %r -- it needs to be set' % gcs_url)
-            cloud_cache = GcsFileCache(posixpath.join(gcs_url, 'artifacts'))
+                    'core__persistent_cache__gcs__url is None, '
+                    'but needs a value')
+            return GcsCloudStore(gcs_url)
         else:
-            cloud_cache = None
+            return None
 
+    @builder
+    @decorators.immediate
+    def core__persistent_cache(
+                core__persistent_cache__local_store,
+                core__persistent_cache__cloud_store,
+            ):
         return PersistentCache(
-            tmp_working_dir_str=os.path.join(local_flow_dir, 'tmp'),
-            local_cache=local_cache,
-            cloud_cache=cloud_cache,
+            local_store=core__persistent_cache__local_store,
+            cloud_store=core__persistent_cache__cloud_store,
         )
 
     return builder._state.mark_all_providers_default()

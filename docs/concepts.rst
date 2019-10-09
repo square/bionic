@@ -217,6 +217,88 @@ time we change this function, we just increment the version number.
 .. [#f1] Bionic detects changes by hashing all of the fixed entity values, and
   storing each computed value alongside a hash of all its inputs.
 
+Automatic Versioning
+....................
+
+.. versionadded:: 0.5.0
+
+.. note::  This feature is somewhat experimental.  However, if it proves
+    useful, we may make assisted versioning the default behavior in the future.
+
+By default, Bionic expects you to manually update a version decorator each time
+you modify a function's code.  However, it can be configured to automatically
+detect code changes and warn you if the code changes but the version doesn't.
+This "assisted versioning" behavior is enabled by changing Bionic's versioning
+mode from ``'manual'`` to ``'assist'``:
+
+.. code-block:: python
+
+    builder.set('core__versioning_mode', 'assist')
+
+In this mode, if Bionic finds a cached file created by a function with the
+*same version* but *different code* [#f2]_, it will raise a
+``CodeVersioningError``.  You can resolve this error by updating the
+:func:`@version <bionic.version>`, which tells Bionic to ignore the cached file
+and compute a new value.
+
+.. code-block:: python
+
+    # Trying to compute this new version of ``message`` will throw an exception.
+    @builder
+    def message(greeting, subject):
+        return '{greeting} {subject}!!!'.format(greeting, subject).upper()
+
+.. code-block:: python
+
+    # With the version updated, Bionic knows to recompute this.
+    @builder
+    @bionic.version(1)
+    def message(greeting, subject):
+        return '{greeting} {subject}!!!'.format(greeting, subject).upper()
+
+However, some code changes, such as refactoring or performance optimizations,
+have no effect on the function's behavior; in this case we might prefer to keep
+using the cached value.  If you're confident that your change has no effect,
+you can provide a ``minor`` argument to ``@version``.  Bionic only uses the
+first argument ("``major``") for cache invalidation; updating the ``minor``
+argument tells Bionic to ignore the code differences and keep using any cached
+file as long as the ``major`` version matches.
+
+.. code-block:: python
+
+    # Even though we changed the code, Bionic won't recompute this.
+    @builder
+    @bionic.version(major=1, minor=1)
+    def message(greeting, subject):
+        return f'{greeting} {subject}!!!'.upper()
+
+Be aware that Bionic can't detect every change that can affect your code's
+behavior.  It only looks at the code of the decorated function itself; if you
+change any other function or library that your decorated function depends on,
+Bionic won't notice.  Similarly, if your function is wrapped by a non-Bionic
+decorator, Bionic won't detect any code changes in that function at all.
+That's why this mode only provides a warning, rather than automatically
+invalidating the cache for you: to keep you in the habit of thinking carefully
+about versioning.
+
+However, if you do want to completely automate the versioning process, you
+can set Bionic to a "fully automatic" mode:
+
+.. code-block:: python
+
+    builder.set('core__versioning_mode', 'auto')
+
+In this mode, Bionic will automatically invalidate cached files whenever a
+function's code changes, so you don't need to set a ``@version`` at all.
+(However, you can still update the ``@version`` to tell Bionic about external
+changes that it can't detect.)  This mode is more dangerous, but can be useful
+when your functions are small, change fast, and have few external dependencies
+-- for example, when your flow is defined in a notebook.
+
+.. [#f2] Bionic detects code changes by extracting and hashing the Python
+  bytecode of each function decorated by a FlowBuilder.
+
+
 Disabling Persistent Caching
 ............................
 
@@ -321,9 +403,8 @@ Exporting Persisted Files
 
 In some cases, you'll want to directly access the persisted file for an entity,
 rather than its in-memory representation.  (For example, if you're writing a
-a paper or report, you may want to access the files containing the plots.)
-This can be accomplished using the :meth:`Flow.export <bionic.Flow.export>`
-method.
+paper or report, you may want to access the files containing the plots.) This
+can be accomplished using the :meth:`Flow.export <bionic.Flow.export>` method.
 
 Multiplicity
 ------------

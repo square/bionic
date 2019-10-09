@@ -147,6 +147,8 @@ def merge_tester(builder):
         'FixedJoint',
         f.declaring('x').declaring('y').adding_case('x', 7, 'y', 8))
 
+    # TODO This builder doesn't use a temp directory for its cache, so it may
+    # pick up cached data from previous tests.  That's bad!
     f = bn.FlowBuilder('new_flow').build()
     tester.add('M', f)
     tester.add('D', f.declaring('x'))

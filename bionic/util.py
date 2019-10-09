@@ -30,6 +30,16 @@ def check_exactly_one_present(**kwargs):
         ))
 
 
+def check_at_most_one_present(**kwargs):
+    if n_present(list(kwargs.values())) > 1:
+        raise ValueError("At most one of %s should be present; got %s" % (
+            tuple(kwargs.keys()),
+            ', '.join(
+                '%s=%r' % (name, value)
+                for name, value in kwargs.items())
+        ))
+
+
 def group_pairs(items):
     "Groups an even-sized list into contiguous pairs."
     if len(items) % 2 != 0:
@@ -68,7 +78,20 @@ def hash_to_hex(bytestring, n_bytes=None):
     return hex_str
 
 
-def get_gcs_client_without_warnings():
+_cached_gcs_client = None
+
+
+def get_gcs_client_without_warnings(cache_value=True):
+    # TODO This caching saves a lot of time, especially in tests.  But it would
+    # be better if Bionic were able to re-use its in-memory cache when creating
+    # new flows, instead of resetting the cache each time.
+    if cache_value:
+        global _cached_gcs_client
+        if _cached_gcs_client is None:
+            _cached_gcs_client =\
+                get_gcs_client_without_warnings(cache_value=False)
+        return _cached_gcs_client
+
     gcs = import_optional_dependency(
         'google.cloud.storage', purpose='caching to GCS')
 
@@ -136,6 +159,10 @@ def read_hashable_bytes_from_file_or_dir(path):
         raise ValueError(
             "%r is neither a file nor a directory; "
             "not sure what to do with it!" % path)
+
+
+def ensure_parent_dir_exists(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
 
 
 class ImmutableSequence(object):

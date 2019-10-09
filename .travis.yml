@@ -6,6 +6,6 @@ before_install:
   - sudo apt-get install graphviz
   - pip install --upgrade .[dev]
 script:
-  - pytest
+  - pytest --slow
   - flake8
 

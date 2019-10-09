@@ -12,31 +12,43 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 
 from __future__ import absolute_import
 
-from past.builtins import basestring
+from .datatypes import CodeVersion
 from .provider import (
     GatherProvider, AttrUpdateProvider, PyplotProvider, RenamingProvider,
     NameSplittingProvider, provider_wrapper)
 from . import interpret
 
 
-# TODO Consider making this an argument to the persist decorator?
-def version(version_):
+def version(major=None, minor=None):
     """
-    Identifies the version of a Python function.
+    Identifies the version of a Python function.  The version has two
+    components: a major version and a minor version.  Each of these can be
+    either an integer or a string, and defaults to ``0``.
 
-    When you change the implementation of an entity function, you should add
-    or change its version identifier so that Bionic knows to invalidate any
-    cached values of that function and re-compute them.
+    When you change the implementation of an entity function, you should update
+    its version so that Bionic knows to whether invalidate any cached values of
+    that function and re-compute them.  An update in *major* version indicates
+    a *functional* change: Bionic will assume that the function can return
+    different output and won't use any cached artifacts created by a previous
+    version of the function.  An update in *minor* version indicates a
+    *nonfunctional* change, such as a refactoring or performance optimization:
+    Bionic will assume that the function behaves the same for all inputs, and
+    will continue using cached artifacts as long as the major version still
+    matches.  Updating the minor version is only required when using Bionic's
+    "assisted versioning" mode.
 
-    You may also want to update the version when there are changes in functions
-    or libraries that the entity function calls, or in any external data source
-    (like a database) that the function accesses.
+    You may also want to update the major version when there are changes in
+    functions or libraries that the entity function calls, or in any external
+    data source (like a database) that the function accesses.
 
     Parameters
     ----------
 
-    version_: Integer or string
-        An arbitary identifier.
+    major: Integer or string (default 0)
+        An arbitrary identifier for a function's behavior.
+
+    minor: Integer or string (default 0)
+        An arbitrary identifier for a function's nonfunctional characteristics.
 
     Returns
     -------
@@ -44,10 +56,8 @@ def version(version_):
         A decorator which can be applied to an entity function.
     """
 
-    if not (isinstance(version_, basestring) or isinstance(version_, int)):
-        raise ValueError("Version must be an int or string; got %r" % version_)
-
-    return provider_wrapper(AttrUpdateProvider, 'code_version', version_)
+    return provider_wrapper(
+        AttrUpdateProvider, 'code_version', CodeVersion(major, minor))
 
 
 # In the future I expect we'll have other caching options -- disabling in-memory
