@@ -672,7 +672,7 @@ class GatherProvider(WrappingProvider):
 #    process.
 # 3. Try to make Bionic's matplotlib initialization identical to Jupyter's.
 class PyplotProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, name='pyplot'):
+    def __init__(self, wrapped_provider, name='pyplot', savefig_kwargs=None):
         super(PyplotProvider, self).__init__(wrapped_provider)
 
         PIL = import_optional_dependency(
@@ -680,6 +680,13 @@ class PyplotProvider(WrappingProvider):
         self._Image = PIL.Image
 
         self._pyplot_name = name
+
+        self._savefig_kwargs = {
+            'format': 'png',
+            'bbox_inches': 'tight',
+        }
+        if savefig_kwargs is not None:
+            self._savefig_kwargs.update(savefig_kwargs)
 
         inner_dep_names = wrapped_provider.get_dependency_names()
         if self._pyplot_name not in inner_dep_names:
@@ -754,7 +761,7 @@ class PyplotProvider(WrappingProvider):
 
                 # Save the plot into a buffer.
                 bio = BytesIO()
-                plt.savefig(bio, format='png')
+                plt.savefig(bio, **self._savefig_kwargs)
                 plt.close()
                 # Reset the buffer's position so that when we read from it, we
                 # read from the beginning.
