@@ -11,14 +11,17 @@ import pandas as pd
 
 import bionic as bn
 
+# Initialize our builder.
 builder = bn.FlowBuilder('ml_workflow')
 
+# Define some basic parameters.
 builder.assign('random_seed', 0)
 builder.assign('test_split_fraction', 0.3)
 builder.assign('hyperparams_dict', {'C': 1})
 builder.assign('feature_inclusion_regex', '.*')
 
 
+# Load the raw data.
 @builder
 def raw_frame():
     dataset = datasets.load_breast_cancer()
@@ -30,6 +33,7 @@ def raw_frame():
     return df
 
 
+# Select a subset of the columns to use as features.
 @builder
 def features_frame(raw_frame, feature_inclusion_regex):
     included_feature_cols = [
@@ -39,7 +43,10 @@ def features_frame(raw_frame, feature_inclusion_regex):
     return raw_frame[included_feature_cols + ['target']]
 
 
+# Split the data into train and test sets.
 @builder
+# The `@outputs` decorator tells Bionic to define two new entities from this
+# function (which returns a tuple of two values).
 @bn.outputs('train_frame', 'test_frame')
 def split_raw_frame(features_frame, test_split_fraction, random_seed):
     return model_selection.train_test_split(
@@ -49,6 +56,7 @@ def split_raw_frame(features_frame, test_split_fraction, random_seed):
     )
 
 
+# Fit a logistic regression model on the training data.
 @builder
 def model(train_frame, random_seed, hyperparams_dict):
     m = linear_model.LogisticRegression(
@@ -58,6 +66,7 @@ def model(train_frame, random_seed, hyperparams_dict):
     return m
 
 
+# Evaluate the model's precision and recall over a range of threshold values.
 @builder
 def precision_recall_frame(model, test_frame):
     predictions = model.predict_proba(test_frame.drop('target', axis=1))[:, 1]
@@ -72,14 +81,21 @@ def precision_recall_frame(model, test_frame):
     return df
 
 
+# Plot the precision against the recall.
 @builder
+# The `@pyplot` decorator makes the Matplotlib plotting context available to
+# our function, then translates our plot into an image object.
 @bn.pyplot('plt')
+# The `@gather` decorator collects the values of of "hyperparams_dict" and
+# "precision_recall_frame" into a single dataframe named "gathered_frame".
+# This might not seem very interesting since "gathered_frame" only has one row,
+# but it will become useful once we introduce multiplicity.
 @bn.gather(
     over='hyperparams_dict',
     also='precision_recall_frame',
     into='gathered_frame')
 def all_hyperparams_pr_plot(gathered_frame, plt):
-    ax = plt.subplot()
+    _, ax = plt.subplots(figsize=(4, 3))
     for row in gathered_frame.itertuples():
         label = ', '.join(
             '%s=%s' % key_value
@@ -87,10 +103,14 @@ def all_hyperparams_pr_plot(gathered_frame, plt):
         )
         row.precision_recall_frame.plot(
             x='recall', y='precision', label=label, ax=ax)
+    ax.set_xlabel('Recall')
+    ax.set_ylabel('Precision')
 
 
+# Assemble our flow object.
 flow = builder.build()
 
+# Compute and print the precision-recall dataframe.
 if __name__ == '__main__':
     bn.util.init_basic_logging()
 

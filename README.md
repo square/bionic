@@ -1,20 +1,16 @@
 # Bionic
 
-Bionic is a Python framework for building, running, and sharing data science
-research workflows.  It uses dependency injection to automatically gather
-together your Python functions into a reusable, configurable tool.
+Bionic is a framework for analyzing and modeling data in Python.  It's designed
+to help you **iterate faster on your research**, and help your colleagues
+**reuse your code more easily**.
 
-Bionic is currently in alpha.  It is suitable for small-to-medium-size research
-projects: i.e., projects that fit in memory, have a small number of
-collaborators, and are intended to generate insight or some data artifact (like
-a model) rather than run in production.  (These constraints will be eliminated
-over time.)  The API will continue to evolve; we will attempt to keep it
-backwards-compatible as long as possible, but there will probably be at least
-one breaking API change in the future.
+Bionic is in alpha and evolving rapidly.  We recommend it for research projects
+where the dataset fits in memory.  We do not recommend it for pipelines running
+in production.
 
-Check out the [full documentation](https://bionic.readthedocs.io/en/latest/),
+Check out the [full documentation](https://bionic.readthedocs.io/en/stable/),
 or go straight to [Get
-Started](https://bionic.readthedocs.io/en/latest/get-started.html).
+Started](https://bionic.readthedocs.io/en/stable/get-started.html).
 
 ## Installation
 
@@ -24,13 +20,13 @@ Bionic can be installed from PyPI:
 
 You'll probably want to install [Graphviz](https://www.graphviz.org/) as well.
 See the [Installation
-docs](https://bionic.readthedocs.io/en/latest/get-started.html#installation)
+docs](https://bionic.readthedocs.io/en/stable/get-started.html#installation)
 for more details on installing and configuring Bionic's dependencies.
 
 ## Contributing
 
 See the
-[Contribution](https://bionic.readthedocs.io/en/latest/contributing.html)
+[Contribution](https://bionic.readthedocs.io/en/stable/contributing.html)
 section of our docs.
 
 ## License
