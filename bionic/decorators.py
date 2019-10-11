@@ -205,7 +205,7 @@ def gather(over, also=None, into='gather_df'):
         primary_names=over, secondary_names=also, gathered_dep_name=into)
 
 
-def pyplot(name=None):
+def pyplot(name=None, savefig_kwargs=None):
     """
     Provides a Matplotlib pyplot module to the decorated entity function.
 
@@ -219,6 +219,11 @@ def pyplot(name=None):
     ----------
     name: String, optional (default "pyplot")
         The argument name of the module provided to the decorated function.
+    savefig_kwargs: Dict, optional
+        Additional arguments to pass to `matplotlib.pytplot.savefig` when
+        converting the plot to an image.  By default, passes ``format=png`` and
+        ``bbox_inches="tight"``; any arguments passed in this dict will
+        override the default values.
 
     Returns
     -------
@@ -234,7 +239,7 @@ def pyplot(name=None):
 
     if name is None:
         name = DEFAULT_NAME
-    return provider_wrapper(PyplotProvider, name)
+    return provider_wrapper(PyplotProvider, name, savefig_kwargs)
 
 
 immediate = persist(False)
