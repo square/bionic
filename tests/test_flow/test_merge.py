@@ -147,8 +147,15 @@ def merge_tester(builder):
         'FixedJoint',
         f.declaring('x').declaring('y').adding_case('x', 7, 'y', 8))
 
-    # TODO This builder doesn't use a temp directory for its cache, so it may
-    # pick up cached data from previous tests.  That's bad!
+    # This new flow will use the default cache directory, which is bad, because
+    # it could pick up data from previous test runs.  Unfortunately it's tricky
+    # to set another cache directory on this flow, because it will cause a
+    # conflict when merging the two flows (even if the two cache directories
+    # are the same).  To work around this, we disable persistence for all
+    # derived entities in this flow, so the cache shouldn't be used at all.
+    # Longer-term, we may want a smarter way of merging that either recognizes
+    # when two values are the same, or handles "infrastructure" entities like
+    # this differently.  Or a way to just run a flow without caching.
     f = bn.FlowBuilder('new_flow').build()
     tester.add('M', f)
     tester.add('D', f.declaring('x'))
@@ -159,6 +166,7 @@ def merge_tester(builder):
     fb.assign('root_x', 3)
 
     @fb  # noqa: F811
+    @bn.persist(False)
     def x(root_x):
         return root_x ** 2
 
@@ -169,6 +177,7 @@ def merge_tester(builder):
 
     @fb  # noqa: F811
     @bn.outputs('x', 'y')
+    @bn.persist(False)
     def x(x_y):
         return x_y
 
