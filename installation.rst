@@ -19,4 +19,4 @@ to install it:
 
     brew install graphviz
 
-Bionic should work on both Python 2.7 and Python 3.x.
+Bionic supports Python 3.6 and above.

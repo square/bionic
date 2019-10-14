@@ -39,7 +39,7 @@ performance for some workloads.  LibYAML is also available via Homebrew:
 
     brew install libyaml
 
-Bionic should work on both Python 2.7 and Python 3.x.
+Bionic supports Python 3.6 and above.
 
 .. _extra-packages:
 
