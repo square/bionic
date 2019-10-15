@@ -99,10 +99,9 @@ class CacheAccessor(object):
     state for each query, saving redundant lookups.
     """
 
-    VALUE_FILENAME_STEM = 'value.'
-
     def __init__(self, parent_cache, query):
         self.query = query
+        self.value_filename_stem = self.query.entity_name + "."
 
         self._local = parent_cache._local_store
         self._cloud = parent_cache._cloud_store
@@ -301,7 +300,7 @@ class CacheAccessor(object):
         dir_path = self._local.generate_unique_dir_path(self.query)
 
         extension = self.query.protocol.file_extension_for_value(value)
-        value_filename = self.VALUE_FILENAME_STEM + extension
+        value_filename = self.value_filename_stem + extension
         value_path = dir_path / value_filename
 
         ensure_parent_dir_exists(value_path)
@@ -311,7 +310,7 @@ class CacheAccessor(object):
 
     def _value_from_file(self, file_path):
         value_filename = file_path.name
-        extension = value_filename[len(self.VALUE_FILENAME_STEM):]
+        extension = value_filename[len(self.value_filename_stem):]
         try:
             return self.query.protocol.read(file_path, extension)
         except UnsupportedSerializedValueError:

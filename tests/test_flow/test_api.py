@@ -1,6 +1,8 @@
 import pytest
 from pytest import raises
 
+import pickle
+from pathlib2 import Path
 import pandas as pd
 
 import bionic as bn
@@ -15,6 +17,10 @@ def preset_builder(builder):
     builder.declare('x')
     builder.assign('y', 1)
     builder.assign('z', values=[2, 3])
+
+    @builder
+    def y_fxn(y):
+        return y
 
     @builder
     def f(x, y):
@@ -332,30 +338,30 @@ def test_get_multiple(preset_flow):
     assert flow.get('q', set) == {5}
 
 
-def test_get_formats(preset_flow):
+def test_get_collections(preset_flow):
     flow = preset_flow
 
-    for fmt in [list, 'list']:
-        ys = flow.get('y', fmt)
+    for collection in [list, 'list']:
+        ys = flow.get('y', collection)
         assert ys == [1]
 
-        zs = flow.get('z', fmt)
+        zs = flow.get('z', collection)
         assert zs == [2, 3] or zs == [3, 2]
 
-        ps = flow.get('p', fmt)
+        ps = flow.get('p', collection)
         assert ps == [4]
 
-    for fmt in [set, 'set']:
-        assert flow.get('y', fmt) == {1}
-        assert flow.get('z', fmt) == {2, 3}
-        assert flow.get('p', fmt) == {4}
+    for collection in [set, 'set']:
+        assert flow.get('y', collection) == {1}
+        assert flow.get('z', collection) == {2, 3}
+        assert flow.get('p', collection) == {4}
 
-    for fmt in [pd.Series, 'series']:
-        y_series = flow.get('y', fmt)
+    for collection in [pd.Series, 'series']:
+        y_series = flow.get('y', collection)
         assert list(y_series) == [1]
         assert y_series.name == 'y'
 
-        z_series = flow.get('z', fmt).sort_values()
+        z_series = flow.get('z', collection).sort_values()
         assert list(z_series) == [2, 3]
         assert z_series.name == 'z'
         # This is a convoluted way of accessing the index, but I don't want
@@ -366,7 +372,7 @@ def test_get_formats(preset_flow):
         assert list(z_series_index_df.columns) == ['z']
         assert list(z_series_index_df['z']) == [2, 3]
 
-        p_series = flow.get('p', fmt)
+        p_series = flow.get('p', collection)
         assert list(p_series) == [4]
         assert p_series.name == 'p'
         p_series_index_df = p_series.index.to_frame()\
@@ -374,6 +380,46 @@ def test_get_formats(preset_flow):
         assert list(sorted(p_series_index_df.columns)) == ['p', 'q']
         assert list(p_series_index_df['p']) == [4]
         assert list(p_series_index_df['q']) == [5]
+
+
+def test_get_modes_persisted(preset_flow, tmp_path):
+    flow = preset_flow
+    name = 'y_fxn'
+
+    for mode in [object, 'object']:
+        assert flow.get(name, mode=mode) == 1
+
+    for mode in [Path, 'path']:
+        y_fxn_path = flow.get(name, mode=mode)
+        assert isinstance(y_fxn_path, Path)
+        assert y_fxn_path.is_file()
+
+    flow.get(name, mode='FileCopier').copy(destination=tmp_path)
+    serialized_fname = name + '.pkl'
+    expected_file_path = tmp_path / serialized_fname
+    assert pickle.loads(expected_file_path.read_bytes()) == 1
+
+    y_fxn_filename = flow.get(name, mode='filename')
+    assert isinstance(y_fxn_filename, str)
+    assert y_fxn_filename == str(y_fxn_path)
+
+
+@pytest.mark.parametrize("name", ['y', 'y_fxn_no_persist'])
+def test_get_modes_not_persisted(preset_builder, name):
+    @preset_builder
+    @bn.persist(False)
+    def y_fxn_no_persist(y):
+        return y
+
+    flow = preset_builder.build()
+
+    for mode in [object, 'object']:
+        assert flow.get(name, mode=mode) == 1
+
+    for mode in [Path, 'path', 'FileCopier', 'filename']:
+        with raises(ValueError) as e:
+            flow.get(name, mode=mode)
+            assert 'persisted file is expected by mode' in e.value
 
 
 def test_assigning(preset_flow):
@@ -499,7 +545,7 @@ def test_clearing_cases(preset_flow):
 
 def test_all_entity_names(preset_flow):
     assert set(preset_flow.all_entity_names()) == {
-        'x', 'y', 'z', 'f', 'g', 'p', 'q', 'y_plus', 'y_plus_plus'
+        'x', 'y', 'z', 'y_fxn', 'f', 'g', 'p', 'q', 'y_plus', 'y_plus_plus'
     }
 
 

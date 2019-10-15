@@ -6,9 +6,8 @@ import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
-import six
 
-from ..helpers import count_calls, df_from_csv_str, equal_frame_and_index_content
+from ..helpers import count_calls, df_from_csv_str, equal_frame_and_index_content, dask_py3_only
 
 import bionic as bn
 import dask.dataframe as dd
@@ -211,12 +210,6 @@ def test_dataframe_with_categorical_works_with_feather(builder):
         return df_value
 
     pdt.assert_frame_equal(builder.build().get('df'), df_value)
-
-
-# Dask no longer supports Python 2, and the last released version basically
-# doesn't work with the latest version of pyarrow.
-# TODO We need to just stop supporting Python 2.
-dask_py3_only = pytest.mark.skipif(six.PY2, reason="Dask requires Python 3")
 
 
 @dask_py3_only

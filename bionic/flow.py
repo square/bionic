@@ -4,10 +4,9 @@ construction and execution APIs (respectively).
 '''
 from __future__ import absolute_import
 
-from builtins import object
 import os
-import shutil
 import functools
+import shutil
 import warnings
 
 import pyrsistent as pyrs
@@ -28,7 +27,7 @@ from .deriver import EntityDeriver
 from . import decorators
 from .util import (
     group_pairs, check_exactly_one_present, check_at_most_one_present,
-    copy_to_gcs,
+    copy_to_gcs, FileCopier,
 )
 
 import logging
@@ -860,26 +859,42 @@ class Flow(object):
 
         return FlowBuilder._from_state(self._state)
 
-    def get(self, name, fmt=None):
+    def get(self, name, collection=None, fmt=None, mode=object):
         """
         Computes the value(s) associated with an entity.
 
-        If the entity has multiple values, the ``fmt`` parameter indicates
-        how to handle them.  It can have any of the following values:
+        If the entity has multiple values, the ``collection`` parameter
+        indicates how to handle them.  It can have any of the following values:
 
-        * ``object``: return a single value or throw an exception
+        * ``None``: return a single value or throw an exception
         * ``list`` or ``'list'``: return a list of values
         * ``set`` or ``'set'``: return a set of values
         * ``pandas.Series`` or ``'series'``: return a series whose index is
           the root cases distinguishing the different values
 
+        The user can specify the type of object (implicitly specifying in-memory vs. persisted data)
+        to return in the collection using the ``mode`` parameter.  It can have any of the
+        following values:
+        * ``object`` or ``'object'`` for a value in-memory
+        * ``'FileCopier'`` for a wrapper for a path to the persisted file for the computed entity
+        * ``Path`` or ``'path'`` for a path to persisted file
+        * ``'filename'`` for a string representing a path to a persisted file
+
         Parameters
         ----------
 
         name: String
-            The name of a entity.
-        fmt: String or type, optional, default is ``object``
+            The name of an entity.
+
+        collection: String or type, optional, default is ``None``
             The data structure to use if the entity has multiple values.
+
+        fmt: String or type, optional, default is ``None``
+            The data structure to use if the entity has multiple values.  Deprecated in favor of
+            ``collection`` and will be removed in future release.
+
+        mode: String or type, optional, default is ``object``
+            The type of object to return in the collection.
 
         Returns
         -------
@@ -888,18 +903,46 @@ class Flow(object):
         """
 
         result_group = self._deriver.derive(name)
-        if fmt is None or fmt is object:
-            if len(result_group) == 0:
+        if mode is object or mode == 'object':
+            values = [result.value for result in result_group]
+        else:
+            # all other modes expect the entity to be persisted
+            result_file_paths = [result.file_path for result in result_group]
+
+            if None in result_file_paths:
+                raise ValueError(
+                    "Entity %r is not persisted but persisted file is expected by mode %r"
+                    % (name, mode))
+
+            if mode is Path or mode == 'path':
+                values = result_file_paths
+            elif mode == 'FileCopier':
+                values = [FileCopier(fp) for fp in result_file_paths]
+            elif mode == 'filename':
+                values = [str(fp) for fp in result_file_paths]
+            else:
+                raise ValueError("Unrecognized mode %r" % mode)
+
+        check_at_most_one_present(fmt=fmt, collection=collection)
+
+        if fmt:
+            warnings.warn(
+                "The fmt argument is deprecated and will be removed in a future release. "
+                "Please use collection as a replacement.")
+
+        collection = fmt or collection
+
+        if collection is None or collection is object:
+            if len(values) == 0:
                 raise ValueError("Entity %r has no defined values" % name)
-            if len(result_group) > 1:
+            if len(values) > 1:
                 raise ValueError("Entity %r has multiple values" % name)
-            result, = result_group
-            return result.value
-        elif fmt is list or fmt == 'list':
-            return [result.value for result in result_group]
-        elif fmt is set or fmt == 'set':
-            return set(result.value for result in result_group)
-        elif fmt is pd.Series or fmt == 'series':
+            return values[0]
+        elif collection is list or collection == 'list':
+            return values
+        elif collection is set or collection == 'set':
+            return set(values)
+        elif collection is pd.Series or collection == 'series':
             if len(result_group.key_space) > 0:
                 index = multi_index_from_case_keys(
                     case_keys=[
@@ -910,11 +953,11 @@ class Flow(object):
                 index = None
             return pd.Series(
                 name=name,
-                data=[result.value for result in result_group],
+                data=values,
                 index=index,
             )
         else:
-            raise ValueError("Unrecognized format %r" % fmt)
+            raise ValueError("Unrecognized collection type %r" % collection)
 
     # TODO Maybe this wants to be two different functions?
     def export(self, name, file_path=None, dir_path=None):
@@ -938,6 +981,9 @@ class Flow(object):
         and file_path options support paths on GCS, specified like:
         gs://mybucket/subdir/
         """
+
+        warnings.warn(
+            "Flow#export is deprecated and the same functionality is available through Flow#get.")
 
         result_group = self._deriver.derive(name)
         if len(result_group) != 1:

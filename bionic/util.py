@@ -8,6 +8,7 @@ from builtins import zip, object
 from collections import defaultdict
 from hashlib import sha256
 from binascii import hexlify
+import subprocess
 import warnings
 
 import six
@@ -310,6 +311,44 @@ class ExtensibleLogger(object):
     def exception(self, msg, *args, **kwargs):
         self._custom_log_if_enabled(
             logging.ERROR, msg, *args, exc_info=True, **kwargs)
+
+
+class FileCopier(object):
+    """
+    A wrapper for a Path object, exposing a `copy` method that will copy the underlying
+    file to a local or cloud destination
+
+
+    Parameters
+    ----------
+    src_file_path: Path
+        A path to a file.
+    """
+    def __init__(self, src_file_path):
+        self.src_file_path = src_file_path
+
+    def copy(self, destination):
+        """
+        Copies file that FileCopier represents to `destination`
+
+        This supports both local and GCS destinations.  For the former, we follow cp's conventions
+        and for the latter we follow gsutil cp's conventions.  For example, trying to copy a
+        file locally to a non-existent directory will fail.
+
+        Parameters
+        ----------
+
+        destination: Path or str
+            Where to copy the underlying file
+        """
+
+        #  handle gcs
+        if str(destination).startswith('gs://'):
+            subprocess.check_call(
+                ['gsutil', '-mq', 'cp', '-R', str(self.src_file_path), str(destination)]
+            )
+        else:
+            subprocess.check_call(['cp', '-R', str(self.src_file_path), str(destination)])
 
 
 def raise_chained(exc_ctor, message, from_exc):
