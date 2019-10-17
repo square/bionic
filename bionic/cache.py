@@ -196,10 +196,10 @@ class CacheAccessor(object):
         self._clear_stored_entries()
 
         if result is not None:
-            value = result.value
+            value_wrapper = NullableWrapper(result.value)
             file_path = result.file_path
         else:
-            value = None
+            value_wrapper = None
             file_path = None
 
         blob_url = None
@@ -207,8 +207,8 @@ class CacheAccessor(object):
         if file_path is None:
             if local_entry.has_artifact:
                 file_path = path_from_url(local_entry.artifact_url)
-            elif value is not None:
-                file_path = self._file_from_value(value)
+            elif value_wrapper is not None:
+                file_path = self._file_from_value(value_wrapper.value)
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
                     raise AssertionError(
@@ -339,6 +339,12 @@ class CacheAccessor(object):
 
 
 # TODO In Python 3 we can store these comments as docstrings.
+# A simple wrapper for a value that might be None.  We use this when we want
+# to distinguish between "we have a value which is None" from "we don't have a
+# value".
+NullableWrapper = namedtuple('NullableWrapper', 'value')
+
+
 # Represents a saved artifact tracked by an Inventory; returned by Inventory
 # to CacheAccessor.
 InventoryEntry = namedtuple(

@@ -737,3 +737,14 @@ def test_complex_input_type(builder):
     assert x_plus_y.times_called() == 1
     assert flow.get('x_plus_y', set) == {5, 9}
     assert x_plus_y.times_called() == 0
+
+
+def test_persisting_none(builder):
+    @builder
+    @count_calls
+    def none():
+        return None
+
+    assert builder.build().get('none') is None
+    assert builder.build().get('none') is None
+    assert none.times_called() == 1
