@@ -675,9 +675,8 @@ class PyplotProvider(WrappingProvider):
     def __init__(self, wrapped_provider, name='pyplot', savefig_kwargs=None):
         super(PyplotProvider, self).__init__(wrapped_provider)
 
-        PIL = import_optional_dependency(
-            'PIL', purpose='the @pyplot decorator')
-        self._Image = PIL.Image
+        self._Image = import_optional_dependency(
+            'PIL.Image', purpose='the @pyplot decorator')
 
         self._pyplot_name = name
 
