@@ -372,6 +372,37 @@ def test_numpy_protocol_high_d(builder):
     assert(np.array_equal(arr, desired))
 
 
+def test_yaml_protocol_list(builder):
+    @builder
+    @bn.protocol.yaml
+    def alist():
+        return ['red', 'blue']
+
+    assert builder.build().get('alist') == ['red', 'blue']
+
+
+def test_yaml_protocol_dump_kwargs(builder, tmpdir):
+    @builder
+    @bn.protocol.yaml(default_flow_style=False)
+    def alist():
+        return ['red', 'blue']
+
+    flow = builder.build()
+    expected = "- red\n- blue\n"
+
+    assert flow.export('alist').read_text() == expected
+
+
+def test_yaml_protocol_dict(builder):
+    record = {'record': {'name': 'Oscar', 'favorite_things': ['trash', 'green']}}
+    @builder
+    @bn.protocol.yaml
+    def adict():
+        return record
+
+    assert builder.build().get('adict') == record
+
+
 def test_type_protocol(builder):
     builder.declare('int_val', bn.protocol.type(int))
     builder.declare('float_val', bn.protocol.type(float))

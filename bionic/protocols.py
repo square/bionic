@@ -18,6 +18,7 @@ import tempfile
 import shutil
 import warnings
 
+import yaml
 import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
@@ -366,6 +367,32 @@ class DaskProtocol(BaseProtocol):
         if six.PY2:
             path = str(path)
         dd.to_parquet(df, path, write_index=True)
+
+
+class YamlProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values can be serialized using the
+    ``PyYAML`` library.
+
+    Parameters
+    ----------
+    **kwargs: keyword args for ``yaml.dump``
+        E.g. ``default_flow_style``, ``encoding``, etc.
+    """
+    def __init__(self, **kwargs):
+        super(YamlProtocol, self).__init__()
+        self._kwargs = kwargs
+
+    def get_fixed_file_extension(self):
+        return 'yaml'
+
+    def write(self, value, path):
+        with path.open('w') as file_:
+            yaml.dump(value, file_, **self._kwargs)
+
+    def read(self, path, extension):
+        with path.open('r') as file_:
+            return yaml.safe_load(file_)
 
 
 class CombinedProtocol(BaseProtocol):
