@@ -842,7 +842,6 @@ class ArtifactDescriptor(object):
             self._dict,
             default_flow_style=False,
             encoding=None,
-            sort_keys=True,
             Dumper=YamlDumper,
         )
 
