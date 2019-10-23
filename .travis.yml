@@ -1,11 +1,17 @@
 language: python
 python:
- - "2.7"
- - "3.7"
+- '2.7'
+- '3.7'
 before_install:
-  - sudo apt-get install graphviz
-  - pip install --upgrade .[dev]
+- sudo apt-get install graphviz
+- pip install --upgrade .[dev]
 script:
-  - pytest --slow
-  - flake8
-
+- pytest --slow
+- flake8
+deploy:
+  provider: pypi
+  user: "__token__"
+  password:
+    secure: MZSj3vNlxQQLA+cJOEZY4pSqOm/yA2LbzbJUyaVzKjbZrbLvC3zb3Je/B4giEDTMEmQMq0wWScomB1vLhSA94pkv7jkmvuNmnythlNPxc6COFfLJXjf1/6+NpxHWAhk6gOTCD4x1yqjBE7PRafat+bo5+0oHMrquBo4mS9jVvwAGxoHOVCBTx5WWtZdw5PUarpKeKD25yQq+Hy3RjZRnTfsELB0SQW4b+nGnwp45ko3htYGt1mlqAO8UsVLTxw4k/Xep/LlbhQzeCbjA++2caICEEbGUKAABQikihWa7PSaRLTi9Dj8IB4g2v8QnfSBclkMQhs0fRFxJTik5lCdhgrFBN5IhTI8mibWgXKrhn/Je+oiskoNMT1f7XJmnG8Ot3ZDpnTdMtk4CbFuAVb49oQGrvYjNuHrSyo3spNQPh20ceWNFZEIo19eEsDk46RDLi98VoMNQcrsaI0C1w0murThJ9X/6JX3qZzxIryT099sRA7reoYtvAfu8eYLumFwD+a5kD2zGmBponK6enzYt/sJrwKMrFtNgy1nznrSVUSAYY4twaGquoBQgYVNXpzdZHsUcipTvyVvOxbfbYuDH2aWR7ClE5ffAcPVRfcd3fpl18knOEpEVLSE44Nvm58YVZz875gLPUtpGSal5hvB5CT3o1SsOKR9zoA689DYqIcY=
+  on:
+    tags: true
