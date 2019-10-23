@@ -9,9 +9,11 @@ script:
 - pytest --slow
 - flake8
 deploy:
+  on:
+    tags: true
+    python: 3.7
   provider: pypi
+  distributions: "sdist bdist_wheel --universal"
   user: __token__
   password:
     secure: DW5ljtNSM6SwkxdNrhVtH60bEY4I/KkrfI7DzKmB8IZoH3Z4rA3HNvhTIhOpvje4lGUHLIZOlKtBuBLbjaf+AF4W3lPzJpOkFCS+MwqH5n3tv1G/XijfjHnLqrnCVM+XfSvBrrREpZ+yrGlZbb1TCMF0hlXmej8hrN0WlJNPcGAQtII6Vj1JnWkciUqUXGlZC0OFod8ABuS6y63yA3i2b6xkafj0ekScVVyZzC91ZM6HVYZUpVIbb1k37OXSANzYOLoxyNFXiP5s7btE/hL4wd4MglpB+Hr52hb5OOWGJN/t8HqCy4R9IHg9OMmMNw9bzjmZSErd0Ith1XyH3A+COiQhw9VwyoeCkO7MmxtzFtaLD6IpWAJ5CnKge/ZDdxIE4V1bZK8KY3OfwW/OCjgFf7bWkf2ogBfESpMDQLyoA25VQXlSfw/SInoetC2hkM/I3wugf32itNuXrS8MMj3syN17UpSgeWoMpi2/nqlzviQqPH6vfogx75dA2pboI17OEdXSYFadRWG2jclmwKoNCook6JBiG4YbsWRGwHcJ2TtKDx4FmgHg2Y2FNzagswooZC/oqQObeo2KT572izYR5i24YBTSpFBCsZ80JbqtjyQcSdjYJ/8qUwfbkZ2ZyZp5elDQbCk/yllGsQnfMgrWBCpyzMlr4bW7rCvrHwTEt3k=
-  on:
-    tags: true
