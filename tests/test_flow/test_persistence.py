@@ -18,6 +18,7 @@ class ReadCountingProtocol(bn.protocols.PicklableProtocol):
         self.times_read_called += 1
         return super(ReadCountingProtocol, self).read(path, extension)
 
+
 # It would be nice to move the builder setup into fixtures, but since we need
 # to access the bound functions as well (to check the number of times they were
 # called), it's easiest to just have one long test.

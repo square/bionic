@@ -450,7 +450,6 @@ class EntityDeriver(object):
             }
         task_state.is_complete = True
 
-
     def _get_results_for_complete_task_state(self, task_state):
         assert task_state.is_complete
 
@@ -462,11 +461,9 @@ class EntityDeriver(object):
             result = accessor.load_result()
             self._log(
                 'Loaded      %s from disk cache', result.query.task_key)
-
             results_by_name[result.query.entity_name] = result
 
         return results_by_name
-        
 
     def _compute_task_state(self, task_state):
         assert not task_state.is_blocked()
@@ -517,13 +514,12 @@ class EntityDeriver(object):
                     assert result is not None
 
             results_by_name[query.entity_name] = result
-        
+
         # TODO check if persist is False and memoize is False
         if provider.attrs.should_memoize:
             task_state.results_by_name = results_by_name
-        
-        task_state.is_complete = True
 
+        task_state.is_complete = True
 
     def _log(self, message, *args):
         if self._is_ready_for_full_resolution:
@@ -569,7 +565,6 @@ class TaskState(object):
         self.results_by_name = None
 
         self.is_complete = False
-
 
     def is_blocked(self):
         return not all(parent.is_complete for parent in self.parents)
