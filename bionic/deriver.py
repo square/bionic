@@ -259,7 +259,7 @@ class EntityDeriver(object):
             # If this task is already complete, we don't need to do any work.
             # But if this is this is the first time we've seen this task, we
             # should should log a message .
-            if state.is_complete():
+            if state.is_complete:
                 for task_key in state.task.keys:
                     if task_key not in logged_task_keys:
                         self._log(
@@ -272,12 +272,12 @@ class EntityDeriver(object):
 
             # If we weren't able to load it but it's ready to compute, let's
             # compute it!
-            if not state.is_complete() and not state.is_blocked():
+            if not state.is_complete and not state.is_blocked():
                 self._compute_task_state(state)
 
             # If we successfully loaded or computed it, see if we can unblock
             # its children.
-            if state.is_complete():
+            if state.is_complete:
                 for task_key in state.task.keys:
                     logged_task_keys.add(task_key)
 
@@ -294,11 +294,11 @@ class EntityDeriver(object):
 
         assert len(blocked_task_key_tuples) == 0, blocked_task_key_tuples
         for state in requested_task_states:
-            assert state.is_complete(), state
+            assert state.is_complete, state
 
         return ResultGroup(
             results=[
-                state.results_by_name[entity_name]
+                self._get_results_for_complete_task_state(state)[entity_name]
                 for state in requested_task_states
             ],
             key_space=self._key_spaces_by_entity_name[entity_name],
@@ -443,10 +443,27 @@ class EntityDeriver(object):
 
             results.append(result)
 
-        task_state.results_by_name = {
-            result.query.entity_name: result
-            for result in results
-        }
+        if task_state.provider.attrs.should_memoize:
+            task_state.results_by_name = {
+                result.query.entity_name: result
+                for result in results
+            }
+        task_state.is_complete = True
+
+    def _get_results_for_complete_task_state(self, task_state):
+        assert task_state.is_complete
+
+        if task_state.results_by_name:
+            return task_state.results_by_name
+
+        results_by_name = dict()
+        for accessor in task_state.cache_accessors:
+            result = accessor.load_result()
+            self._log(
+                'Loaded      %s from disk cache', result.query.task_key)
+            results_by_name[result.query.entity_name] = result
+
+        return results_by_name
 
     def _compute_task_state(self, task_state):
         assert not task_state.is_blocked()
@@ -454,10 +471,11 @@ class EntityDeriver(object):
         task = task_state.task
         dep_keys = task.dep_keys
         dep_results = [
-            self._task_states_by_key[dep_key]
-                .results_by_name[dep_key.entity_name]
+            self._get_results_for_complete_task_state(
+                self._task_states_by_key[dep_key])[dep_key.entity_name]
             for dep_key in dep_keys
         ]
+
         provider = task_state.provider
 
         if not task.is_simple_lookup:
@@ -491,12 +509,17 @@ class EntityDeriver(object):
                 # real value.  That way, if the serialized/deserialized
                 # value is not exactly the same as the original, we still
                 # always return the same value.
-                result = accessor.load_result()
-                assert result is not None
+                if provider.attrs.should_memoize:
+                    result = accessor.load_result()
+                    assert result is not None
 
             results_by_name[query.entity_name] = result
 
-        task_state.results_by_name = results_by_name
+        # TODO check if persist is False and memoize is False
+        if provider.attrs.should_memoize:
+            task_state.results_by_name = results_by_name
+
+        task_state.is_complete = True
 
     def _log(self, message, *args):
         if self._is_ready_for_full_resolution:
@@ -541,11 +564,10 @@ class TaskState(object):
         # EntityDeriver._compute_task_state().
         self.results_by_name = None
 
-    def is_complete(self):
-        return self.results_by_name is not None
+        self.is_complete = False
 
     def is_blocked(self):
-        return not all(parent.is_complete() for parent in self.parents)
+        return not all(parent.is_complete for parent in self.parents)
 
     def __repr__(self):
         return 'TaskState(%r)' % self.task

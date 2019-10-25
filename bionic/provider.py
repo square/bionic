@@ -33,12 +33,13 @@ class ProviderAttributes(object):
     def __init__(
             self, names,
             protocols=None, code_version=None, orig_flow_name=None,
-            should_persist=None, is_default_value=None):
+            should_persist=None, should_memoize=None, is_default_value=None):
         self.names = names
         self.protocols = protocols
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
         self.should_persist = should_persist
+        self.should_memoize = should_memoize
         self.is_default_value = is_default_value
 
 
@@ -264,7 +265,10 @@ class ValueProvider(BaseProvider):
     def __init__(self, name, protocol):
         super(ValueProvider, self).__init__(
             attrs=ProviderAttributes(
-                names=[name], protocols=[protocol], should_persist=False),
+                names=[name],
+                protocols=[protocol],
+                should_persist=False,
+                should_memoize=True),
             is_mutable=True,
         )
 

@@ -9,6 +9,16 @@ from bionic.exception import CodeVersioningError
 import bionic as bn
 
 
+class ReadCountingProtocol(bn.protocols.PicklableProtocol):
+    def __init__(self):
+        self.times_read_called = 0
+        super(ReadCountingProtocol, self).__init__()
+
+    def read(self, path, extension):
+        self.times_read_called += 1
+        return super(ReadCountingProtocol, self).read(path, extension)
+
+
 # It would be nice to move the builder setup into fixtures, but since we need
 # to access the bound functions as well (to check the number of times they were
 # called), it's easiest to just have one long test.
@@ -607,15 +617,6 @@ def test_all_returned_results_are_deserialized(builder):
 
 
 def test_deps_of_cached_values_not_needed(builder):
-    class ReadCountingProtocol(bn.protocols.PicklableProtocol):
-        def __init__(self):
-            self.times_read_called = 0
-            super(ReadCountingProtocol, self).__init__()
-
-        def read(self, path, extension):
-            self.times_read_called += 1
-            return super(ReadCountingProtocol, self).read(path, extension)
-
     y_protocol = ReadCountingProtocol()
     z_protocol = ReadCountingProtocol()
 
@@ -748,3 +749,18 @@ def test_persisting_none(builder):
     assert builder.build().get('none') is None
     assert builder.build().get('none') is None
     assert none.times_called() == 1
+
+
+def test_disable_memory_caching(builder):
+    x_protocol = ReadCountingProtocol()
+
+    @builder
+    @x_protocol
+    @bn.memoize(False)
+    def x():
+        return 1
+
+    flow = builder.build()
+    assert flow.get('x') == 1
+    assert flow.get('x') == 1
+    assert x_protocol.times_read_called == 2
