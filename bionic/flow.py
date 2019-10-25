@@ -694,6 +694,8 @@ class FlowBuilder(object):
             provider = DEFAULT_PROTOCOL(provider)
         if provider.attrs.should_persist is None:
             provider = decorators.persist(True)(provider)
+        if provider.attrs.should_memoize is None:
+            provider = decorators.memoize(True)(provider)
 
         state = self._state
 

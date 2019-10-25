@@ -86,6 +86,28 @@ def persist(enabled):
     return provider_wrapper(AttrUpdateProvider, 'should_persist', enabled)
 
 
+def memoize(enabled):
+    """
+    Indicates whether computed values should be cached memoized
+
+    Parameters
+    ----------
+
+    enabled: Boolean
+        Whether this entity's values should be memoized
+
+    Returns
+    -------
+    Function:
+        A decorator which can be applied to an entity function.
+    """
+
+    if not isinstance(enabled, bool):
+        raise ValueError("Argument must be a boolean; got %r" % enabled)
+
+    return provider_wrapper(AttrUpdateProvider, 'should_memoize', enabled)
+
+
 def output(name):
     """
     Renames an entity.  The entity function must have a single value.
