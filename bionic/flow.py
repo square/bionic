@@ -161,8 +161,8 @@ class FlowState(pyrs.PClass):
     def mark_all_providers_default(self):
         state = self
 
-        right_default_names = pyrs.pset(state.providers_by_name.keys())
-        state = state.set(default_provider_names=right_default_names)
+        new_default_names = pyrs.pset(state.providers_by_name.keys())
+        state = state.set(default_provider_names=new_default_names)
 
         return state.touch()
 
@@ -487,12 +487,12 @@ class FlowBuilder(object):
         flow: Flow
             Any Bionic Flow.
 
-        keep: 'error', 'left', or 'right' (default: 'error')
+        keep: 'error', 'self', or 'arg' (default: 'error')
             How to handle conflicting entity names.  Options:
 
             * 'error': throw an ``AlreadyDefinedEntityError``
-            * 'left': use the definition from this builder
-            * 'right': use the definition from ``flow``
+            * 'self': use the definition from this builder
+            * 'arg': use the definition from ``flow``
 
         allow_name_match: boolean (default: False)
             Allows the incoming flow to have the same name as this builder.
@@ -502,8 +502,8 @@ class FlowBuilder(object):
         """
 
         # These are the two states we're going to merge.
-        right_state = flow._state
-        left_state = self._state
+        new_state = flow._state
+        old_state = self._state
 
         # Check that the flows don't have the same name.
         # TODO The mechanics of this check really suck, since this builder's
@@ -512,99 +512,99 @@ class FlowBuilder(object):
         # guess it's not a huge deal.  But overall, the way we store a flow's
         # name might deserve to be revisited later.
         if not allow_name_match:
-            left_name_provider = left_state.providers_by_name.get(
+            old_name_provider = old_state.providers_by_name.get(
                 'core__flow_name')
             if (
-                    left_name_provider is not None and
-                    isinstance(left_name_provider, ValueProvider) and
-                    len(left_name_provider._values_by_case_key.keys()) == 1):
-                left_flow_name, = left_name_provider._values_by_case_key.values()
-                right_flow_name = flow.name
-                if left_flow_name == right_flow_name and not allow_name_match:
+                    old_name_provider is not None and
+                    isinstance(old_name_provider, ValueProvider) and
+                    len(old_name_provider._values_by_case_key.keys()) == 1):
+                old_flow_name, = old_name_provider._values_by_case_key.values()
+                new_flow_name = flow.name
+                if old_flow_name == new_flow_name and not allow_name_match:
                     raise ValueError(
                         "Attempting to merge two flows with the same name (%r). "
                         "Sharing names between flows is generally unwise, since "
                         "they will then also share the same cache space; however, "
                         "you can disable this check by passing "
-                        "``allow_name_match=True``" % right_flow_name)
+                        "``allow_name_match=True``" % new_flow_name)
 
         # Identify all the names that could appear in the merged flow, and
         # associate each one with a potential conflict.
-        all_names = set(left_state.providers_by_name.keys()).union(
-                right_state.providers_by_name.keys())
+        all_names = set(old_state.providers_by_name.keys()).union(
+                new_state.providers_by_name.keys())
         conflicts_by_name = {
             name: MergeConflict(
-                left_state=left_state, right_state=right_state, name=name)
+                old_state=old_state, new_state=new_state, name=name)
             for name in all_names
         }
 
         # Resolve each conflict individually.
         for conflict in conflicts_by_name.values():
-            if conflict.left_provider is None:
-                conflict.resolve('right', 'no conflicting definition')
+            if conflict.old_provider is None:
+                conflict.resolve('arg', 'no conflicting definition')
                 continue
 
-            if conflict.right_provider is None:
-                conflict.resolve('left', 'no conflicting definition')
+            if conflict.new_provider is None:
+                conflict.resolve('self', 'no conflicting definition')
                 continue
 
             if conflict.name == 'core__flow_name':
-                conflict.resolve('left', 'flow name is never merged')
+                conflict.resolve('self', 'flow name is never merged')
                 continue
 
-            if conflict.right_is_default:
-                conflict.resolve('left', 'conflicting definition is default')
+            if conflict.new_is_default:
+                conflict.resolve('self', 'conflicting definition is default')
                 continue
 
-            if conflict.left_is_default:
-                conflict.resolve('right', 'conflicting definition is default')
+            if conflict.old_is_default:
+                conflict.resolve('arg', 'conflicting definition is default')
                 continue
 
-            if conflict.left_protocol is conflict.right_protocol:
-                if conflict.right_is_only_declaration:
+            if conflict.old_protocol is conflict.new_protocol:
+                if conflict.new_is_only_declaration:
                     conflict.resolve(
-                        'left',
+                        'self',
                         'conflicting definition has matching protocol and '
                         'no value')
                     continue
-                elif conflict.left_is_only_declaration:
+                elif conflict.old_is_only_declaration:
                     conflict.resolve(
-                        'right',
+                        'arg',
                         'conflicting definition has matching protocol and '
                         'no value')
                     continue
 
             if keep == 'error':
                 raise AlreadyDefinedEntityError(
-                    "Merge failure: Entity %r exists in both left and right "
+                    "Merge failure: Entity %r exists in both self and arg "
                     "flows; use the ``keep`` argument to specify which to "
                     "keep" % conflict.name)
 
-            elif keep == 'left':
-                conflict.resolve('left', 'keep=left')
+            elif keep == 'self':
+                conflict.resolve('self', 'keep=self')
                 continue
 
-            elif keep == 'right':
-                conflict.resolve('right', 'keep=right')
+            elif keep == 'arg':
+                conflict.resolve('arg', 'keep=arg')
                 continue
 
             elif keep == 'old':
-                conflict.resolve('left', 'keep=old')
+                conflict.resolve('self', 'keep=old')
                 continue
 
             elif keep == 'new':
-                conflict.resolve('right', 'keep=new')
+                conflict.resolve('arg', 'keep=new')
                 continue
 
             raise ValueError(
-                "Value of ``keep`` must be one of {'error', 'left', 'right'}; "
+                "Value of ``keep`` must be one of {'error', 'self', 'arg'}; "
                 "got %r" % keep)
 
         # For both states, check that each jointly-defined name group is kept
         # or discarded as a whole.
         for state_name, state in [
-                    ('left', left_state),
-                    ('right', right_state),
+                    ('self', old_state),
+                    ('arg', new_state),
                 ]:
             for provider in state.providers_by_name.values():
                 names = provider.get_joint_names()
@@ -638,17 +638,17 @@ class FlowBuilder(object):
                         ))
 
         # Now we start building up our final, merged state.
-        cur_state = left_state
+        cur_state = old_state
 
-        conflicts_keeping_right = [
+        conflicts_keeping_new = [
             conflict for conflict in conflicts_by_name.values()
-            if conflict.resolution == 'right'
+            if conflict.resolution == 'arg'
         ]
 
         # First, delete all old providers that collide with our incoming ones.
         names_to_delete = [
             conflict.name
-            for conflict in conflicts_keeping_right
+            for conflict in conflicts_keeping_new
         ]
         try:
             cur_state = cur_state.delete_providers(names_to_delete)
@@ -660,8 +660,8 @@ class FlowBuilder(object):
         # installed exactly once.
         providers_to_install = (
             {
-                tuple(conflict.right_provider.attrs.names): conflict.right_provider
-                for conflict in conflicts_keeping_right
+                tuple(conflict.new_provider.attrs.names): conflict.new_provider
+                for conflict in conflicts_keeping_new
             }.values())
         for provider in providers_to_install:
             # For function providers, we attach the name of their original flow
@@ -671,7 +671,7 @@ class FlowBuilder(object):
                     not isinstance(provider, ValueProvider) and
                     provider.attrs.orig_flow_name is None):
                 provider = provider_wrapper(
-                    AttrUpdateProvider, 'orig_flow_name', right_flow_name
+                    AttrUpdateProvider, 'orig_flow_name', new_flow_name
                 )(provider)
             cur_state = cur_state.install_provider(provider)
 
@@ -749,20 +749,20 @@ class FlowBuilder(object):
 
 
 class MergeConflict(object):
-    def __init__(self, left_state, right_state, name):
+    def __init__(self, old_state, new_state, name):
         self.name = name
-        self.left_provider = left_state.providers_by_name.get(name)
-        self.right_provider = right_state.providers_by_name.get(name)
-        self.left_is_default = name in left_state.default_provider_names
-        self.right_is_default = name in right_state.default_provider_names
+        self.old_provider = old_state.providers_by_name.get(name)
+        self.new_provider = new_state.providers_by_name.get(name)
+        self.old_is_default = name in old_state.default_provider_names
+        self.new_is_default = name in new_state.default_provider_names
 
     @property
-    def left_protocol(self):
-        return self._protocol_for_provider(self.left_provider)
+    def old_protocol(self):
+        return self._protocol_for_provider(self.old_provider)
 
     @property
-    def right_protocol(self):
-        return self._protocol_for_provider(self.right_provider)
+    def new_protocol(self):
+        return self._protocol_for_provider(self.new_provider)
 
     def _protocol_for_provider(self, provider):
         assert provider is not None
@@ -770,12 +770,12 @@ class MergeConflict(object):
         return provider.attrs.protocols[name_ix]
 
     @property
-    def left_is_only_declaration(self):
-        return self._provider_is_only_declaration(self.left_provider)
+    def old_is_only_declaration(self):
+        return self._provider_is_only_declaration(self.old_provider)
 
     @property
-    def right_is_only_declaration(self):
-        return self._provider_is_only_declaration(self.right_provider)
+    def new_is_only_declaration(self):
+        return self._provider_is_only_declaration(self.new_provider)
 
     def _provider_is_only_declaration(self, provider):
         return (
