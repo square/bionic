@@ -603,8 +603,8 @@ class FlowBuilder(object):
         # For both states, check that each jointly-defined name group is kept
         # or discarded as a whole.
         for state_name, state in [
-                    ('self', old_state),
-                    ('arg', new_state),
+                    ('old', old_state),
+                    ('new', new_state),
                 ]:
             for provider in state.providers_by_name.values():
                 names = provider.get_joint_names()
@@ -642,7 +642,7 @@ class FlowBuilder(object):
 
         conflicts_keeping_new = [
             conflict for conflict in conflicts_by_name.values()
-            if conflict.resolution == 'arg'
+            if conflict.resolution == 'new'
         ]
 
         # First, delete all old providers that collide with our incoming ones.

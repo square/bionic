@@ -423,7 +423,9 @@ def test_merging(preset_flow):
         assert flow.merging(new_flow)
 
     assert flow.merging(new_flow, keep='old').get('f') == 6
+    assert flow.merging(new_flow, keep='self').get('f') == 6
     assert flow.merging(new_flow, keep='new').get('f') == 11
+    assert flow.merging(new_flow, keep='arg').get('f') == 11
 
 
 def test_adding_case(preset_flow):
