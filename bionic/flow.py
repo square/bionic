@@ -557,7 +557,7 @@ class FlowBuilder(object):
                 continue
 
             if conflict.old_is_default:
-                conflict.resolve('arg', 'conflicting definition is default')
+                conflict.resolve('new', 'conflicting definition is default')
                 continue
 
             if conflict.old_protocol is conflict.new_protocol:
@@ -569,7 +569,7 @@ class FlowBuilder(object):
                     continue
                 elif conflict.old_is_only_declaration:
                     conflict.resolve(
-                        'arg',
+                        'new',
                         'conflicting definition has matching protocol and '
                         'no value')
                     continue
