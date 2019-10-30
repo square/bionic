@@ -581,19 +581,19 @@ class FlowBuilder(object):
                     "keep" % conflict.name)
 
             elif keep == 'self':
-                conflict.resolve('self', 'keep=self')
+                conflict.resolve('old', 'keep=self')
                 continue
 
             elif keep == 'arg':
-                conflict.resolve('arg', 'keep=arg')
+                conflict.resolve('new', 'keep=arg')
                 continue
 
             elif keep == 'old':
-                conflict.resolve('self', 'keep=old')
+                conflict.resolve('old', 'keep=old')
                 continue
 
             elif keep == 'new':
-                conflict.resolve('arg', 'keep=new')
+                conflict.resolve('new', 'keep=new')
                 continue
 
             raise ValueError(
