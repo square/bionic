@@ -541,19 +541,19 @@ class FlowBuilder(object):
         # Resolve each conflict individually.
         for conflict in conflicts_by_name.values():
             if conflict.old_provider is None:
-                conflict.resolve('arg', 'no conflicting definition')
+                conflict.resolve('new', 'no conflicting definition')
                 continue
 
             if conflict.new_provider is None:
-                conflict.resolve('self', 'no conflicting definition')
+                conflict.resolve('old', 'no conflicting definition')
                 continue
 
             if conflict.name == 'core__flow_name':
-                conflict.resolve('self', 'flow name is never merged')
+                conflict.resolve('old', 'flow name is never merged')
                 continue
 
             if conflict.new_is_default:
-                conflict.resolve('self', 'conflicting definition is default')
+                conflict.resolve('old', 'conflicting definition is default')
                 continue
 
             if conflict.old_is_default:
@@ -563,7 +563,7 @@ class FlowBuilder(object):
             if conflict.old_protocol is conflict.new_protocol:
                 if conflict.new_is_only_declaration:
                     conflict.resolve(
-                        'self',
+                        'old',
                         'conflicting definition has matching protocol and '
                         'no value')
                     continue
@@ -576,7 +576,7 @@ class FlowBuilder(object):
 
             if keep == 'error':
                 raise AlreadyDefinedEntityError(
-                    "Merge failure: Entity %r exists in both self and arg "
+                    "Merge failure: Entity %r exists in both old and new "
                     "flows; use the ``keep`` argument to specify which to "
                     "keep" % conflict.name)
 
