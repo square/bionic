@@ -487,12 +487,12 @@ class FlowBuilder(object):
         flow: Flow
             Any Bionic Flow.
 
-        keep: 'error', 'old', or 'new' (default: 'error')
+        keep: 'error', 'self', or 'arg' (default: 'error')
             How to handle conflicting entity names.  Options:
 
             * 'error': throw an ``AlreadyDefinedEntityError``
-            * 'old': use the definition from this builder
-            * 'new': use the definition from ``flow``
+            * 'self': use the definition from this builder
+            * 'arg': use the definition from ``flow``
 
         allow_name_match: boolean (default: False)
             Allows the incoming flow to have the same name as this builder.
@@ -580,6 +580,14 @@ class FlowBuilder(object):
                     "flows; use the ``keep`` argument to specify which to "
                     "keep" % conflict.name)
 
+            elif keep == 'self':
+                conflict.resolve('old', 'keep=self')
+                continue
+
+            elif keep == 'arg':
+                conflict.resolve('new', 'keep=arg')
+                continue
+
             elif keep == 'old':
                 conflict.resolve('old', 'keep=old')
                 continue
@@ -589,7 +597,7 @@ class FlowBuilder(object):
                 continue
 
             raise ValueError(
-                "Value of ``keep`` must be one of {'error', 'old', 'new'}; "
+                "Value of ``keep`` must be one of {'error', 'self', 'arg'}; "
                 "got %r" % keep)
 
         # For both states, check that each jointly-defined name group is kept
