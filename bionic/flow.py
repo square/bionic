@@ -491,8 +491,8 @@ class FlowBuilder(object):
             How to handle conflicting entity names.  Options:
 
             * 'error': throw an ``AlreadyDefinedEntityError``
-            * 'self': use the definition from this builder
-            * 'arg': use the definition from ``flow``
+            * 'self' or 'old': use the definition from this builder
+            * 'arg' or 'new': use the definition from ``flow``
 
         allow_name_match: boolean (default: False)
             Allows the incoming flow to have the same name as this builder.
