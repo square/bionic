@@ -515,7 +515,6 @@ class EntityDeriver(object):
 
             results_by_name[query.entity_name] = result
 
-        # TODO check if persist is False and memoize is False
         if provider.attrs.should_memoize:
             task_state.results_by_name = results_by_name
 

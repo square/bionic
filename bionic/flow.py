@@ -696,6 +696,11 @@ class FlowBuilder(object):
             provider = decorators.persist(True)(provider)
         if provider.attrs.should_memoize is None:
             provider = decorators.memoize(True)(provider)
+        if not (provider.attrs.should_persist or provider.attrs.should_memoize):
+            raise ValueError (
+                "Attempted to set both persist and memoize to False. "
+                "Must store computed entity for downstream computation. "
+        )
 
         state = self._state
 

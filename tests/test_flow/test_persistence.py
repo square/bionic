@@ -764,3 +764,13 @@ def test_disable_memory_caching(builder):
     assert flow.get('x') == 1
     assert flow.get('x') == 1
     assert x_protocol.times_read_called == 2
+
+
+    with pytest.raises(ValueError) as e:
+        @builder
+        @x_protocol
+        @bn.persist(False)
+        @bn.memoize(False)
+        def y():
+            return 1
+        assert builder.build().get('y')

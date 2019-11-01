@@ -88,7 +88,7 @@ def persist(enabled):
 
 def memoize(enabled):
     """
-    Indicates whether computed values should be cached memoized
+    Indicates whether computed values should be cached in memory.
 
     Parameters
     ----------
