@@ -702,6 +702,14 @@ class FlowBuilder(object):
             provider = DEFAULT_PROTOCOL(provider)
         if provider.attrs.should_persist is None:
             provider = decorators.persist(True)(provider)
+        if provider.attrs.should_memoize is None:
+            provider = decorators.memoize(True)(provider)
+        if not (provider.attrs.should_persist or provider.attrs.should_memoize):
+            raise ValueError(
+                "Attempted to set both persist and memoize to False. "
+                "At least one form of storage must be enabled for entities: %r "
+                % (func_or_provider.attrs.names)
+            )
 
         state = self._state
 

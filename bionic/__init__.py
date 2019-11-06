@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from .flow import Flow, FlowBuilder  # noqa: F401
 from .decorators import (  # noqa: F401
-    version, output, outputs, gather, persist, pyplot, immediate
+    version, output, outputs, gather, persist, memoize, pyplot, immediate
 )
 
 from . import protocol  # noqa: F401

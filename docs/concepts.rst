@@ -314,6 +314,23 @@ we can disable persistent caching altogether:
     def message(subject):
         return 'Hello {subject}.'.format(subject=subject)
 
+
+Disabling In-Memory Caching
+............................
+
+In other cases, it might be useful to not keep an entity in memory, but store
+it on disk and load it only when needed for downstream computation. This might
+be useful when it is too expensive to keep all entities in memory. In these
+cases, we can disable in-memory caching:
+
+.. code-block:: python
+
+    @builder
+    @bionic.memoize(False)
+    def message(subject):
+        return 'Hello {subject}.'.format(subject=subject)
+
+
 Location of the Cache Directory
 ...............................
 
