@@ -25,7 +25,7 @@ for more details on installing and configuring Bionic's dependencies.
 
 ## Contributing
 
-See the
+Please see the
 [Contribution](https://bionic.readthedocs.io/en/stable/contributing.html)
 section of our docs.
 
