@@ -699,7 +699,8 @@ class FlowBuilder(object):
         if not (provider.attrs.should_persist or provider.attrs.should_memoize):
             raise ValueError(
                 "Attempted to set both persist and memoize to False. "
-                "Must store computed entity for downstream computation. "
+                "At least one form of storage must be enabled for entities: %r "
+                % (func_or_provider.attrs.names)
             )
 
         state = self._state

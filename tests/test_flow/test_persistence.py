@@ -772,4 +772,6 @@ def test_disable_memory_caching(builder):
         @bn.memoize(False)
         def y():
             return 1
-        assert builder.build().get('y')
+
+        flow = builder.build()
+        assert flow.get('y') == 1
