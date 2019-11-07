@@ -9,7 +9,6 @@ handles.  Protocols specify how to serialize, deserialize, and validate data.
 This module contains a BaseProtocol class and various subclasses.
 '''
 
-from builtins import object
 from collections import Counter
 import pickle
 import sys

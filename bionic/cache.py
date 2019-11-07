@@ -3,7 +3,6 @@ This module provides local and cloud storage of computed values.  The main
 point of entry is the PersistentCache, which encapsulates this functionality.
 """
 
-from builtins import object
 from collections import namedtuple
 from hashlib import sha256
 import shutil

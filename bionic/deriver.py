@@ -2,8 +2,6 @@
 Contains the core logic for resolving Entities by executing Tasks.
 '''
 
-from builtins import object
-
 from .datatypes import Query, Result, ResultGroup
 from .cache import Provenance
 from .exception import UndefinedEntityError, CodeVersioningError

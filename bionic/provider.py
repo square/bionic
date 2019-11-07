@@ -7,8 +7,6 @@ The whole architecture is a bit of a mess and probably needs a substantial
 rethink.
 '''
 
-from builtins import zip, object
-
 import inspect
 from copy import copy
 from collections import defaultdict

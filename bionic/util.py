@@ -3,7 +3,6 @@ Miscellaneous utility functions.
 '''
 
 import logging
-from builtins import zip, object
 from collections import defaultdict
 from hashlib import sha256
 from binascii import hexlify

@@ -1,12 +1,14 @@
-import bionic as bn
-import pandas as pd
-import os
 import pytest
-from builtins import str
+
 from io import BytesIO
+import os
 from textwrap import dedent
+
+import pandas as pd
 from pandas import testing as pdt
 from decorator import decorate
+
+import bionic as bn
 
 GCS_TEST_BUCKET = os.environ.get('BIONIC_GCS_TEST_BUCKET', None)
 skip_unless_gcs = pytest.mark.skipif(

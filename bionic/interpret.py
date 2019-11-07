@@ -5,11 +5,8 @@ of strings.
 '''
 
 
-from past.builtins import basestring
-
-
 def str_or_seq_as_list(value):
-    if isinstance(value, basestring):
+    if isinstance(value, str):
         return [value]
     elif is_iterable(value):
         return list(value)
@@ -18,7 +15,7 @@ def str_or_seq_as_list(value):
 
 
 def str_or_seq_or_none_as_list(value):
-    if isinstance(value, basestring):
+    if isinstance(value, str):
         return [value]
     elif is_iterable(value):
         return list(value)

@@ -3,8 +3,6 @@ Contains a tokenize() function which can be used to convert arbitrary values
 into nice strings, suitable for use as filenames.
 '''
 
-from builtins import str, chr, range
-
 from .util import hash_to_hex
 
 

@@ -2,7 +2,6 @@
 Contains various data structures used by Bionic's infrastructure.
 '''
 
-from builtins import object
 from collections import namedtuple
 
 from .util import ImmutableSequence, ImmutableMapping
