@@ -41,6 +41,7 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     extras_require=extras_require,
+    python_requires='>=3.6',
     zip_safe=False,
     keywords='bionic',
     classifiers=[
@@ -48,8 +49,7 @@ setup(
         'Intended Audience :: Developers',
         'Natural Language :: English',
         'License :: OSI Approved :: Apache Software License',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.6',
     ],
 )
