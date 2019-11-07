@@ -10,8 +10,6 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 
 """
 
-from __future__ import absolute_import
-
 from .datatypes import CodeVersion
 from .provider import (
     GatherProvider, AttrUpdateProvider, PyplotProvider, RenamingProvider,

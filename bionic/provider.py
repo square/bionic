@@ -6,7 +6,6 @@ BaseProvider class and various subclasses.
 The whole architecture is a bit of a mess and probably needs a substantial
 rethink.
 '''
-from __future__ import absolute_import
 
 from builtins import zip, object
 

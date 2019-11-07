@@ -1,7 +1,6 @@
 '''
 Contains the core logic for resolving Entities by executing Tasks.
 '''
-from __future__ import absolute_import
 
 from builtins import object
 

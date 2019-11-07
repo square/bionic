@@ -1,6 +1,3 @@
-from future import standard_library
-standard_library.install_aliases() # NOQA
-
 import bionic as bn
 import pandas as pd
 import os

@@ -2,7 +2,6 @@
 Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 '''
-from __future__ import absolute_import
 
 import os
 import functools

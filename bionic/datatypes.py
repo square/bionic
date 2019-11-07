@@ -1,7 +1,6 @@
 '''
 Contains various data structures used by Bionic's infrastructure.
 '''
-from __future__ import absolute_import
 
 from builtins import object
 from collections import namedtuple

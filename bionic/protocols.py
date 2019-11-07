@@ -8,7 +8,6 @@ handles.  Protocols specify how to serialize, deserialize, and validate data.
 
 This module contains a BaseProtocol class and various subclasses.
 '''
-from __future__ import absolute_import
 
 from builtins import object
 from collections import Counter

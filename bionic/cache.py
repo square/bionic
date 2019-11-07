@@ -1,12 +1,7 @@
 """
 This module provides local and cloud storage of computed values.  The main
 point of entry is the PersistentCache, which encapsulates this functionality.
-
-
 """
-
-from __future__ import absolute_import
-from __future__ import division
 
 from builtins import object
 from collections import namedtuple

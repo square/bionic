@@ -1,7 +1,6 @@
 '''
 Miscellaneous utility functions.
 '''
-from __future__ import division
 
 import logging
 from builtins import zip, object
