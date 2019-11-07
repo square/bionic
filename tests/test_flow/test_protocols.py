@@ -383,7 +383,7 @@ def test_yaml_protocol_dump_kwargs(builder, tmpdir):
     flow = builder.build()
     expected = "- red\n- blue\n"
 
-    assert flow.export('alist').read_text() == expected
+    assert flow.get('alist', mode='path').read_text() == expected
 
 
 def test_yaml_protocol_dict(builder):
