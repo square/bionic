@@ -17,13 +17,12 @@ import sys
 import tempfile
 import shutil
 import warnings
+from pathlib import Path
 
 import yaml
 import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
-from pathlib2 import Path
-import six
 
 from .exception import UnsupportedSerializedValueError
 from .provider import provider_wrapper, ProtocolUpdateProvider
@@ -352,8 +351,6 @@ class DaskProtocol(BaseProtocol):
         assert isinstance(value, dd.DataFrame)
 
     def read(self, path, extension):
-        if six.PY2:
-            path = str(path)
         dd = import_optional_dependency('dask.dataframe', purpose='the @dask decorator')
         with warnings.catch_warnings():
             warnings.filterwarnings('error', message=r".*cannot\s+autodetect\s+index.*")
@@ -364,8 +361,6 @@ class DaskProtocol(BaseProtocol):
                     "Reading dataframe failed due to present MultiIndex: %s" % e)
 
     def write(self, df, path):
-        if six.PY2:
-            path = str(path)
         dd.to_parquet(df, path, write_index=True)
 
 

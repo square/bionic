@@ -19,10 +19,8 @@ requirements = [
     'future',
     'numpy',
     'pandas',
-    'pathlib2',
     'pyarrow',
     'pyrsistent',
-    'six',
 ]
 
 setup(

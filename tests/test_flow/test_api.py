@@ -2,7 +2,8 @@ import pytest
 from pytest import raises
 
 import pickle
-from pathlib2 import Path
+from pathlib import Path
+
 import pandas as pd
 
 import bionic as bn

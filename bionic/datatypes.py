@@ -6,8 +6,6 @@ from __future__ import absolute_import
 from builtins import object
 from collections import namedtuple
 
-import six
-
 from .util import ImmutableSequence, ImmutableMapping
 
 
@@ -227,7 +225,7 @@ def str_from_version_value(value):
         return '0'
     elif isinstance(value, int):
         return str(value)
-    elif isinstance(value, six.text_type):
+    elif isinstance(value, str):
         return value
     else:
         raise ValueError(
