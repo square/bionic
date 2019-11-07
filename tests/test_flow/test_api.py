@@ -619,3 +619,31 @@ def test_unhashable_index_values(builder):
 
     index_items = [wrapper.get() for wrapper, in sums_series.index]
     assert index_items == [[1, 2], [2, 3]]
+
+
+def test_entity_docstring(builder):
+    builder.declare('x')
+    builder.declare('y', docstring="y doc")
+    builder.assign('z', value=3, docstring="z doc")
+
+    @builder
+    def f():
+        """test docstring"""
+        return 1
+
+    @builder
+    def g():
+        return 1
+
+    flow = builder.build()
+
+    # test getting ValueProvider's docstring
+    assert flow.entity_docstring(name='x') is None
+    assert flow.entity_docstring.y() == "y doc"
+    assert flow.entity_docstring(name='y') == "y doc"
+    assert flow.entity_docstring(name='z') == "z doc"
+
+    # test getting FunctionProvider's docstring
+    assert flow.entity_docstring.f() == "test docstring"
+    assert flow.entity_docstring(name='f') == "test docstring"
+    assert flow.entity_docstring(name='g') is None
