@@ -961,7 +961,8 @@ class Flow(object):
     # TODO Maybe this wants to be two different functions?
     def export(self, name, file_path=None, dir_path=None):
         """
-        Provides access to the persisted file corresponding to an entity.
+        Provides access to the persisted file corresponding to an entity.  Note:
+        this method is deprecated and the same functionality is available through Flow#get.
 
         Can be called in three ways:
 
