@@ -13,7 +13,6 @@ import subprocess
 import getpass
 import shutil
 
-import six
 import dask.dataframe as dd
 
 from ..helpers import (
@@ -227,36 +226,34 @@ def test_gcs_caching(gcs_builder):
     assert flow.get('xy_plus') == 10
     assert call_counter.times_called() == 1
 
-    # Dask only works in Python 3.
-    if six.PY3:
-        # Test multi-file serialization.
-        dask_df = dd.from_pandas(
-            df_from_csv_str(
-                '''
-                color,number
-                red,1
-                blue,2
-                green,3
-                '''),
-            npartitions=1)
+    # Test multi-file serialization.
+    dask_df = dd.from_pandas(
+        df_from_csv_str(
+            '''
+            color,number
+            red,1
+            blue,2
+            green,3
+            '''),
+        npartitions=1)
 
-        @builder
-        @bn.protocol.dask
-        def df():
-            call_counter.mark()
-            return dask_df
+    @builder
+    @bn.protocol.dask
+    def df():
+        call_counter.mark()
+        return dask_df
 
-        flow = builder.build()
+    flow = builder.build()
 
-        assert equal_frame_and_index_content(
-            flow.get('df').compute(), dask_df.compute())
-        assert equal_frame_and_index_content(
-            flow.get('df').compute(), dask_df.compute())
-        assert call_counter.times_called() == 1
+    assert equal_frame_and_index_content(
+        flow.get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(
+        flow.get('df').compute(), dask_df.compute())
+    assert call_counter.times_called() == 1
 
-        local_wipe_path(local_cache_path_str)
-        flow = builder.build()
+    local_wipe_path(local_cache_path_str)
+    flow = builder.build()
 
-        assert equal_frame_and_index_content(
-            flow.get('df').compute(), dask_df.compute())
-        assert call_counter.times_called() == 0
+    assert equal_frame_and_index_content(
+        flow.get('df').compute(), dask_df.compute())
+    assert call_counter.times_called() == 0

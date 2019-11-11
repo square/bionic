@@ -2,17 +2,16 @@
 Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 '''
-from __future__ import absolute_import
 
 import os
 import functools
 import shutil
 import warnings
+from pathlib import Path, PosixPath
+from importlib import reload
 
 import pyrsistent as pyrs
 import pandas as pd
-from pathlib2 import Path, PosixPath
-from six.moves import reload_module
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
@@ -1163,7 +1162,7 @@ class Flow(object):
         blessed_candidate_flows = []
         unblessed_candidate_flows = []
         for module_name in module_names:
-            module = reload_module(module_registry[module_name])
+            module = reload(module_registry[module_name])
             for key in dir(module):
                 element = getattr(module, key)
                 if not isinstance(element, Flow):

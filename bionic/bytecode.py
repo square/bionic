@@ -1,7 +1,5 @@
-import sys
 import re
-
-from six import StringIO
+from io import StringIO
 
 
 def bytecode_from_func(func):
@@ -9,17 +7,8 @@ def bytecode_from_func(func):
     # we'll import it only when this function is called.
     import dis
 
-    # There doesn't seem to be any way, at least in Python 2, to get function
-    # bytecode as a string; you have redirect stdout and capture it.  However,
-    # in Python 3.4+, you can pass a file argument to dis.dis.  Once we drop
-    # support for Python 2, we should switch to that.
-    saved_stdout = sys.stdout
     buf = StringIO()
-    try:
-        sys.stdout = buf
-        dis.dis(func)
-    finally:
-        sys.stdout = saved_stdout
+    dis.dis(func, file=buf)
     return buf.getvalue()
 
 

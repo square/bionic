@@ -1,26 +1,20 @@
-from future import standard_library
-standard_library.install_aliases() # NOQA
-
-import bionic as bn
-import pandas as pd
-import os
 import pytest
-import six
-from builtins import str
+
 from io import BytesIO
+import os
 from textwrap import dedent
+
+import pandas as pd
 from pandas import testing as pdt
 from decorator import decorate
+
+import bionic as bn
 
 GCS_TEST_BUCKET = os.environ.get('BIONIC_GCS_TEST_BUCKET', None)
 skip_unless_gcs = pytest.mark.skipif(
     GCS_TEST_BUCKET is None,
     reason='the BIONIC_GCS_TEST_BUCKET env variable was not set'
 )
-# Dask no longer supports Python 2, and the last released version basically
-# doesn't work with the latest version of pyarrow.
-# TODO We need to just stop supporting Python 2.
-dask_py3_only = pytest.mark.skipif(six.PY2, reason="Dask requires Python 3")
 
 
 # TODO This name is cumbersome; maybe one of these shorter names?

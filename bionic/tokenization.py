@@ -2,12 +2,6 @@
 Contains a tokenize() function which can be used to convert arbitrary values
 into nice strings, suitable for use as filenames.
 '''
-from __future__ import absolute_import
-from __future__ import division
-
-from future import standard_library
-standard_library.install_aliases() # NOQA
-from builtins import str, chr, range
 
 from .util import hash_to_hex
 

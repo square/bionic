@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 from . import protocols
 
 # These are callable with or without arguments.  See BaseProtocol.__call__ for

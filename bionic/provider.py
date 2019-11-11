@@ -6,11 +6,7 @@ BaseProvider class and various subclasses.
 The whole architecture is a bit of a mess and probably needs a substantial
 rethink.
 '''
-from __future__ import absolute_import
 
-from builtins import zip, object
-
-import six
 import inspect
 from copy import copy
 from collections import defaultdict
@@ -372,22 +368,13 @@ class FunctionProvider(BaseProvider):
         self._func = func
         self.name = name
 
-        if six.PY2:
-            argspec = inspect.getargspec(func)
-            args = argspec.args
-            varargs = argspec.varargs
-            varkw = argspec.keywords
-        else:
-            argspec = inspect.getfullargspec(func)
-            args = argspec.args
-            varargs = argspec.varargs
-            varkw = argspec.varkw
+        argspec = inspect.getfullargspec(func)
 
-        if varargs:
+        if argspec.varargs:
             raise ValueError('Functions with varargs are not supported')
-        if varkw:
+        if argspec.varkw:
             raise ValueError('Functions with keyword args are not supported')
-        self._dep_names = list(args)
+        self._dep_names = list(argspec.args)
 
     def get_dependency_names(self):
         return self._dep_names

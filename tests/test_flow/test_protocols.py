@@ -7,7 +7,8 @@ import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
 
-from ..helpers import count_calls, df_from_csv_str, equal_frame_and_index_content, dask_py3_only
+from ..helpers import (
+    count_calls, df_from_csv_str, equal_frame_and_index_content)
 
 import bionic as bn
 import dask.dataframe as dd
@@ -212,7 +213,6 @@ def test_dataframe_with_categorical_works_with_feather(builder):
     pdt.assert_frame_equal(builder.build().get('df'), df_value)
 
 
-@dask_py3_only
 def test_simple_dask_dataframe(builder):
     df_value = df_from_csv_str('''
     color,number
@@ -233,7 +233,6 @@ def test_simple_dask_dataframe(builder):
     assert df.times_called() == 1
 
 
-@dask_py3_only
 def test_multiple_partitions_dask_dataframe(builder):
     df_value = df_from_csv_str('''
     color,number
@@ -254,7 +253,6 @@ def test_multiple_partitions_dask_dataframe(builder):
     assert df.times_called() == 1
 
 
-@dask_py3_only
 def test_typed_dask_dataframe(builder):
     df_value = pd.DataFrame()
     df_value['int'] = [1, 2, 3]
@@ -277,7 +275,6 @@ def test_typed_dask_dataframe(builder):
         dask_df.compute().dtypes.to_dict()
 
 
-@dask_py3_only
 def test_dask_dataframe_index_cols(builder):
     df_value = df_from_csv_str('''
         city,country,continent,metro_pop_mil

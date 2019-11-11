@@ -1,5 +1,5 @@
 import sys
-from pathlib2 import Path
+from pathlib import Path
 
 project_path = str(Path('../..').resolve())
 if project_path not in sys.path:

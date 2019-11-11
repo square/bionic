@@ -1,6 +1,5 @@
 import pytest
 
-from builtins import object
 import math
 
 from ..helpers import count_calls, ResettingCounter, RoundingProtocol

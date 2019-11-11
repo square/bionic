@@ -1,13 +1,16 @@
 import pytest
+
 import pickle
-from pathlib2 import Path
+from pathlib import Path
 from subprocess import check_call
+
+import dask.dataframe as dd
+
 from ..helpers import (
-    skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str, equal_frame_and_index_content, dask_py3_only
-)
+    skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str,
+    equal_frame_and_index_content)
 
 import bionic as bn
-import dask.dataframe as dd
 
 
 @pytest.fixture(scope='function')
@@ -92,7 +95,6 @@ def test_copy_file_to_gcs_file(flow, tmp_path):
     check_call('gsutil -m rm gs://{}'.format(cloud_path), shell=True)
 
 
-@dask_py3_only
 def test_copy_dask_to_dir(tmp_path, expected_dask_df, dask_flow):
     destination = tmp_path / 'output'
     destination.mkdir()

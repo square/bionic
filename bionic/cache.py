@@ -1,14 +1,8 @@
 """
 This module provides local and cloud storage of computed values.  The main
 point of entry is the PersistentCache, which encapsulates this functionality.
-
-
 """
 
-from __future__ import absolute_import
-from __future__ import division
-
-from builtins import object
 from collections import namedtuple
 from hashlib import sha256
 import shutil
@@ -17,14 +11,11 @@ import tempfile
 import yaml
 import warnings
 from uuid import uuid4
-
-import six
-from pathlib2 import Path
+from pathlib import Path
 
 from bionic.exception import UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import (
-    get_gcs_client_without_warnings, ensure_parent_dir_exists, raise_chained)
+from .util import get_gcs_client_without_warnings, ensure_parent_dir_exists
 from .tokenization import tokenize
 
 import logging
@@ -326,15 +317,14 @@ class CacheAccessor(object):
         inventory_root_urls = ' and '.join(
             store.inventory.root_url for store in stores),
 
-        raise_chained(
-            InvalidCacheStateError,
+        raise InvalidCacheStateError(
             "Cached data may be in an invalid state; "
             "this should be impossible but "
             "could have resulted from either a bug or "
             "a change to the cached files.  "
             "You should be able to repair the problem by "
-            "removing all cached files under %s." % inventory_root_urls,
-            source_exc)
+            "removing all cached files under %s." % inventory_root_urls
+        ) from source_exc
 
 
 # TODO In Python 3 we can store these comments as docstrings.
@@ -790,13 +780,6 @@ class InvalidCacheStateError(Exception):
 
 CACHE_SCHEMA_VERSION = 3
 
-if six.PY2:
-    PYTHON_MAJOR_VERSION = 2
-elif six.PY3:
-    PYTHON_MAJOR_VERSION = 3
-else:
-    raise AssertionError("Can't figure out what Python version we're using")
-
 
 class YamlRecordParsingError(Exception):
     pass
@@ -820,10 +803,9 @@ class ArtifactDescriptor(object):
         try:
             body_dict = yaml.load(yaml_str, Loader=YamlLoader)
         except yaml.error.YAMLError as e:
-            raise_chained(
-                YamlRecordParsingError,
-                "Couldn't parse %s" % cls.__name__,
-                e)
+            raise YamlRecordParsingError(
+                "Couldn't parse %s" % cls.__name__
+            ) from e
         return cls(body_dict=body_dict)
 
     def __init__(self, body_dict):
@@ -890,7 +872,8 @@ class Provenance(object):
             orig_flow_name=code_descriptor.orig_flow_name,
             code_version_major=code_descriptor.version.major,
             cache_schema_version=CACHE_SCHEMA_VERSION,
-            python_major_version=PYTHON_MAJOR_VERSION,
+            # This exists for backwards compatibility with older cache entries.
+            python_major_version=3,
         )
         nonfunctional_code_dict = dict(
             code_version_minor=code_descriptor.version.minor,
@@ -1016,10 +999,10 @@ def hash_simple_obj_to_hex(obj):
 def update_hash(hash_, obj):
     if obj is None:
         hash_.update(b'N')
-    elif isinstance(obj, six.text_type):
+    elif isinstance(obj, str):
         hash_.update(b'S')
         hash_.update(obj.encode('utf8'))
-    elif isinstance(obj, six.binary_type):
+    elif isinstance(obj, bytes):
         hash_.update(b'B')
         hash_.update(obj.encode('utf8'))
     elif isinstance(obj, int):
