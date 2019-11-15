@@ -415,13 +415,20 @@ explictly specify a serialization strategy for an entity by attaching a
 
 .. _Protocol: api/protocols.rst
 
-Exporting Persisted Files
-.........................
+Retrieving Persisted Files
+..........................
+In some cases, you'll want to directly access the persisted file(s) for an
+entity rather than its in-memory representation.  (For example, if you're
+writing a paper or report, you may want to access the files containing the
+plots.) This can be achieved with the ``mode`` argument to
+:meth:`Flow.get <bionic.Flow.get>` method.  For example:
 
-In some cases, you'll want to directly access the persisted file for an entity,
-rather than its in-memory representation.  (For example, if you're writing a
-paper or report, you may want to access the files containing the plots.) This
-can be accomplished using the :meth:`Flow.export <bionic.Flow.export>` method.
+.. code-block:: python
+
+    flow = builder.build().setting('subject', 'Alice')
+    flow.get('subject', mode='path')
+
+This would return a ``Path`` object for the ``subject`` entity.
 
 Multiplicity
 ------------
