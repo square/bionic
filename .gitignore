@@ -84,3 +84,6 @@ target/
 
 # Bionic cache files
 bndata
+
+# VSCode settings
+.vscode
