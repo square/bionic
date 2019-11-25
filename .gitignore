@@ -84,3 +84,9 @@ target/
 
 # Bionic cache files
 bndata
+
+# VSCode settings
+.vscode
+
+# Python virtual environment
+.venv
