@@ -25,7 +25,7 @@ class SimpleFlowModel(object):
         self._last_called_names = []
 
     def add_entity(self, dep_names):
-        name = 'e%d' % (len(self._entities_by_name) + 1)
+        name = f'e{len(self._entities_by_name) + 1}'
 
         self._create_entity(name, dep_names)
         self._define_entity(name)
@@ -267,8 +267,8 @@ class Fuzzer(object):
 
                 else:
                     raise AssertionError(
-                        "Unexpected versioning mode: %r" %
-                        self._versioning_mode)
+                        "Unexpected versioning mode: "
+                        f"{self._versioning_mode!r}")
 
             for affected_name in affected_names:
                 assert (

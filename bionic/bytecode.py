@@ -37,7 +37,7 @@ def canonicalize_bytecode(bytecode_str):
             if long_str in canon_strs_by_long_str:
                 canon_str = canon_strs_by_long_str[long_str]
             else:
-                canon_str = '<code ref #%s>' % (len(canon_strs_by_long_str))
+                canon_str = f'<code ref #{len(canon_strs_by_long_str)}>'
                 canon_strs_by_long_str[long_str] = canon_str
 
             line = line.replace(long_str, canon_str)

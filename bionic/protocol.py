@@ -61,8 +61,8 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
         return protocols.FeatherDataFrameProtocol()
     else:
         raise ValueError(
-            "file_format must be one of {'parquet', 'feather'}; got %s" %
-            file_format)
+            "file_format must be one of {'parquet', 'feather'}; "
+            f"got {file_format!r}")
 
 
 # These need to be called with arguments.

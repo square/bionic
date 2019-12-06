@@ -223,13 +223,13 @@ class EntityDeriver(object):
             entity_name)
         if len(result_group) == 0:
             raise ValueError(
-                "No values were defined for internal bootstrap entity %r" %
-                entity_name)
+                "No values were defined for internal bootstrap entity "
+                f"{entity_name!r}")
         if len(result_group) > 1:
             values = [result.value for result in result_group]
             raise ValueError(
-                "Bootstrap entity %r must have exactly one value; "
-                "got %d (%r)" % (entity_name, len(values), values))
+                f"Bootstrap entity {entity_name!r} must have exactly one "
+                f"value; got {len(values)} ({values!r})")
         return result_group[0].value
 
     def _compute_result_group_for_entity_name(self, entity_name):
@@ -392,20 +392,18 @@ class EntityDeriver(object):
             if old_prov.code_version_minor == new_prov.code_version_minor:
                 if old_prov.bytecode_hash != new_prov.bytecode_hash:
                     raise CodeVersioningError(
-                        "Found a cached artifact with the same name (%r) and "
-                        "version (major=%r, minor=%r), but created by "
-                        "different code (old hash %r, new hash %r).  Did you "
-                        "change your code but not update the version number?  "
+                        "Found a cached artifact with the same "
+                        f"name ({accessor.query.entity_name!r}) and "
+                        f"version (major={old_prov.code_version_major!r}, "
+                        f"minor={old_prov.code_version_minor!r}), "
+                        "but created by different code "
+                        f"(old hash {old_prov.bytecode_hash!r}, "
+                        f"new hash {new_prov.bytecode_hash!r}). "
+                        "Did you change your code but not update the "
+                        "version number? "
                         "Change @version(major=) to indicate that your "
                         "function's behavior has changed, or @version(minor=) "
-                        "to indicate that it has *not* changed." %
-                        (
-                            accessor.query.entity_name,
-                            old_prov.code_version_major,
-                            old_prov.code_version_minor,
-                            old_prov.bytecode_hash,
-                            new_prov.bytecode_hash,
-                        ))
+                        "to indicate that it has *not* changed.")
 
         if dependencies_need_checking:
             for dep_key in task_state.task.dep_keys:
@@ -566,4 +564,4 @@ class TaskState(object):
         return not all(parent.is_complete for parent in self.parents)
 
     def __repr__(self):
-        return 'TaskState(%r)' % self.task
+        return f'TaskState({self.task!r})'

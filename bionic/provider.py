@@ -92,20 +92,20 @@ class BaseProvider(object):
         name_ix = self.attrs.names.index(name)
         if name_ix < 0:
             raise ValueError(
-                "Attempted to look up name %r from provider providing only %r"
-                % (name, tuple(self.attrs.names)))
+                f"Attempted to look up name {name!r} from provider "
+                f"providing only {tuple(self.attrs.names)!r}")
         return self.attrs.protocols[name_ix]
 
     def __repr__(self):
-        return '%s%r' % (self.__class__.__name__, tuple(self.attrs.names))
+        return f'{self.__class__.__name__}{tuple(self.attrs.names)!r}'
 
 
 class WrappingProvider(BaseProvider):
     def __init__(self, wrapped_provider):
         if wrapped_provider.is_mutable:
             raise ValueError(
-                "Can only wrap immutable providers; got mutable provider %r" %
-                wrapped_provider)
+                "Can only wrap immutable providers; got mutable provider "
+                f"{wrapped_provider!r}")
         super(WrappingProvider, self).__init__(wrapped_provider.attrs)
         self.wrapped_provider = wrapped_provider
 
@@ -123,7 +123,7 @@ class WrappingProvider(BaseProvider):
         return self.wrapped_provider.get_source_func()
 
     def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self.wrapped_provider)
+        return f'{self.__class__.__name__}({self.wrapped_provider})'
 
 
 class AttrUpdateProvider(WrappingProvider):
@@ -133,9 +133,10 @@ class AttrUpdateProvider(WrappingProvider):
         old_attr_value = getattr(wrapped_provider.attrs, attr_name)
         if old_attr_value is not None:
             raise ValueError(
-                "Attempted to set attribute %r twice on %r; old value was %r, "
-                "new value is %r" % (
-                    attr_name, wrapped_provider, old_attr_value, attr_value))
+                f"Attempted to set attribute {attr_name!r} twice "
+                f"on {wrapped_provider!r}; "
+                f"old value was {old_attr_value!r}, "
+                f"new value is {attr_value!r}")
 
         self.attrs = copy(wrapped_provider.attrs)
         setattr(self.attrs, attr_name, attr_value)
@@ -160,10 +161,10 @@ class MultiProtocolUpdateProvider(WrappingProvider):
         names = wrapped_provider.attrs.names
         if len(protocols) != len(names):
             raise ValueError(
-                "Number of protocols must match the number of names; got "
-                "%d names %r and %d protocols %r" % (
-                    len(names), tuple(names), len(protocols),
-                    tuple(protocols)))
+                "Number of protocols must match the number of names; "
+                f"got {len(names)} names {tuple(names)!r} and "
+                f"{len(protocols)} protocols {tuple(protocols)!r}")
+
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.protocols = protocols
 
@@ -177,8 +178,7 @@ class RenamingProvider(WrappingProvider):
         if len(orig_names) != 1:
             raise ValueError(
                 "Can't change rename a provider that already has multiple "
-                "names; need exactly one name but got %r" % (
-                    tuple(orig_names),))
+                f"names; need exactly one name but got {tuple(orig_names)!r}")
 
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = [name]
@@ -213,7 +213,7 @@ class NameSplittingProvider(WrappingProvider):
         if len(orig_names) != 1:
             raise ValueError(
                 "Can't change a provider's number of names multiple times; "
-                "need exactly one name but got %r" % (tuple(orig_names),))
+                f"need exactly one name but got {tuple(orig_names)!r}")
 
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = names
@@ -234,11 +234,11 @@ class NameSplittingProvider(WrappingProvider):
 
                 if len(value_seq) != len(self.attrs.names):
                     raise ValueError(
-                        "Expected provider %r to return %d outputs named %r; "
-                        "got %d outputs %r" % (
-                            self.wrapped_provider.attrs.names[0],
-                            len(self.attrs.names), self.attrs.names,
-                            len(value_seq), tuple(value_seq)))
+                        "Expected provider "
+                        f"{self.wrapped_provider.attrs.names[0]!r} to return "
+                        f"{len(self.attrs.names)} outputs named "
+                        f"{self.attrs.names!r}; got {len(value_seq)} outputs "
+                        f"{tuple(value_seq)!r}")
 
                 return tuple(value_seq)
 
@@ -293,13 +293,13 @@ class ValueProvider(BaseProvider):
         if self._has_any_values:
             if case_key.space != self.key_space:
                 raise ValueError(
-                    "Can't add %r to entity %r: key space doesn't match %r" %
-                    (case_key, self.name, self.key_space))
+                    f"Can't add {case_key!r} to entity {self.name!r}: "
+                    f"key space doesn't match {self.key_space!r}")
 
             if case_key in self._values_by_case_key:
                 raise ValueError(
-                    "Can't add %r to entity %r; that case key already exists"
-                    % (case_key, self.name))
+                    f"Can't add {case_key!r} to entity {self.name!r}; "
+                    "that case key already exists")
 
     def add_case(self, case_key, value):
         token = self.protocol.tokenize(value)
@@ -415,7 +415,7 @@ class FunctionProvider(BaseProvider):
         return [value]
 
     def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self._func)
+        return f'{self.__class__.__name__}({self._func})'
 
 
 class GatherProvider(WrappingProvider):
@@ -455,10 +455,9 @@ class GatherProvider(WrappingProvider):
             self._inner_gathered_dep_name)
         if inner_gathered_dep_ix < 0:
             raise ValueError(
-                "Expected wrapped %r to have dependency name %r, but "
-                "only found names %r" % (
-                    self.wrapped_provider, self._inner_gathered_dep_name,
-                    self._inner_dep_names))
+                f"Expected wrapped {self.wrapped_provider!r} "
+                f"to have dependency name {self._inner_gathered_dep_name!r}, "
+                f"but only found names {self._inner_dep_names!r}")
 
         self._passthrough_dep_names = list(self._inner_dep_names)
         self._passthrough_dep_names.pop(inner_gathered_dep_ix)
@@ -681,11 +680,9 @@ class PyplotProvider(WrappingProvider):
         inner_dep_names = wrapped_provider.get_dependency_names()
         if self._pyplot_name not in inner_dep_names:
             raise ValueError(
-                "When using %s, expected wrapped %s to have a dependency "
-                "named %r; only found %r" % (
-                    self.__class__.__name__, wrapped_provider,
-                    self._pyplot_name, inner_dep_names)
-            )
+                f"When using {self.__class__.__name__}, "
+                f"expected wrapped {wrapped_provider} to have a dependency "
+                f"named {self._pyplot_name!r}; only found {inner_dep_names!r}")
 
         self._outer_dep_names = list(inner_dep_names)
         self._outer_dep_names.remove(self._pyplot_name)
@@ -746,9 +743,9 @@ class PyplotProvider(WrappingProvider):
                 values = task.compute(inner_dep_values)
                 if values != [None]:
                     raise ValueError(
-                        "Providers wrapped by %s should not return values; "
-                        "got values %r" % (
-                            self.__class__.__name__, tuple(values)))
+                        f"Providers wrapped by {self.__class__.__name__} "
+                        "should not return values; "
+                        f"got values {tuple(values)!r}")
 
                 # Save the plot into a buffer.
                 bio = BytesIO()
@@ -836,10 +833,10 @@ class HashableWrapper(object):
         return self._token == other._token
 
     def __str__(self):
-        return 'W(%s)' % self._value
+        return f'W({self._value})'
 
     def __repr__(self):
-        return 'HashableWrapper(%r)' % self._value
+        return f'HashableWrapper({self._value!r})'
 
 
 def multi_index_from_case_keys(case_keys, ordered_key_names):

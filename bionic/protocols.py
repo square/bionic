@@ -33,8 +33,8 @@ def check_is_like_protocol(obj):
     for method_name in 'validate', 'read', 'write':
         if not hasattr(obj, method_name):
             raise ValueError(
-                "Expected %r to be a kind of Protocol, but didn't find "
-                "expected method %s " % (obj, method_name))
+                f"Expected {obj!r} to be a kind of Protocol, but didn't find "
+                f"expected method {method_name!r}")
 
 
 class BaseProtocol(object):
@@ -116,8 +116,7 @@ class BaseProtocol(object):
         if func_or_provider is not None:
             if len(kwargs) > 0:
                 raise ValueError(
-                    "%s can't be called with both a function and keywords" %
-                    self)
+                    f"{self} can't be called with both a function and keywords")
 
             wrapper = provider_wrapper(ProtocolUpdateProvider, self)
             return wrapper(func_or_provider)
@@ -125,7 +124,7 @@ class BaseProtocol(object):
             return self.__class__(**kwargs)
 
     def __repr__(self):
-        return '%s(...)' % (self.__class__.__name__)
+        return f'{self.__class__.__name__}(...)'
 
 
 class PicklableProtocol(BaseProtocol):
@@ -237,12 +236,13 @@ class ParquetDataFrameProtocol(BaseProtocol):
         if categorical_cols:
             raise ValueError(
                 "Attempted to serialize to Parquet a dataframe which has "
-                "categorical columns: %r -- these columns may be transformed "
-                "to another type and/or lose some information.  You can fix "
-                "this by using (a) ``@frame(file_format='feather')`` to use "
-                "the Feather format instead, or (b) "
-                "``@frame(check_dtypes=False)`` to ignore this check." % (
-                    categorical_cols))
+                f"categorical columns: {categorical_cols!r} -- "
+                "these columns may be transformed to another type and/or "
+                "lose some information. "
+                "You can fix this by using "
+                "(a) ``@frame(file_format='feather')`` to use the Feather "
+                "format instead, or "
+                "(b) ``@frame(check_dtypes=False)`` to ignore this check.")
 
 
 class FeatherDataFrameProtocol(BaseProtocol):
@@ -356,7 +356,7 @@ class DaskProtocol(BaseProtocol):
                 return dd.read_parquet(path)
             except RuntimeWarning as e:
                 raise UnsupportedSerializedValueError(
-                    "Reading dataframe failed due to present MultiIndex: %s" % e)
+                    f"Reading dataframe failed due to present MultiIndex: {e}")
 
     def write(self, df, path):
         dd.to_parquet(df, path, write_index=True)
@@ -443,14 +443,14 @@ class CombinedProtocol(BaseProtocol):
         if not self.can_read_file_extension(extension):
             raise ValueError(
                 "This protocol doesn't know how to read a file with "
-                "extension %r" % extension)
+                f"extension {extension!r}")
         return self._protocol_for_extension(extension).read(path, extension)
 
     def write(self, value, path):
         self._protocol_for_value(value).write(value, path)
 
     def __repr__(self):
-        return 'CombinedProtocol%r' % (tuple(self._subprotocols),)
+        return f'CombinedProtocol{tuple(self._subprotocols)!r}'
 
 
 class TypeProtocol(PicklableProtocol):
@@ -477,7 +477,7 @@ class TypeProtocol(PicklableProtocol):
         assert isinstance(value, self._type)
 
     def __repr__(self):
-        return 'TypeProtocol(%s)' % self._type.__name__
+        return f'TypeProtocol({self._type.__name__})'
 
 
 class EnumProtocol(PicklableProtocol):
@@ -504,4 +504,4 @@ class EnumProtocol(PicklableProtocol):
         assert value in self._allowed_values
 
     def __repr__(self):
-        return 'EnumProtocol%r' % (tuple(self._allowed_values),)
+        return f'EnumProtocol{tuple(self._allowed_values)!r}'

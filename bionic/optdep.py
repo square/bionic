@@ -14,8 +14,8 @@ def first_token_from_package_desc(desc):
 
     if desc[first_mismatch.pos] not in ' <>=':
         raise AssertionError(
-            "Package descriptor %r contained unexpected character %r" % (
-                desc, desc[first_mismatch.pos]))
+            f"Package descriptor {desc!r} contained "
+            f"unexpected character {desc[first_mismatch.pos]!r}")
 
     return desc[:first_mismatch.pos]
 
@@ -67,8 +67,8 @@ def import_optional_dependency(name, purpose=None, raise_on_missing=True):
 
     if name not in extras_by_importable_name:
         raise AssertionError(
-            "Attempted to import %r, which is not registered as a dependency" %
-            name)
+            f"Attempted to import {name!r}, "
+            "which is not registered as a dependency")
 
     # TODO Once we have specific version requirements for our optional
     # packages, we should check that the version is correct.
@@ -85,9 +85,9 @@ def import_optional_dependency(name, purpose=None, raise_on_missing=True):
                 description = 'required for ' + purpose
 
             raise ImportError(
-                "Unable to import package %r, which is %s; "
-                "you can use ``pip install bionic[%s]`` to resolve this" % (
-                    name, description, extra_name))
+                f"Unable to import package {name!r}, which is {description}; "
+                f"you can use ``pip install bionic[{extra_name}]`` "
+                "to resolve this")
 
         else:
             return None
