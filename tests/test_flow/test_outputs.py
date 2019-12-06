@@ -106,3 +106,14 @@ def test_outputs_default_protocols(builder):
 
     assert flow.get('size') == 2
     pdt.assert_frame_equal(flow.get('df'), expected_df)
+
+
+def test_wrong_number_of_outputs(builder):
+    @builder
+    @bn.outputs('a', 'b')
+    def three_outputs():
+        return (1, 2, 3)
+
+    flow = builder.build()
+    with pytest.raises(ValueError):
+        flow.get('a')
