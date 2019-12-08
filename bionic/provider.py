@@ -97,7 +97,7 @@ class BaseProvider(object):
         return self.attrs.protocols[name_ix]
 
     def __repr__(self):
-        return '%s%r)' % (self.__class__.__name__, tuple(self.attrs.names))
+        return '%s%r' % (self.__class__.__name__, tuple(self.attrs.names))
 
 
 class WrappingProvider(BaseProvider):
@@ -238,7 +238,7 @@ class NameSplittingProvider(WrappingProvider):
                         "got %d outputs %r" % (
                             self.wrapped_provider.attrs.names[0],
                             len(self.attrs.names), self.attrs.names,
-                            tuple(value_seq)))
+                            len(value_seq), tuple(value_seq)))
 
                 return tuple(value_seq)
 
@@ -683,7 +683,8 @@ class PyplotProvider(WrappingProvider):
             raise ValueError(
                 "When using %s, expected wrapped %s to have a dependency "
                 "named %r; only found %r" % (
-                    self.__class__.__name__, wrapped_provider, inner_dep_names)
+                    self.__class__.__name__, wrapped_provider,
+                    self._pyplot_name, inner_dep_names)
             )
 
         self._outer_dep_names = list(inner_dep_names)
