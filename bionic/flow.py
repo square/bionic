@@ -4,7 +4,6 @@ construction and execution APIs (respectively).
 '''
 
 import os
-import functools
 import shutil
 import warnings
 from pathlib import Path, PosixPath
@@ -1229,7 +1228,6 @@ class Flow(object):
 
         self.get = ShortcutProxy(self.get)
         self.setting = ShortcutProxy(self.setting)
-        self.entity_docstring = ShortcutProxy(self.entity_docstring)
 
     def _updating(self, builder_update_func):
         builder = FlowBuilder._from_state(self._state)
@@ -1270,7 +1268,10 @@ class ShortcutProxy(object):
         return self._flow.all_entity_names()
 
     def __getattr__(self, name):
-        return functools.partial(self._wrapped_method, name)
+        def partial(*args, **kwargs):
+            return self._wrapped_method(name, *args, **kwargs)
+        partial.__doc__ = self._flow.entity_docstring(name)
+        return partial
 
 
 # Construct a default state object.

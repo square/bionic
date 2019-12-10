@@ -1,8 +1,10 @@
 import pytest
 from pytest import raises
 
+import io
 import pickle
 from pathlib import Path
+import contextlib
 
 import pandas as pd
 
@@ -639,11 +641,15 @@ def test_entity_docstring(builder):
 
     # test getting ValueProvider's docstring
     assert flow.entity_docstring(name='x') is None
-    assert flow.entity_docstring.y() == "y doc"
     assert flow.entity_docstring(name='y') == "y doc"
     assert flow.entity_docstring(name='z') == "z doc"
 
     # test getting FunctionProvider's docstring
-    assert flow.entity_docstring.f() == "test docstring"
     assert flow.entity_docstring(name='f') == "test docstring"
     assert flow.entity_docstring(name='g') is None
+
+    # test help() can access entity docstring
+    fout = io.StringIO()
+    with contextlib.redirect_stdout(fout):
+        help(flow.get.f)
+    assert "test docstring" in fout.getvalue()
