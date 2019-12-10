@@ -314,6 +314,11 @@ we can disable persistent caching altogether:
     def message(subject):
         return 'Hello {subject}.'.format(subject=subject)
 
+Persistent caching can also be disabled for the whole flow:
+
+.. code-block:: python
+
+    builder.set('core__persistent_cache__enabled', False)
 
 Disabling In-Memory Caching
 ............................
@@ -330,6 +335,11 @@ cases, we can disable in-memory caching:
     def message(subject):
         return 'Hello {subject}.'.format(subject=subject)
 
+In-memory caching can also be disabled for the whole flow:
+
+.. code-block:: python
+
+    builder.set('core__memory_cache__enabled', False)
 
 Location of the Cache Directory
 ...............................

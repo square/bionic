@@ -1261,6 +1261,8 @@ def create_default_flow_state():
 
     builder.assign('core__persistent_cache__global_dir', 'bndata')
     builder.assign('core__versioning_mode', 'manual')
+    builder.assign('core__persistent_cache__enabled', True)
+    builder.assign('core__memory_cache__enabled', True)
 
     @builder
     @decorators.immediate

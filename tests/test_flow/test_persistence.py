@@ -814,3 +814,79 @@ def test_can_still_read_old_filename_convention(builder):
     # Test that we can still load the cached value.
     assert builder.build().get('one') == 1
     assert call_counter.times_called() == 0
+
+
+def test_disabling_persistent_cache(builder):
+    x_plus_y_protocol = ReadCountingProtocol()
+
+    builder.assign('x', 2)
+    builder.assign('y', 5)
+
+    @builder
+    @x_plus_y_protocol
+    @count_calls
+    def x_plus_y(x, y):
+        return x+y
+
+    # enable both in-memory and persistent cache (default)
+    builder.set('core__persistent_cache__enabled', True)
+    builder.set('core__memory_cache__enabled', True)
+    builder.build().get('x_plus_y')
+    builder.build().get('x_plus_y')
+    assert x_plus_y.times_called() == 1
+    assert x_plus_y_protocol.times_read_called == 2
+
+    # disable persistent cache, keep in-memory cache
+    builder.set('core__persistent_cache__enabled', False)
+    builder.build().get('x_plus_y')
+    builder.build().get('x_plus_y')
+    assert x_plus_y.times_called() == 2
+    assert x_plus_y_protocol.times_read_called == 2
+
+    # again, but get entity one more time
+    builder.set('core__persistent_cache__enabled', False)
+    builder.build().get('x_plus_y')
+    builder.build().get('x_plus_y')
+    builder.build().get('x_plus_y')
+    assert x_plus_y.times_called() == 3
+    assert x_plus_y_protocol.times_read_called == 2
+
+    # disable both, check error
+    builder.set('core__persistent_cache__enabled', False)
+    builder.set('core__memory_cache__enabled', False)
+    with pytest.raises(Exception) as exception:
+        builder.build()
+    assert exception.value.args[0] == ("Attempted to disable both persistent and memory cache. "
+                                       "At least one form of storage must be enabled for flow. "
+                                       )
+
+
+def test_disabling_memory_cache(builder):
+    x_plus_y_protocol = ReadCountingProtocol()
+
+    builder.assign('x', 2)
+    builder.assign('y', 5)
+
+    @builder
+    @x_plus_y_protocol
+    @count_calls
+    def x_plus_y(x, y):
+        return x+y
+
+    # enable persistent cache, disable in-memory cache
+    builder.set('core__persistent_cache__enabled', True)
+    builder.set('core__memory_cache__enabled', False)
+    flow = builder.build()
+    flow.get('x_plus_y')
+    flow.get('x_plus_y')
+    assert x_plus_y.times_called() == 1
+    assert x_plus_y_protocol.times_read_called == 0
+
+    # disable both, check error
+    builder.set('core__persistent_cache__enabled', False)
+    builder.set('core__memory_cache__enabled', False)
+    with pytest.raises(Exception) as exception:
+        builder.build()
+    assert exception.value.args[0] == ("Attempted to disable both persistent and memory cache. "
+                                       "At least one form of storage must be enabled for flow. "
+                                       )

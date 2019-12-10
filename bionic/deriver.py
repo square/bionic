@@ -38,6 +38,8 @@ class EntityDeriver(object):
         # This state allows us to do full resolution for external callers.
         self._is_ready_for_full_resolution = False
         self._persistent_cache = None
+        self._persistent_cache_enabled = None
+        self._memory_cache_enabled = None
         self._versioning_policy = None
 
     def get_ready(self):
@@ -129,6 +131,18 @@ class EntityDeriver(object):
 
         self._persistent_cache = self._bootstrap_singleton(
             'core__persistent_cache')
+
+        self._persistent_cache_enabled = self._bootstrap_singleton(
+            'core__persistent_cache__enabled')
+
+        self._memory_cache_enabled = self._bootstrap_singleton(
+            'core__memory_cache__enabled')
+
+        if not (self._persistent_cache_enabled or self._memory_cache_enabled):
+            raise ValueError(
+                "Attempted to disable both persistent and memory cache. "
+                "At least one form of storage must be enabled for flow. "
+                )
 
         self._versioning_policy = self._bootstrap_singleton(
             'core__versioning_policy')
@@ -416,7 +430,7 @@ class EntityDeriver(object):
             accessor.update_provenance()
 
     def _attempt_to_load_task_state_results(self, task_state):
-        if not task_state.provider.attrs.should_persist:
+        if not (task_state.provider.attrs.should_persist and self._persistent_cache_enabled):
             return
 
         task = task_state.task
@@ -440,7 +454,7 @@ class EntityDeriver(object):
 
             results.append(result)
 
-        if task_state.provider.attrs.should_memoize:
+        if task_state.provider.attrs.should_memoize and self._memory_cache_enabled:
             task_state.results_by_name = {
                 result.query.entity_name: result
                 for result in results
@@ -499,14 +513,14 @@ class EntityDeriver(object):
                 value=value,
             )
 
-            if provider.attrs.should_persist:
+            if provider.attrs.should_persist and self._persistent_cache_enabled:
                 accessor = task_state.cache_accessors[ix]
                 accessor.save_result(result)
                 # We immediately reload the value and treat that as the
                 # real value.  That way, if the serialized/deserialized
                 # value is not exactly the same as the original, we still
                 # always return the same value.
-                if provider.attrs.should_memoize:
+                if provider.attrs.should_memoize and self._memory_cache_enabled:
                     result = accessor.load_result()
                     assert result is not None
 
