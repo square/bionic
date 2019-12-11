@@ -6,6 +6,7 @@ from .datatypes import Query, Result, ResultGroup
 from .cache import Provenance
 from .exception import UndefinedEntityError, CodeVersioningError
 from .optdep import import_optional_dependency
+from .util import oneline
 
 import logging
 # TODO At some point it might be good to have the option of Bionic handling its
@@ -222,14 +223,14 @@ class EntityDeriver(object):
         result_group = self._compute_result_group_for_entity_name(
             entity_name)
         if len(result_group) == 0:
-            raise ValueError(
-                "No values were defined for internal bootstrap entity "
-                f"{entity_name!r}")
+            raise ValueError(oneline(f'''
+                No values were defined for internal bootstrap entity
+                {entity_name!r}'''))
         if len(result_group) > 1:
             values = [result.value for result in result_group]
-            raise ValueError(
-                f"Bootstrap entity {entity_name!r} must have exactly one "
-                f"value; got {len(values)} ({values!r})")
+            raise ValueError(oneline(f'''
+                Bootstrap entity {entity_name!r} must have exactly one
+                value; got {len(values)} ({values!r})'''))
         return result_group[0].value
 
     def _compute_result_group_for_entity_name(self, entity_name):
@@ -354,12 +355,12 @@ class EntityDeriver(object):
 
         if not self._is_ready_for_full_resolution:
             name = task_state.task.keys[0].entity_name
-            raise AssertionError(
-                f"Attempting to load cached state for entity {name!r}, "
-                "but the cache is not available yet because core bootstrap "
-                "entities depend on this one; "
-                f"you should decorate entity {name!r} with `@persist(False)` "
-                "or `@immediate` to indicate that it can't be cached.")
+            raise AssertionError(oneline(f'''
+                Attempting to load cached state for entity {name!r},
+                but the cache is not available yet because core bootstrap
+                entities depend on this one;
+                you should decorate entity {name!r} with `@persist(False)`
+                or `@immediate` to indicate that it can't be cached.'''))
 
         accessors = [
             self._persistent_cache.get_accessor(query)
@@ -391,19 +392,19 @@ class EntityDeriver(object):
 
             if old_prov.code_version_minor == new_prov.code_version_minor:
                 if old_prov.bytecode_hash != new_prov.bytecode_hash:
-                    raise CodeVersioningError(
-                        "Found a cached artifact with the same "
-                        f"name ({accessor.query.entity_name!r}) and "
-                        f"version (major={old_prov.code_version_major!r}, "
-                        f"minor={old_prov.code_version_minor!r}), "
-                        "but created by different code "
-                        f"(old hash {old_prov.bytecode_hash!r}, "
-                        f"new hash {new_prov.bytecode_hash!r}). "
-                        "Did you change your code but not update the "
-                        "version number? "
-                        "Change @version(major=) to indicate that your "
-                        "function's behavior has changed, or @version(minor=) "
-                        "to indicate that it has *not* changed.")
+                    raise CodeVersioningError(oneline(f'''
+                        Found a cached artifact with the same
+                        name ({accessor.query.entity_name!r}) and
+                        version (major={old_prov.code_version_major!r},
+                        minor={old_prov.code_version_minor!r}),
+                        But created by different code
+                        (old hash {old_prov.bytecode_hash!r},
+                        new hash {new_prov.bytecode_hash!r}).
+                        Did you change your code but not update the
+                        version number?
+                        Change @version(major=) to indicate that your
+                        function's behavior has changed, or @version(minor=)
+                        to indicate that it has *not* changed.'''))
 
         if dependencies_need_checking:
             for dep_key in task_state.task.dep_keys:

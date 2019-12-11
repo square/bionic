@@ -15,7 +15,8 @@ from pathlib import Path
 
 from bionic.exception import UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import get_gcs_client_without_warnings, ensure_parent_dir_exists
+from .util import (
+    get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline)
 from .tokenization import tokenize
 
 import logging
@@ -33,11 +34,11 @@ except AttributeError:
     import os
     running_under_readthedocs = os.environ.get('READTHEDOCS') == 'True'
     if not running_under_readthedocs:
-        warnings.warn(
-            "Failed to find LibYAML bindings; "
-            "falling back to slower Python implementation. "
-            "This may reduce performance on large flows. "
-            "Installing LibYAML should resolve this.")
+        warnings.warn(oneline('''
+            Failed to find LibYAML bindings;
+            falling back to slower Python implementation.
+            This may reduce performance on large flows.
+            Installing LibYAML should resolve this.'''))
     YamlDumper = yaml.Dumper
     YamlLoader = yaml.Loader
 
@@ -201,12 +202,12 @@ class CacheAccessor(object):
                 file_path = self._file_from_value(value_wrapper.value)
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
-                    raise AssertionError(
-                        "Attempted to register a descriptor with "
-                        "no result argument and no previously saved values; "
-                        "this suggests we called update_provenance() without "
-                        "previously finding a cached value, which shouldn't "
-                        "happen.")
+                    raise AssertionError(oneline('''
+                        Attempted to register a descriptor with
+                        no result argument and no previously saved values;
+                        this suggests we called update_provenance() without
+                        previously finding a cached value, which shouldn't
+                        happen.'''))
                 blob_url = cloud_entry.artifact_url
                 file_path = self._file_from_blob(blob_url)
 
@@ -326,14 +327,12 @@ class CacheAccessor(object):
         inventory_root_urls = ' and '.join(
             store.inventory.root_url for store in stores),
 
-        raise InvalidCacheStateError(
-            "Cached data may be in an invalid state; "
-            "this should be impossible but "
-            "could have resulted from either a bug or "
-            "a change to the cached files.  "
-            "You should be able to repair the problem by "
-            f"removing all cached files under {inventory_root_urls}."
-        ) from source_exc
+        raise InvalidCacheStateError(oneline(f'''
+                    Cached data may be in an invalid state; this should be
+                    impossible but could have resulted from either a bug or a
+                    change to the cached files. You should be able to repair
+                    the problem by removing all cached files under
+                    {inventory_root_urls}.''')) from source_exc
 
 
 # TODO In Python 3 we can store these comments as docstrings.
@@ -552,9 +551,9 @@ class LocalStore(object):
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(
-                        "Repeatedly failed to randomly generate a novel "
-                        f"directory name; {path} already exists")
+                    raise AssertionError(oneline(f'''
+                        Repeatedly failed to randomly generate a novel
+                        directory name; {path} already exists'''))
 
 
 class GcsCloudStore(object):
@@ -588,10 +587,10 @@ class GcsCloudStore(object):
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(
-                        "Repeatedly failed to randomly generate a novel "
-                        "blob name; "
-                        f"{self._artifact_root_url_prefix} already exists")
+                    raise AssertionError(oneline(f'''
+                        Repeatedly failed to randomly generate a novel
+                        blob name; {self._artifact_root_url_prefix}
+                        already exists'''))
 
     def upload(self, path, url):
         # TODO For large individual files, we may still want to use gsutil.

@@ -25,16 +25,16 @@ import pandas as pd
 from .exception import UnsupportedSerializedValueError
 from .provider import provider_wrapper, ProtocolUpdateProvider
 from .optdep import import_optional_dependency
-from .util import read_hashable_bytes_from_file_or_dir
+from .util import read_hashable_bytes_from_file_or_dir, oneline
 from . import tokenization
 
 
 def check_is_like_protocol(obj):
     for method_name in 'validate', 'read', 'write':
         if not hasattr(obj, method_name):
-            raise ValueError(
-                f"Expected {obj!r} to be a kind of Protocol, but didn't find "
-                f"expected method {method_name!r}")
+            raise ValueError(oneline(f'''
+                Expected {obj!r} to be a kind of Protocol, but didn't find
+                expected method {method_name!r}'''))
 
 
 class BaseProtocol(object):
@@ -221,11 +221,13 @@ class ParquetDataFrameProtocol(BaseProtocol):
         duplicate_cols = {elem: count for elem, count in Counter(df.columns).items() if count > 1}
         if duplicate_cols:
             raise ValueError(
-                "Attempted to serialize to Parquet a dataframe which has "
-                f"duplicate columns with the following counts: {duplicate_cols}"
-                "You can fix this by dropping duplicate columns with something like:\n"
-                "df = df.loc[:, ~df.columns.duplicated()]"
-            )
+                oneline(f'''
+                    Attempted to serialize to Parquet a dataframe which has
+                    duplicate columns with the following counts:
+                    {duplicate_cols}. You can fix this by dropping duplicate
+                    columns with something like: ''')
+                + '\n' +
+                "df = df.loc[:, ~df.columns.duplicated()]")
 
     def _check_no_categorical_cols(self, df):
         categorical_cols = [
@@ -234,15 +236,15 @@ class ParquetDataFrameProtocol(BaseProtocol):
         ]
 
         if categorical_cols:
-            raise ValueError(
-                "Attempted to serialize to Parquet a dataframe which has "
-                f"categorical columns: {categorical_cols!r} -- "
-                "these columns may be transformed to another type and/or "
-                "lose some information. "
-                "You can fix this by using "
-                "(a) ``@frame(file_format='feather')`` to use the Feather "
-                "format instead, or "
-                "(b) ``@frame(check_dtypes=False)`` to ignore this check.")
+            raise ValueError(oneline(f'''
+                Attempted to serialize to Parquet a dataframe which has
+                categorical columns: {categorical_cols!r} --
+                these columns may be transformed to another type and/or
+                lose some information.
+                You can fix this by using
+                (a) ``@frame(file_format='feather')`` to use the Feather
+                format instead, or
+                (b) ``@frame(check_dtypes=False)`` to ignore this check.'''))
 
 
 class FeatherDataFrameProtocol(BaseProtocol):

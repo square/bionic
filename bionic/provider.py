@@ -18,7 +18,7 @@ import pandas as pd
 from .datatypes import (
     Task, TaskKey, CaseKey, CaseKeySpace, CodeDescriptor, CodeVersion)
 from .bytecode import canonical_bytecode_bytes_from_func
-from .util import groups_dict, init_matplotlib, hash_to_hex
+from .util import groups_dict, init_matplotlib, hash_to_hex, oneline
 from .optdep import import_optional_dependency
 
 import logging
@@ -91,9 +91,9 @@ class BaseProvider(object):
     def protocol_for_name(self, name):
         name_ix = self.attrs.names.index(name)
         if name_ix < 0:
-            raise ValueError(
-                f"Attempted to look up name {name!r} from provider "
-                f"providing only {tuple(self.attrs.names)!r}")
+            raise ValueError(oneline(f'''
+                Attempted to look up name {name!r} from provider
+                providing only {tuple(self.attrs.names)!r}'''))
         return self.attrs.protocols[name_ix]
 
     def __repr__(self):
@@ -103,9 +103,9 @@ class BaseProvider(object):
 class WrappingProvider(BaseProvider):
     def __init__(self, wrapped_provider):
         if wrapped_provider.is_mutable:
-            raise ValueError(
-                "Can only wrap immutable providers; got mutable provider "
-                f"{wrapped_provider!r}")
+            raise ValueError(oneline(f'''
+                Can only wrap immutable providers; got mutable provider
+                {wrapped_provider!r}'''))
         super(WrappingProvider, self).__init__(wrapped_provider.attrs)
         self.wrapped_provider = wrapped_provider
 
@@ -132,11 +132,11 @@ class AttrUpdateProvider(WrappingProvider):
 
         old_attr_value = getattr(wrapped_provider.attrs, attr_name)
         if old_attr_value is not None:
-            raise ValueError(
-                f"Attempted to set attribute {attr_name!r} twice "
-                f"on {wrapped_provider!r}; "
-                f"old value was {old_attr_value!r}, "
-                f"new value is {attr_value!r}")
+            raise ValueError(oneline(f'''
+                Attempted to set attribute {attr_name!r} twice
+                on {wrapped_provider!r};
+                old value was {old_attr_value!r},
+                new value is {attr_value!r}'''))
 
         self.attrs = copy(wrapped_provider.attrs)
         setattr(self.attrs, attr_name, attr_value)
@@ -160,10 +160,10 @@ class MultiProtocolUpdateProvider(WrappingProvider):
 
         names = wrapped_provider.attrs.names
         if len(protocols) != len(names):
-            raise ValueError(
-                "Number of protocols must match the number of names; "
-                f"got {len(names)} names {tuple(names)!r} and "
-                f"{len(protocols)} protocols {tuple(protocols)!r}")
+            raise ValueError(oneline(f'''
+                Number of protocols must match the number of names;
+                got {len(names)} names {tuple(names)!r} and
+                {len(protocols)} protocols {tuple(protocols)!r}'''))
 
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.protocols = protocols
@@ -176,9 +176,9 @@ class RenamingProvider(WrappingProvider):
 
         orig_names = wrapped_provider.attrs.names
         if len(orig_names) != 1:
-            raise ValueError(
-                "Can't change rename a provider that already has multiple "
-                f"names; need exactly one name but got {tuple(orig_names)!r}")
+            raise ValueError(oneline(f'''
+                Can't change rename a provider that already has multiple
+                names; need exactly one name but got {tuple(orig_names)!r}'''))
 
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = [name]
@@ -211,9 +211,9 @@ class NameSplittingProvider(WrappingProvider):
 
         orig_names = wrapped_provider.attrs.names
         if len(orig_names) != 1:
-            raise ValueError(
-                "Can't change a provider's number of names multiple times; "
-                f"need exactly one name but got {tuple(orig_names)!r}")
+            raise ValueError(oneline(f'''
+                Can't change a provider's number of names multiple times;
+                need exactly one name but got {tuple(orig_names)!r}'''))
 
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = names
@@ -233,12 +233,12 @@ class NameSplittingProvider(WrappingProvider):
                 value_seq, = task.compute(dep_values)
 
                 if len(value_seq) != len(self.attrs.names):
-                    raise ValueError(
-                        "Expected provider "
-                        f"{self.wrapped_provider.attrs.names[0]!r} to return "
-                        f"{len(self.attrs.names)} outputs named "
-                        f"{self.attrs.names!r}; got {len(value_seq)} outputs "
-                        f"{tuple(value_seq)!r}")
+                    raise ValueError(oneline(f'''
+                        Expected provider
+                        {self.wrapped_provider.attrs.names[0]!r} to return
+                        {len(self.attrs.names)} outputs named
+                        {self.attrs.names!r}; got {len(value_seq)} outputs
+                        {tuple(value_seq)!r}'''))
 
                 return tuple(value_seq)
 
@@ -292,14 +292,14 @@ class ValueProvider(BaseProvider):
 
         if self._has_any_values:
             if case_key.space != self.key_space:
-                raise ValueError(
-                    f"Can't add {case_key!r} to entity {self.name!r}: "
-                    f"key space doesn't match {self.key_space!r}")
+                raise ValueError(oneline(f'''
+                    Can't add {case_key!r} to entity {self.name!r}:
+                    key space doesn't match {self.key_space!r}'''))
 
             if case_key in self._values_by_case_key:
-                raise ValueError(
-                    f"Can't add {case_key!r} to entity {self.name!r}; "
-                    "that case key already exists")
+                raise ValueError(oneline(f'''
+                    Can't add {case_key!r} to entity {self.name!r};
+                    that case key already exists'''))
 
     def add_case(self, case_key, value):
         token = self.protocol.tokenize(value)
@@ -454,10 +454,10 @@ class GatherProvider(WrappingProvider):
         inner_gathered_dep_ix = self._inner_dep_names.index(
             self._inner_gathered_dep_name)
         if inner_gathered_dep_ix < 0:
-            raise ValueError(
-                f"Expected wrapped {self.wrapped_provider!r} "
-                f"to have dependency name {self._inner_gathered_dep_name!r}, "
-                f"but only found names {self._inner_dep_names!r}")
+            raise ValueError(oneline(f'''
+                Expected wrapped {self.wrapped_provider!r}
+                to have dependency name {self._inner_gathered_dep_name!r},
+                but only found names {self._inner_dep_names!r}'''))
 
         self._passthrough_dep_names = list(self._inner_dep_names)
         self._passthrough_dep_names.pop(inner_gathered_dep_ix)
@@ -679,10 +679,10 @@ class PyplotProvider(WrappingProvider):
 
         inner_dep_names = wrapped_provider.get_dependency_names()
         if self._pyplot_name not in inner_dep_names:
-            raise ValueError(
-                f"When using {self.__class__.__name__}, "
-                f"expected wrapped {wrapped_provider} to have a dependency "
-                f"named {self._pyplot_name!r}; only found {inner_dep_names!r}")
+            raise ValueError(oneline(f'''
+                When using {self.__class__.__name__},
+                expected wrapped {wrapped_provider} to have a dependency
+                named {self._pyplot_name!r}; only found {inner_dep_names!r}'''))
 
         self._outer_dep_names = list(inner_dep_names)
         self._outer_dep_names.remove(self._pyplot_name)
@@ -742,10 +742,10 @@ class PyplotProvider(WrappingProvider):
                 # Run the task, which will do the plotting.
                 values = task.compute(inner_dep_values)
                 if values != [None]:
-                    raise ValueError(
-                        f"Providers wrapped by {self.__class__.__name__} "
-                        "should not return values; "
-                        f"got values {tuple(values)!r}")
+                    raise ValueError(oneline(f'''
+                        Providers wrapped by {self.__class__.__name__}
+                        should not return values;
+                        got values {tuple(values)!r}'''))
 
                 # Save the plot into a buffer.
                 bio = BytesIO()

@@ -9,7 +9,7 @@ from binascii import hexlify
 import subprocess
 import warnings
 
-from .optdep import import_optional_dependency
+from .optdep import import_optional_dependency, oneline
 
 
 def n_present(*items):
@@ -22,9 +22,9 @@ def check_exactly_one_present(**kwargs):
         args_str = ', '.join(
             f'{name}={value!r}'
             for name, value in kwargs.items())
-        raise ValueError(
-            f"Exactly one of {tuple(kwargs.keys())} should be present; "
-            f"got {args_str}")
+        raise ValueError(oneline(f'''
+            Exactly one of {tuple(kwargs.keys())} should be present;
+            got {args_str}'''))
 
 
 def check_at_most_one_present(**kwargs):
@@ -32,9 +32,9 @@ def check_at_most_one_present(**kwargs):
         args_str = ', '.join(
             f'{name}={value!r}'
             for name, value in kwargs.items())
-        raise ValueError(
-            f"At most one of {tuple(kwargs.keys())} should be present; "
-            f"got {args_str}")
+        raise ValueError(oneline(f'''
+            At most one of {tuple(kwargs.keys())} should be present;
+            got {args_str}'''))
 
 
 def group_pairs(items):
@@ -64,9 +64,9 @@ def hash_to_hex(bytestring, n_bytes=None):
         n_chars = n_bytes * 2
         available_chars = len(hex_str)
         if n_chars > available_chars:
-            raise ValueError(
-                f"Can't keep {n_bytes} bytes; "
-                f"we only have {available_chars // 2}")
+            raise ValueError(oneline(f'''
+                Can't keep {n_bytes} bytes;
+                we only have {available_chars // 2}'''))
         hex_str = hex_str[:n_chars]
 
     return hex_str
@@ -150,9 +150,9 @@ def read_hashable_bytes_from_file_or_dir(path):
             for sub_path in sub_paths
         )
     else:
-        raise ValueError(
-            f"{path!r} is neither a file nor a directory; "
-            "not sure what to do with it!")
+        raise ValueError(oneline(f'''
+            {path!r} is neither a file nor a directory;
+            not sure what to do with it!'''))
 
 
 def ensure_parent_dir_exists(path):
