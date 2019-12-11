@@ -61,7 +61,7 @@ different ways:
     # (Can also overwrite an existing entity definition.)
     @builder
     def message(greeting, subject):
-        return '{0} {1}!'.format(greeting, subject)
+        return f'{greeting} {subject}!'
 
 The point of the distinction between ``declare``, ``set``, and ``assign`` is to
 make it explicit whether you're creating a new entity or updating an existing
@@ -198,7 +198,7 @@ when a function's code has changed.  For example, if we've defined a
 
     @builder
     def message(greeting, subject):
-        return '{0} {1}!'.format(greeting, subject)
+        return f'{greeting} {subject}!'
 
 If we want to change the code that generates ``message``, we attach the
 decorator:
@@ -208,7 +208,7 @@ decorator:
     @builder
     @bionic.version(1)
     def message(greeting, subject):
-        return '{greeting} {subject}!!!'.format(greeting, subject).upper()
+        return f'{greeting} {subject}!!!'.upper()
 
 If the function has a different ``version`` from the cached value, the cached
 value will be disregarded and a new value will be recomputed.  Each subsequent
@@ -246,7 +246,7 @@ and compute a new value.
     # Trying to compute this new version of ``message`` will throw an exception.
     @builder
     def message(greeting, subject):
-        return '{greeting} {subject}!!!'.format(greeting, subject).upper()
+        return f'{greeting} {subject}!!!'.upper()
 
 .. code-block:: python
 
@@ -254,7 +254,7 @@ and compute a new value.
     @builder
     @bionic.version(1)
     def message(greeting, subject):
-        return '{greeting} {subject}!!!'.format(greeting, subject).upper()
+        return f'{greeting} {subject}!!!'.upper()
 
 However, some code changes, such as refactoring or performance optimizations,
 have no effect on the function's behavior; in this case we might prefer to keep
@@ -312,7 +312,7 @@ we can disable persistent caching altogether:
     @builder
     @bionic.persist(False)
     def message(subject):
-        return 'Hello {subject}.'.format(subject=subject)
+        return f'Hello {subject}.'
 
 
 Disabling In-Memory Caching
@@ -328,7 +328,7 @@ cases, we can disable in-memory caching:
     @builder
     @bionic.memoize(False)
     def message(subject):
-        return 'Hello {subject}.'.format(subject=subject)
+        return f'Hello {subject}.'
 
 
 Location of the Cache Directory
@@ -504,7 +504,7 @@ For example:
 
     @builder
     def reversed_name(first_name, last_name):
-        return '{0}, {1}'.format(last_name, first_name)
+        return f'{last_name}, {first_name}'
 
     flow = builder.build()
 
@@ -584,7 +584,7 @@ values by "case" instead of by entity.
 
     @builder
     def colored_animal(color, animal):
-        return '{0} {1}'.format(color, animal)
+        return f'{color} {animal}'
 
     # Returns `{'black cat', 'brown cat', 'brown fox'}`.
     builder.build().get('colored_animal', 'set')

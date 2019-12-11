@@ -127,25 +127,16 @@ class SimpleFlowModel(object):
             'noop_func': lambda x: None,
         }
 
+        e = entity
         exec(
-            dedent('''
+            dedent(f'''
             @builder
-            @bn.version(major={major}, minor={minor})
-            def {name}({dep_names_str}):
-                noop_func({nonfunc_value})
+            @bn.version(major={e.major_version}, minor={e.minor_version})
+            def {name}({', '.join(e.dep_names)}):
+                noop_func({e.nonfunc_value})
                 record_call("{name}")
-                return {return_expr}
-            '''.format(
-                major=entity.major_version,
-                minor=entity.minor_version,
-                name=name,
-                dep_names_str=', '.join(entity.dep_names),
-                nonfunc_value=entity.nonfunc_value,
-                return_expr=' + '.join(
-                    [str(entity.func_value)] +
-                    entity.dep_names
-                ),
-            )),
+                return {' + '.join([str(e.func_value)] + e.dep_names)}
+            '''),
             vars_dict,
         )
 

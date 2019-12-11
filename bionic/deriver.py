@@ -353,13 +353,13 @@ class EntityDeriver(object):
             return
 
         if not self._is_ready_for_full_resolution:
+            name = task_state.task.keys[0].entity_name
             raise AssertionError(
-                "Attempting to load cached state for entity {name}, "
+                f"Attempting to load cached state for entity {name!r}, "
                 "but the cache is not available yet because core bootstrap "
                 "entities depend on this one; "
-                "you should decorate entity {name} with `@persist(False)` or "
-                "`@immediate` to indicate that it can't be cached.".format(
-                    name=repr(task_state.task.keys[0].entity_name)))
+                f"you should decorate entity {name!r} with `@persist(False)` "
+                "or `@immediate` to indicate that it can't be cached.")
 
         accessors = [
             self._persistent_cache.get_accessor(query)

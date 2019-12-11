@@ -80,9 +80,9 @@ def test_copy_file_to_gcs_dir(flow, tmp_path):
     flow.get('f', mode='FileCopier').copy(destination='gs://' + GCS_TEST_BUCKET)
     cloud_path = Path(GCS_TEST_BUCKET) / 'f.pkl'
     local_path = tmp_path / 'f.pkl'
-    check_call('gsutil -m cp gs://{} {}'.format(cloud_path, local_path), shell=True)
+    check_call(f'gsutil -m cp gs://{cloud_path} {local_path}', shell=True)
     assert pickle.loads(local_path.read_bytes()) == 5
-    check_call('gsutil -m rm gs://{}'.format(cloud_path), shell=True)
+    check_call(f'gsutil -m rm gs://{cloud_path}', shell=True)
 
 
 @skip_unless_gcs
@@ -90,9 +90,9 @@ def test_copy_file_to_gcs_file(flow, tmp_path):
     cloud_path = str(Path(GCS_TEST_BUCKET) / 'f.pkl')
     flow.get('f', mode='FileCopier').copy(destination='gs://' + cloud_path)
     local_path = tmp_path / 'f.pkl'
-    check_call('gsutil -m cp gs://{} {}'.format(cloud_path, local_path), shell=True)
+    check_call(f'gsutil -m cp gs://{cloud_path} {local_path}', shell=True)
     assert pickle.loads(local_path.read_bytes()) == 5
-    check_call('gsutil -m rm gs://{}'.format(cloud_path), shell=True)
+    check_call(f'gsutil -m rm gs://{cloud_path}', shell=True)
 
 
 def test_copy_dask_to_dir(tmp_path, expected_dask_df, dask_flow):
@@ -111,10 +111,10 @@ def test_copy_dask_to_gcs_dir(tmp_path, expected_dask_df, dask_flow):
     cloud_path = str(Path(GCS_TEST_BUCKET) / 'output')
     dask_flow.get('dask_df', mode='FileCopier').copy(destination='gs://' + cloud_path)
 
-    check_call('gsutil -m cp -r gs://{} {}'.format(cloud_path, tmp_path), shell=True)
+    check_call(f'gsutil -m cp -r gs://{cloud_path} {tmp_path}', shell=True)
     actual = dd.read_parquet(tmp_path / 'output')
     assert equal_frame_and_index_content(actual.compute(), expected_dask_df.compute())
-    check_call('gsutil -m rm -r gs://{}'.format(cloud_path), shell=True)
+    check_call(f'gsutil -m rm -r gs://{cloud_path}', shell=True)
 
 
 def test_get_multi_value_entity(builder):

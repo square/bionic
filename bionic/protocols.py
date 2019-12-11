@@ -222,9 +222,9 @@ class ParquetDataFrameProtocol(BaseProtocol):
         if duplicate_cols:
             raise ValueError(
                 "Attempted to serialize to Parquet a dataframe which has "
-                "duplicate columns with the following counts: {}"
+                f"duplicate columns with the following counts: {duplicate_cols}"
                 "You can fix this by dropping duplicate columns with something like:\n"
-                "df = df.loc[:, ~df.columns.duplicated()]".format(duplicate_cols)
+                "df = df.loc[:, ~df.columns.duplicated()]"
             )
 
     def _check_no_categorical_cols(self, df):
