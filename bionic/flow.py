@@ -4,7 +4,6 @@ construction and execution APIs (respectively).
 '''
 
 import os
-import functools
 import shutil
 import warnings
 from pathlib import Path, PosixPath
@@ -20,8 +19,8 @@ from .datatypes import CaseKey, VersioningPolicy
 from .exception import (
     UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
 from .provider import (
-    ValueProvider, multi_index_from_case_keys, as_provider, provider_wrapper,
-    AttrUpdateProvider)
+    ValueProvider, multi_index_from_case_keys, as_provider,
+    provider_wrapper, AttrUpdateProvider)
 from .deriver import EntityDeriver
 from . import decorators
 from .util import (
@@ -88,11 +87,11 @@ class FlowState(pyrs.PClass):
     def has_provider(self, name):
         return name in self.providers_by_name
 
-    def create_provider(self, name, protocol):
+    def create_provider(self, name, protocol, docstring):
         if name in self.providers_by_name:
             raise AlreadyDefinedEntityError.for_name(name)
 
-        provider = ValueProvider(name, protocol)
+        provider = ValueProvider(name, protocol, docstring)
         return self._set_provider(provider).touch()
 
     def install_provider(self, provider):
@@ -114,22 +113,21 @@ class FlowState(pyrs.PClass):
     def clear_providers(self, names):
         state = self
 
-        # Remember the original protocol for each provider.
-        protocols_by_entity_name = {}
+        # Remember the original provider attributes per entity.
+        attrs_by_entity_name = {}
         for name in names:
             if not state.has_provider(name):
                 continue
             provider = self.get_provider(name)
-            for res_name, res_protocol in zip(
-                    provider.attrs.names, provider.attrs.protocols):
-                protocols_by_entity_name[res_name] = res_protocol
+            attrs_by_entity_name[name] = provider.attrs
 
         # Delete the providers (or fail if not possible).
         state = state.delete_providers(names)
 
         # Recreate an empty version of each provider.
-        for res_name, res_protocol in protocols_by_entity_name.items():
-            state = state.create_provider(res_name, res_protocol)
+        for name, attrs in attrs_by_entity_name.items():
+            protocol = attrs.protocols[attrs.names.index(name)]
+            state = state.create_provider(name, protocol, attrs.docstring)
 
         return state.touch()
 
@@ -230,7 +228,7 @@ class FlowBuilder(object):
         self._state = state.touch()
         return flow
 
-    def declare(self, name, protocol=None):
+    def declare(self, name, protocol=None, docstring=None):
         """
         Creates a new entity but does not assign it a value.
 
@@ -244,14 +242,20 @@ class FlowBuilder(object):
         protocol: Protocol, optional
             The entity's protocol.  The default is a smart type-detecting
             protocol.
+        docstring: String, optional
+            Description of the new entity.
         """
 
         if protocol is None:
             protocol = DEFAULT_PROTOCOL
 
-        self._state = self._state.create_provider(name, protocol)
+        self._state = self._state.create_provider(name, protocol, docstring)
 
-    def assign(self, name, value=None, values=None, protocol=None):
+    def assign(self, name,
+               value=None,
+               values=None,
+               protocol=None,
+               docstring=None):
         """
         Creates a new entity and assigns it a value.
 
@@ -270,6 +274,8 @@ class FlowBuilder(object):
         protocol: Protocol, optional
             The entity's protocol.  The default is a smart type-detecting
             protocol.
+        docstring: String, optional
+            Description of the new entity.
         """
 
         check_at_most_one_present(value=value, values=values)
@@ -284,7 +290,7 @@ class FlowBuilder(object):
 
         state = self._state
 
-        state = state.create_provider(name, protocol)
+        state = state.create_provider(name, protocol, docstring)
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
             state = state.add_case(name, case_key, value)
@@ -843,10 +849,23 @@ class Flow(object):
         ----------
 
         name: String
-            The name of a entity.
+            The name of an entity.
         """
 
         return self._state.get_provider(name).protocol_for_name(name)
+
+    def entity_docstring(self, name):
+        """
+        Returns the docstring for the named entity if a docstring is defined,
+        otherwise return None.
+
+        Parameters
+        ----------
+
+        name: String
+            The name of an entity.
+        """
+        return self._state.get_provider(name).attrs.docstring
 
     def to_builder(self):
         """
@@ -1250,7 +1269,10 @@ class ShortcutProxy(object):
         return self._flow.all_entity_names()
 
     def __getattr__(self, name):
-        return functools.partial(self._wrapped_method, name)
+        def partial(*args, **kwargs):
+            return self._wrapped_method(name, *args, **kwargs)
+        partial.__doc__ = self._flow.entity_docstring(name)
+        return partial
 
 
 # Construct a default state object.

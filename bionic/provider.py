@@ -29,7 +29,8 @@ class ProviderAttributes(object):
     def __init__(
             self, names,
             protocols=None, code_version=None, orig_flow_name=None,
-            should_persist=None, should_memoize=None, is_default_value=None):
+            should_persist=None, should_memoize=None, is_default_value=None,
+            docstring=None):
         self.names = names
         self.protocols = protocols
         self.code_version = code_version
@@ -37,6 +38,7 @@ class ProviderAttributes(object):
         self.should_persist = should_persist
         self.should_memoize = should_memoize
         self.is_default_value = is_default_value
+        self.docstring = docstring
 
 
 class BaseProvider(object):
@@ -142,7 +144,7 @@ class AttrUpdateProvider(WrappingProvider):
 
 
 class ProtocolUpdateProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, protocol=None, protools=None):
+    def __init__(self, wrapped_provider, protocol=None):
 
         super(ProtocolUpdateProvider, self).__init__(wrapped_provider)
 
@@ -258,13 +260,14 @@ class NameSplittingProvider(WrappingProvider):
 
 
 class ValueProvider(BaseProvider):
-    def __init__(self, name, protocol):
+    def __init__(self, name, protocol, docstring):
         super(ValueProvider, self).__init__(
             attrs=ProviderAttributes(
                 names=[name],
                 protocols=[protocol],
                 should_persist=False,
-                should_memoize=True),
+                should_memoize=True,
+                docstring=docstring),
             is_mutable=True,
         )
 
@@ -274,7 +277,7 @@ class ValueProvider(BaseProvider):
         self.clear_cases()
 
     def copy(self):
-        provider = ValueProvider(self.name, self.protocol)
+        provider = ValueProvider(self.name, self.protocol, self.attrs.docstring)
         provider.key_space = self.key_space
         provider._has_any_values = self._has_any_values
         provider._values_by_case_key = self._values_by_case_key.copy()
@@ -363,7 +366,7 @@ class FunctionProvider(BaseProvider):
     def __init__(self, func):
         name = func.__name__
         super(FunctionProvider, self).__init__(attrs=ProviderAttributes(
-            names=[name]))
+            names=[name], docstring=func.__doc__))
 
         self._func = func
         self.name = name
