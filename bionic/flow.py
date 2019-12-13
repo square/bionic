@@ -126,8 +126,8 @@ class FlowState(pyrs.PClass):
 
         # Recreate an empty version of each provider.
         for name, attrs in attrs_by_entity_name.items():
-            for res_name, res_protocol in zip(attrs.names, attrs.protocols):
-                state = state.create_provider(res_name, res_protocol, attrs.docstring)
+            protocol = attrs.protocols[attrs.names.index(name)]
+            state = state.create_provider(name, protocol, attrs.docstring)
 
         return state.touch()
 
