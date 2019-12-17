@@ -6,13 +6,13 @@ Bionic-specific exception classes.
 class UndefinedEntityError(KeyError):
     @classmethod
     def for_name(cls, name):
-        return cls("Entity %r is not defined" % name)
+        return cls(f"Entity {name!r} is not defined")
 
 
 class AlreadyDefinedEntityError(ValueError):
     @classmethod
     def for_name(cls, name):
-        return cls("Entity %r is already defined" % name)
+        return cls(f"Entity {name!r} is already defined")
 
 
 class IncompatibleEntityError(ValueError):

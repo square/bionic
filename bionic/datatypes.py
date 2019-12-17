@@ -16,15 +16,12 @@ class TaskKey(namedtuple('TaskKey', 'entity_name case_key')):
         return super(TaskKey, cls).__new__(cls, entity_name, case_key)
 
     def __repr__(self):
-        return 'TaskKey(%r, %r)' % (self.entity_name, self.case_key)
+        return f'TaskKey({self.entity_name!r}, {self.case_key!r})'
 
     def __str__(self):
-        return '%s(%s)' % (
-           self.entity_name,
-           ', '.join(
-               '%s=%s' % (name, value)
-               for name, value in self.case_key.items())
-        )
+        args_str = ', '.join(
+            f'{name}={value}' for name, value in self.case_key.items())
+        return f'{self.entity_name}({args_str})'
 
 
 class Task(object):
@@ -48,7 +45,7 @@ class Task(object):
         return key
 
     def __repr__(self):
-        return 'Task(%r, %r)' % (self.keys, self.dep_keys)
+        return f'Task({self.key!r}, {self.dep_keys!r})'
 
 
 class Query(object):
@@ -67,7 +64,7 @@ class Query(object):
         return Result(query=self, value=value)
 
     def __repr__(self):
-        return 'Query(%s, %r)' % (self.task_key, self.provenance)
+        return f'Query({self.task_key}, {self.provenance!r})'
 
 
 class Result(object):
@@ -81,7 +78,7 @@ class Result(object):
         self.file_path = file_path
 
     def __repr__(self):
-        return 'Result(%r, %r)' % (self.query, self.value)
+        return f'Result({self.query!r}, {self.value!r})'
 
 
 class CaseKeySpace(ImmutableSequence):
@@ -128,7 +125,7 @@ class CaseKeySpace(ImmutableSequence):
         return CaseKeySpace(names)
 
     def __repr__(self):
-        return 'CaseKeySpace(%s)' % ', '.join(repr(name) for name in self)
+        return f'CaseKeySpace({", ".join(repr(name) for name in self)})'
 
 
 class CaseKey(ImmutableMapping):
@@ -183,9 +180,8 @@ class CaseKey(ImmutableMapping):
         ])
 
     def __repr__(self):
-        return 'CaseKey(%s)' % ', '.join(
-            name + '=' + token
-            for name, token in self.items())
+        args_str = ', '.join(f'{name}={token}' for name, token in self.items())
+        return f'CaseKey({args_str})'
 
 
 class ResultGroup(ImmutableSequence):
@@ -199,7 +195,7 @@ class ResultGroup(ImmutableSequence):
         self.key_space = key_space
 
     def __repr__(self):
-        return 'ResultGroup(%r)' % list(self)
+        return f'ResultGroup({list(self)!r})'
 
 
 class CodeVersion(object):
@@ -215,7 +211,7 @@ class CodeVersion(object):
         self.minor = str_from_version_value(minor)
 
     def __repr__(self):
-        return 'CodeVersion(%r, %r)' % (self.major, self.minor)
+        return f'CodeVersion({self.major!r}, {self.minor!r})'
 
 
 def str_from_version_value(value):
@@ -227,7 +223,7 @@ def str_from_version_value(value):
         return value
     else:
         raise ValueError(
-            "Version values must be str, int, or None: got %r" % value)
+            f"Version values must be str, int, or None: got {value!r}")
 
 
 # Describes the code of a function.

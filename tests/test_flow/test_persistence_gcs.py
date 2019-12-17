@@ -49,9 +49,9 @@ def bucket_name():
 @pytest.fixture(scope='function')
 def tmp_object_path(bucket_name):
     random_hex_str = '%016x' % random.randint(0, 2 ** 64)
-    path_str = '%s/BNTESTDATA/%s' % (getpass.getuser(), random_hex_str)
+    path_str = f'{getpass.getuser()}/BNTESTDATA/{random_hex_str}'
 
-    gs_url = 'gs://%s/%s' % (bucket_name, path_str)
+    gs_url = f'gs://{bucket_name}/{path_str}'
     # This emits a stderr warning because the URL doesn't exist.  That's
     # annoying but I wasn't able to find a straightforward way to avoid it.
     assert not gsutil_path_exists(gs_url)

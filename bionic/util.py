@@ -9,7 +9,7 @@ from binascii import hexlify
 import subprocess
 import warnings
 
-from .optdep import import_optional_dependency
+from .optdep import import_optional_dependency, oneline
 
 
 def n_present(*items):
@@ -19,28 +19,28 @@ def n_present(*items):
 
 def check_exactly_one_present(**kwargs):
     if not n_present(list(kwargs.values())) == 1:
-        raise ValueError("Exactly one of %s should be present; got %s" % (
-            tuple(kwargs.keys()),
-            ', '.join(
-                '%s=%r' % (name, value)
-                for name, value in kwargs.items())
-        ))
+        args_str = ', '.join(
+            f'{name}={value!r}'
+            for name, value in kwargs.items())
+        raise ValueError(oneline(f'''
+            Exactly one of {tuple(kwargs.keys())} should be present;
+            got {args_str}'''))
 
 
 def check_at_most_one_present(**kwargs):
     if n_present(list(kwargs.values())) > 1:
-        raise ValueError("At most one of %s should be present; got %s" % (
-            tuple(kwargs.keys()),
-            ', '.join(
-                '%s=%r' % (name, value)
-                for name, value in kwargs.items())
-        ))
+        args_str = ', '.join(
+            f'{name}={value!r}'
+            for name, value in kwargs.items())
+        raise ValueError(oneline(f'''
+            At most one of {tuple(kwargs.keys())} should be present;
+            got {args_str}'''))
 
 
 def group_pairs(items):
     "Groups an even-sized list into contiguous pairs."
     if len(items) % 2 != 0:
-        raise ValueError("Expected even number of items, got %r" % (items,))
+        raise ValueError(f"Expected even number of items, got {items!r}")
     return list(zip(items[::2], items[1::2]))
 
 
@@ -55,10 +55,6 @@ def groups_dict(values, keyfunc):
     return dict(valuelists_by_key)
 
 
-def color(code, text):
-    return '\033[%sm%s\033[0m' % (code, text)
-
-
 def hash_to_hex(bytestring, n_bytes=None):
     hash_ = sha256()
     hash_.update(bytestring)
@@ -68,8 +64,9 @@ def hash_to_hex(bytestring, n_bytes=None):
         n_chars = n_bytes * 2
         available_chars = len(hex_str)
         if n_chars > available_chars:
-            raise ValueError("Can't keep %d bytes; we only have %d" % (
-                n_bytes, available_chars // 2))
+            raise ValueError(oneline(f'''
+                Can't keep {n_bytes} bytes;
+                we only have {available_chars // 2}'''))
         hex_str = hex_str[:n_chars]
 
     return hex_str
@@ -110,7 +107,7 @@ def copy_to_gcs(src, dst):
     """ Copy a local file at src to GCS at dst
     """
     bucket = dst.replace('gs://', '').split('/')[0]
-    prefix = "gs://{}".format(bucket)
+    prefix = f"gs://{bucket}"
     path = dst[len(prefix) + 1:]
 
     client = get_gcs_client_without_warnings()
@@ -133,7 +130,7 @@ def read_hashable_bytes_from_file_or_dir(path):
     to reduce the chance of collisions.
     """
     if not path.exists():
-        raise ValueError("%r doesn't exist" % path)
+        raise ValueError(f"{path!r} doesn't exist")
     elif path.is_file():
         return b'F' + num_as_bytes(path.stat().st_size) + b':' +\
             path.read_bytes()
@@ -153,9 +150,9 @@ def read_hashable_bytes_from_file_or_dir(path):
             for sub_path in sub_paths
         )
     else:
-        raise ValueError(
-            "%r is neither a file nor a directory; "
-            "not sure what to do with it!" % path)
+        raise ValueError(oneline(f'''
+            {path!r} is neither a file nor a directory;
+            not sure what to do with it!'''))
 
 
 def ensure_parent_dir_exists(path):
@@ -204,7 +201,7 @@ class ImmutableSequence(object):
         return self.__items.__ge__(seq.__items)
 
     def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.__items)
+        return f'{self.__class__.__name__}({self.__items!r})'
 
 
 class ImmutableMapping(ImmutableSequence):
@@ -257,7 +254,7 @@ class ImmutableMapping(ImmutableSequence):
         return self.__values_by_key.__ne__(seq.__values_by_key)
 
     def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.__values_by_key)
+        return f'{self.__class__.__name__}({self.__values_by_key!r})'
 
 
 # TODO I'm not sure if we'll end up needing this or not.

@@ -79,7 +79,7 @@ def persist(enabled):
     """
 
     if not isinstance(enabled, bool):
-        raise ValueError("Argument must be a boolean; got %r" % enabled)
+        raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
     return provider_wrapper(AttrUpdateProvider, 'should_persist', enabled)
 
@@ -101,7 +101,7 @@ def memoize(enabled):
     """
 
     if not isinstance(enabled, bool):
-        raise ValueError("Argument must be a boolean; got %r" % enabled)
+        raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
     return provider_wrapper(AttrUpdateProvider, 'should_memoize', enabled)
 

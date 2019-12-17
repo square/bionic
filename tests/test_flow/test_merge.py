@@ -104,8 +104,7 @@ class MergeTester(object):
                 old_flow.merging(new_flow, keep)
 
         else:
-            raise AssertionError(
-                "Unexpected outcome key: %s" % outcome_key)
+            raise AssertionError(f"Unexpected outcome key: {outcome_key}")
 
     def _flow_for_key(self, key):
         return self._flows_by_key[key]

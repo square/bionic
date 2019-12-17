@@ -17,4 +17,4 @@ if __name__ == '__main__':
     bn.util.init_basic_logging()
 
     for _, row in flow.get('x_plus_y', 'series').reset_index().iterrows():
-        print('%s + %s = %s' % (row['x'], row['y'], row['x_plus_y']))
+        print(f"{row['x']} + {row['y']} = {row['x_plus_y']}")

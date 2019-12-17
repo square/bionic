@@ -25,7 +25,7 @@ from .deriver import EntityDeriver
 from . import decorators
 from .util import (
     group_pairs, check_exactly_one_present, check_at_most_one_present,
-    copy_to_gcs, FileCopier,
+    copy_to_gcs, FileCopier, oneline
 )
 
 import logging
@@ -104,7 +104,7 @@ class FlowState(pyrs.PClass):
     def add_case(self, name, case_key, value):
         provider = self.get_provider(name).copy_if_mutable()
         if not isinstance(provider, ValueProvider):
-            raise ValueError("Can't add case to function entity %r" % name)
+            raise ValueError(f"Can't add case to function entity {name!r}")
         provider.check_can_add_case(case_key, value)
         provider.add_case(case_key, value)
 
@@ -145,9 +145,9 @@ class FlowState(pyrs.PClass):
             joint_names = provider.get_joint_names()
             for related_name in joint_names:
                 if related_name not in names:
-                    raise IncompatibleEntityError(
-                        "Can't remove cases for entity %r without also "
-                        "removing entities %r" % (name, joint_names))
+                    raise IncompatibleEntityError(oneline(f'''
+                        Can't remove cases for entity {name!r} without also
+                        removing entities {joint_names!r}'''))
 
             # Delete it.
             state = state._erase_provider(name)
@@ -415,9 +415,9 @@ class FlowBuilder(object):
         for name, value in name_value_pairs:
             provider = state.get_provider(name)
             if len(provider.attrs.protocols) > 1:
-                raise IncompatibleEntityError(
-                    "Can't add case for entity co-generated with other "
-                    "entities %r" % (tuple(provider.attrs.names),))
+                raise IncompatibleEntityError(oneline(f'''
+                    Can't add case for entity co-generated with other
+                    entities {provider.attrs.names!r}'''))
             protocol, = provider.attrs.protocols
             protocol.validate(value)
             token = protocol.tokenize(value)
@@ -525,12 +525,13 @@ class FlowBuilder(object):
                 old_flow_name, = old_name_provider._values_by_case_key.values()
                 new_flow_name = flow.name
                 if old_flow_name == new_flow_name and not allow_name_match:
-                    raise ValueError(
-                        "Attempting to merge two flows with the same name (%r). "
-                        "Sharing names between flows is generally unwise, since "
-                        "they will then also share the same cache space; however, "
-                        "you can disable this check by passing "
-                        "``allow_name_match=True``" % new_flow_name)
+                    raise ValueError(oneline(f'''
+                        Attempting to merge two flows with the same name
+                        ({new_flow_name!r}).
+                        Sharing names between flows is generally unwise,
+                        since they will then also share the same cache space;
+                        however, you can disable this check by passing
+                        ``allow_name_match=True``.'''))
 
         # Identify all the names that could appear in the merged flow, and
         # associate each one with a potential conflict.
@@ -579,10 +580,10 @@ class FlowBuilder(object):
                     continue
 
             if keep == 'error':
-                raise AlreadyDefinedEntityError(
-                    "Merge failure: Entity %r exists in both old and new "
-                    "flows; use the ``keep`` argument to specify which to "
-                    "keep" % conflict.name)
+                raise AlreadyDefinedEntityError(oneline(f'''
+                    Merge failure: Entity {conflict.name!r} exists in both
+                    old and new flows;
+                    use the ``keep`` argument to specify which to keep'''))
 
             elif keep == 'self':
                 conflict.resolve('old', 'keep=self')
@@ -602,7 +603,7 @@ class FlowBuilder(object):
 
             raise ValueError(
                 "Value of ``keep`` must be one of {'error', 'self', 'arg'}; "
-                "got %r" % keep)
+                f"got {keep!r}")
 
         # For both states, check that each jointly-defined name group is kept
         # or discarded as a whole.
@@ -625,21 +626,20 @@ class FlowBuilder(object):
                     if conflict.resolution != state_name
                 ]
                 if kept_conflicts and discarded_conflicts:
-                    raise IncompatibleEntityError(
-                        "Merge failure: Names %r in %s state are defined "
-                        "jointly and must be kept or discarded together, but "
-                        "merge logic dictates that we keep [%s] and discard "
-                        "[%s]; you should manually remove some of these names "
-                        "from one of the flows before merging" % (
-                            names,
-                            state_name,
-                            ', '.join(
-                                '%s (%s)' % (c.name, c.reason)
-                                for c in kept_conflicts),
-                            ', '.join(
-                                '%s (%s)' % (c.name, c.reason)
-                                for c in discarded_conflicts),
-                        ))
+                    kept = ', '.join(
+                        f'{c.name} ({c.reason})'
+                        for c in kept_conflicts)
+                    discarded = ', '.join(
+                        f'{c.name} ({c.reason})'
+                        for c in discarded_conflicts)
+                    raise IncompatibleEntityError(oneline(f'''
+                        Merge failure: Names {names!r} in {state_name} state
+                        are defined jointly and must be kept or discarded
+                        together,
+                        but merge logic dictates that we keep [{kept}] and
+                        discard [{discarded}];
+                        you should manually remove some of these names from
+                        one of the flows before merging'''))
 
         # Now we start building up our final, merged state.
         cur_state = old_state
@@ -709,11 +709,10 @@ class FlowBuilder(object):
         if provider.attrs.should_memoize is None:
             provider = decorators.memoize(True)(provider)
         if not (provider.attrs.should_persist or provider.attrs.should_memoize):
-            raise ValueError(
-                "Attempted to set both persist and memoize to False. "
-                "At least one form of storage must be enabled for entities: %r "
-                % (func_or_provider.attrs.names)
-            )
+            raise ValueError(oneline(f'''
+                Attempted to set both persist and memoize to False.
+                At least one form of storage must be enabled for entities:
+                {func_or_provider.attrs.names!r}'''))
 
         state = self._state
 
@@ -928,9 +927,9 @@ class Flow(object):
             result_file_paths = [result.file_path for result in result_group]
 
             if None in result_file_paths:
-                raise ValueError(
-                    "Entity %r is not persisted but persisted file is expected by mode %r"
-                    % (name, mode))
+                raise ValueError(oneline(f'''
+                    Entity {name!r} is not persisted but persisted file is
+                    expected by mode {mode!r}'''))
 
             if mode is Path or mode == 'path':
                 values = result_file_paths
@@ -939,7 +938,7 @@ class Flow(object):
             elif mode == 'filename':
                 values = [str(fp) for fp in result_file_paths]
             else:
-                raise ValueError("Unrecognized mode %r" % mode)
+                raise ValueError(f"Unrecognized mode {mode!r}")
 
         check_at_most_one_present(fmt=fmt, collection=collection)
 
@@ -952,9 +951,9 @@ class Flow(object):
 
         if collection is None or collection is object:
             if len(values) == 0:
-                raise ValueError("Entity %r has no defined values" % name)
+                raise ValueError(f"Entity {name!r} has no defined values")
             if len(values) > 1:
-                raise ValueError("Entity %r has multiple values" % name)
+                raise ValueError(f"Entity {name!r} has multiple values")
             return values[0]
         elif collection is list or collection == 'list':
             return values
@@ -975,7 +974,7 @@ class Flow(object):
                 index=index,
             )
         else:
-            raise ValueError("Unrecognized collection type %r" % collection)
+            raise ValueError(f"Unrecognized collection type {collection!r}")
 
     # TODO Maybe this wants to be two different functions?
     def export(self, name, file_path=None, dir_path=None):
@@ -1006,14 +1005,14 @@ class Flow(object):
 
         result_group = self._deriver.derive(name)
         if len(result_group) != 1:
-            raise ValueError(
-                "Can only export an entity if it has a single value; "
-                "entity %r has %d values" % (name, len(result_group)))
+            raise ValueError(oneline(f'''
+                Can only export an entity if it has a single value;
+                entity {name!r} has {len(result_group)} values'''))
 
         result, = result_group
 
         if result.file_path is None:
-            raise ValueError("Entity %r is not locally persisted" % name)
+            raise ValueError(f"Entity {name!r} is not locally persisted")
         src_file_path = result.file_path
 
         if dir_path is None and file_path is None:
@@ -1197,17 +1196,18 @@ class Flow(object):
 
         if len(blessed_candidate_flows) == 0:
             if len(unblessed_candidate_flows) > 0:
-                raise Exception(
-                    "Found a matching flow, but it had been modified" %
-                    self_name)
+                raise Exception(oneline(f'''
+                    Found a matching flow, but it had been modified:
+                    {self_name!r}'''))
             else:
-                raise Exception(
-                    "Couldn't find any flow named %r in modules %r" % (
-                        self_name, module_names))
+                raise Exception(oneline(f'''
+                    Couldn't find any flow named {self_name!r}
+                    in modules {module_names!r}'''))
         if len(blessed_candidate_flows) > 1:
-            raise Exception(
-                "Too many flows named %r in modules %r; found %d, wanted 1" % (
-                    self_name, module_names, len(blessed_candidate_flows)))
+            raise Exception(oneline(f'''
+                Too many flows named {self_name!r}
+                in modules {module_names!r};
+                found {len(blessed_candidate_flows)}, wanted 1'''))
         flow, = blessed_candidate_flows
 
         return flow
@@ -1303,9 +1303,10 @@ def create_default_flow_state():
                 check_for_bytecode_errors=False,
             )
         else:
-            raise ValueError(
-                "core__versioning_mode must be one of %r; got %r" % (
-                    ('manual', 'assist', 'auto'), core__versioning_mode))
+            raise ValueError(oneline(f'''
+                core__versioning_mode must be one of
+                ('manual', 'assist', 'auto');
+                got {core__versioning_mode!r}'''))
 
     @builder
     @decorators.immediate
@@ -1321,7 +1322,7 @@ def create_default_flow_state():
     @decorators.immediate
     def core__persistent_cache__gcs__object_path():
         import getpass
-        return '%s/bndata/' % getpass.getuser()
+        return f'{getpass.getuser()}/bndata/'
 
     @builder
     @decorators.immediate
@@ -1335,7 +1336,7 @@ def create_default_flow_state():
             return None
 
         path = PosixPath(bucket_name) / object_path_str
-        return 'gs://%s' % path
+        return f'gs://{path}'
 
     @builder
     @decorators.immediate

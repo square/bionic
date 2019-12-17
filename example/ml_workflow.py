@@ -98,8 +98,8 @@ def all_hyperparams_pr_plot(gathered_frame, plt):
     _, ax = plt.subplots(figsize=(4, 3))
     for row in gathered_frame.itertuples():
         label = ', '.join(
-            '%s=%s' % key_value
-            for key_value in row.hyperparams_dict.items()
+            f'{key}={value}'
+            for key, value in row.hyperparams_dict.items()
         )
         row.precision_recall_frame.plot(
             x='recall', y='precision', label=label, ax=ax)

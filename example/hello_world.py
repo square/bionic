@@ -15,7 +15,7 @@ builder.assign('subject', 'world')
 # dependencies ("greeting" and "subject").
 @builder
 def message(greeting, subject):
-    return '{0} {1}!'.format(greeting, subject)
+    return f'{greeting} {subject}!'
 
 
 # Assemble the flow object, which is capable of computing any of the entities

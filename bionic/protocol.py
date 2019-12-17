@@ -1,4 +1,5 @@
 from . import protocols
+from .util import oneline
 
 # These are callable with or without arguments.  See BaseProtocol.__call__ for
 # why we instantiate them here.
@@ -60,9 +61,9 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
     elif file_format == 'feather':
         return protocols.FeatherDataFrameProtocol()
     else:
-        raise ValueError(
-            "file_format must be one of {'parquet', 'feather'}; got %s" %
-            file_format)
+        raise ValueError(oneline(f'''
+            file_format must be one of {'parquet', 'feather'};
+            got {file_format!r}'''))
 
 
 # These need to be called with arguments.

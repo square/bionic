@@ -25,7 +25,7 @@ class SimpleFlowModel(object):
         self._last_called_names = []
 
     def add_entity(self, dep_names):
-        name = 'e%d' % (len(self._entities_by_name) + 1)
+        name = f'e{len(self._entities_by_name) + 1}'
 
         self._create_entity(name, dep_names)
         self._define_entity(name)
@@ -127,25 +127,16 @@ class SimpleFlowModel(object):
             'noop_func': lambda x: None,
         }
 
+        e = entity
         exec(
-            dedent('''
+            dedent(f'''
             @builder
-            @bn.version(major={major}, minor={minor})
-            def {name}({dep_names_str}):
-                noop_func({nonfunc_value})
+            @bn.version(major={e.major_version}, minor={e.minor_version})
+            def {name}({', '.join(e.dep_names)}):
+                noop_func({e.nonfunc_value})
                 record_call("{name}")
-                return {return_expr}
-            '''.format(
-                major=entity.major_version,
-                minor=entity.minor_version,
-                name=name,
-                dep_names_str=', '.join(entity.dep_names),
-                nonfunc_value=entity.nonfunc_value,
-                return_expr=' + '.join(
-                    [str(entity.func_value)] +
-                    entity.dep_names
-                ),
-            )),
+                return {' + '.join([str(e.func_value)] + e.dep_names)}
+            '''),
             vars_dict,
         )
 
@@ -267,8 +258,8 @@ class Fuzzer(object):
 
                 else:
                     raise AssertionError(
-                        "Unexpected versioning mode: %r" %
-                        self._versioning_mode)
+                        "Unexpected versioning mode: "
+                        f"{self._versioning_mode!r}")
 
             for affected_name in affected_names:
                 assert (

@@ -80,3 +80,19 @@ def test_immutable_mapping():
     assert mapping <= Mapping({'b': 1, 'a': 2})
     assert Mapping({'b': 1, 'a': 2}) > mapping
     assert Mapping({'b': 1, 'a': 2}) >= mapping
+
+
+def test_oneline():
+    from bionic.util import oneline
+    assert oneline('one two') == 'one two'
+    assert oneline(' one two ') == 'one two'
+    assert oneline('\none\ntwo') == 'one two'
+    assert oneline('''
+       one
+       two   three''') == 'one two   three'
+    assert oneline('''
+       one
+       two
+
+       three
+       ''') == 'one two three'

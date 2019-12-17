@@ -15,7 +15,8 @@ from pathlib import Path
 
 from bionic.exception import UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import get_gcs_client_without_warnings, ensure_parent_dir_exists
+from .util import (
+    get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline)
 from .tokenization import tokenize
 
 import logging
@@ -33,11 +34,11 @@ except AttributeError:
     import os
     running_under_readthedocs = os.environ.get('READTHEDOCS') == 'True'
     if not running_under_readthedocs:
-        warnings.warn(
-            "Failed to find LibYAML bindings; "
-            "falling back to slower Python implementation. "
-            "This may reduce performance on large flows. "
-            "Installing LibYAML should resolve this.")
+        warnings.warn(oneline('''
+            Failed to find LibYAML bindings;
+            falling back to slower Python implementation.
+            This may reduce performance on large flows.
+            Installing LibYAML should resolve this.'''))
     YamlDumper = yaml.Dumper
     YamlLoader = yaml.Loader
 
@@ -201,12 +202,12 @@ class CacheAccessor(object):
                 file_path = self._file_from_value(value_wrapper.value)
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
-                    raise AssertionError(
-                        "Attempted to register a descriptor with "
-                        "no result argument and no previously saved values; "
-                        "this suggests we called update_provenance() without "
-                        "previously finding a cached value, which shouldn't "
-                        "happen.")
+                    raise AssertionError(oneline('''
+                        Attempted to register a descriptor with
+                        no result argument and no previously saved values;
+                        this suggests we called update_provenance() without
+                        previously finding a cached value, which shouldn't
+                        happen.'''))
                 blob_url = cloud_entry.artifact_url
                 file_path = self._file_from_blob(blob_url)
 
@@ -326,14 +327,12 @@ class CacheAccessor(object):
         inventory_root_urls = ' and '.join(
             store.inventory.root_url for store in stores),
 
-        raise InvalidCacheStateError(
-            "Cached data may be in an invalid state; "
-            "this should be impossible but "
-            "could have resulted from either a bug or "
-            "a change to the cached files.  "
-            "You should be able to repair the problem by "
-            "removing all cached files under %s." % inventory_root_urls
-        ) from source_exc
+        raise InvalidCacheStateError(oneline(f'''
+                    Cached data may be in an invalid state; this should be
+                    impossible but could have resulted from either a bug or a
+                    change to the cached files. You should be able to repair
+                    the problem by removing all cached files under
+                    {inventory_root_urls}.''')) from source_exc
 
 
 # TODO In Python 3 we can store these comments as docstrings.
@@ -496,7 +495,7 @@ class Inventory(object):
         )
 
     def _exact_descriptor_url_for_query(self, query):
-        filename = ('descriptor_%s.yaml' % query.provenance.exact_hash)
+        filename = f'descriptor_{query.provenance.exact_hash}.yaml'
         return (
             self._nominal_descriptor_url_prefix_for_query(query) + '/' +
             filename
@@ -552,9 +551,9 @@ class LocalStore(object):
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(
-                        "Repeatedly failed to randomly generate a novel "
-                        "directory name; %r already exists" % str(path))
+                    raise AssertionError(oneline(f'''
+                        Repeatedly failed to randomly generate a novel
+                        directory name; {path} already exists'''))
 
 
 class GcsCloudStore(object):
@@ -588,10 +587,10 @@ class GcsCloudStore(object):
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(
-                        "Repeatedly failed to randomly generate a novel "
-                        "blob name; %s already exists" % (
-                            self._artifact_root_url_prefix))
+                    raise AssertionError(oneline(f'''
+                        Repeatedly failed to randomly generate a novel
+                        blob name; {self._artifact_root_url_prefix}
+                        already exists'''))
 
     def upload(self, path, url):
         # TODO For large individual files, we may still want to use gsutil.
@@ -757,7 +756,7 @@ class GcsTool(object):
 
     def _bucket_and_object_names_from_url(self, url):
         if not url.startswith(self._GS_URL_PREFIX):
-            raise ValueError('url must start with "%s"' % self._GS_URL_PREFIX)
+            raise ValueError(f'url must start with "{self._GS_URL_PREFIX}"')
         url_parts = url[len(self._GS_URL_PREFIX):].split('/', 1)
         if len(url_parts) == 1:
             bucket_name, = url_parts
@@ -777,8 +776,7 @@ class InternalCacheStateError(Exception):
     @classmethod
     def from_failure(cls, artifact_type, location, exc):
         return cls(
-            "Unable to read %s %r in cache: %s" % (
-                artifact_type, location, exc))
+            f"Unable to read {artifact_type} {location!r} in cache: {exc}")
 
 
 class InvalidCacheStateError(Exception):
@@ -813,7 +811,7 @@ class ArtifactDescriptor(object):
             body_dict = yaml.load(yaml_str, Loader=YamlLoader)
         except yaml.error.YAMLError as e:
             raise YamlRecordParsingError(
-                "Couldn't parse %s" % cls.__name__
+                f"Couldn't parse {cls.__name__}"
             ) from e
         return cls(body_dict=body_dict)
 
@@ -825,7 +823,7 @@ class ArtifactDescriptor(object):
             self.provenance = Provenance.from_dict(self._dict['provenance'])
         except KeyError as e:
             raise YamlRecordParsingError(
-                "YAML for ArtifactDescriptor was missing field: %s" % e)
+                f"YAML for ArtifactDescriptor was missing field: {e}")
 
     def to_yaml(self):
         return yaml.dump(
@@ -836,7 +834,7 @@ class ArtifactDescriptor(object):
         )
 
     def __repr__(self):
-        return 'ArtifactDescriptor(%s)' % self.entity_name
+        return f'ArtifactDescriptor({self.entity_name})'
 
 
 class Provenance(object):
@@ -956,10 +954,11 @@ class Provenance(object):
         return self._dict
 
     def __repr__(self):
-        return 'Provenance[%s/%s.%s/%s]' % (
-            self.functional_hash[:8],
-            self.code_version_major, self.code_version_minor,
-            self.exact_hash[:8])
+        hash_fn = self.functional_hash[:8]
+        v_maj = self.code_version_major
+        v_min = self.code_version_minor
+        hash_ex = self.exact_hash[:8]
+        return f'Provenance[{hash_fn}/{v_maj}.{v_min}/{hash_ex}]'
 
     def exactly_matches(self, prov):
         return self.exact_hash == prov.exact_hash
@@ -1001,7 +1000,7 @@ def hash_simple_obj_to_hex(obj):
     try:
         update_hash(hash_, obj)
     except ValueError as e:
-        raise ValueError("%s (full object was %r)" % (e, obj))
+        raise ValueError(f"{e} (full object was {obj!r})")
     return hash_.hexdigest()
 
 
@@ -1027,5 +1026,4 @@ def update_hash(hash_, obj):
             update_hash(hash_, key)
             update_hash(hash_, value)
     else:
-        raise ValueError("Unable to hash object %r of type %r" % (
-            obj, type(obj)))
+        raise ValueError(f"Unable to hash object {obj!r} of type {type(obj)!r}")
