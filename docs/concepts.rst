@@ -145,6 +145,47 @@ interpreted and converted to an entity (or entities).  In the `future
 <future.rst#user-defined-decorators>`__, it will be possible for users to write
 their own decorators as well.
 
+Documenting Entities
+.........................
+
+Each Bionic entity can optionally have a documentation string associated with
+it.  Entities defined by functions can use the regular Python docstring
+syntax:
+
+.. code-block:: python
+
+    @builder
+    def message(greeting, subject):
+        """A nice thing to say to someone."""
+        return f'{greeting} {subject}!'
+
+If the function defines multiple entities, the :meth:`decorators.docstrings`
+decorator can be used to specify documentation for each one:
+
+.. code-block:: python
+
+    @builder
+    @bn.outputs('first_name', 'last_name')
+    @bn.docstrings('The first name.', 'The last name.')
+    def split_name(full_name):
+        first_name, last_name = full_name.split()
+        return first_name, last_name
+
+For entities with fixed values, an optional ``docstring`` argument is available:
+
+.. code-block:: python
+
+    builder.assign('greeting', 'Hello', docstring="A nice way to start a message.")
+    builder.declare('subject', docstring="The person we're talking to.")
+
+These documentation strings are helpful for people reading your code, and are
+sometimes visible to the users of your flow.  For example, Python's built-in
+``help`` method can be used to view an entity's documentation:
+
+.. code-block:: python
+
+    help(flow.get.message)
+
 Configuration with Internal Entities
 ....................................
 

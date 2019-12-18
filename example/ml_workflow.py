@@ -15,15 +15,26 @@ import bionic as bn
 builder = bn.FlowBuilder('ml_workflow')
 
 # Define some basic parameters.
-builder.assign('random_seed', 0)
-builder.assign('test_split_fraction', 0.3)
-builder.assign('hyperparams_dict', {'C': 1})
-builder.assign('feature_inclusion_regex', '.*')
+builder.assign(
+    'random_seed', 0,
+    docstring='Arbitrary seed for all random decisions in the flow.')
+builder.assign(
+    'test_split_fraction', 0.3,
+    docstring='Fraction of data to include in test set.')
+builder.assign(
+    'hyperparams_dict', {'C': 1},
+    docstring='Hyperparameters to use when training the model.')
+builder.assign(
+    'feature_inclusion_regex', '.*',
+    docstring="Regular expression specifying which feature names to include.")
 
 
 # Load the raw data.
 @builder
 def raw_frame():
+    """
+    The raw data, including all features and a `target` column of labels.
+    """
     dataset = datasets.load_breast_cancer()
     df = pd.DataFrame(
         data=dataset.data,
@@ -36,6 +47,7 @@ def raw_frame():
 # Select a subset of the columns to use as features.
 @builder
 def features_frame(raw_frame, feature_inclusion_regex):
+    """Labeled data with a selected subset of the feature columns."""
     included_feature_cols = [
         col for col in raw_frame.columns.drop('target')
         if re.match(feature_inclusion_regex, col)
@@ -48,6 +60,10 @@ def features_frame(raw_frame, feature_inclusion_regex):
 # The `@outputs` decorator tells Bionic to define two new entities from this
 # function (which returns a tuple of two values).
 @bn.outputs('train_frame', 'test_frame')
+@bn.docstrings(
+    "Subset of feature data rows, used for model training.",
+    "Subset of feature data rows, used for model testing.",
+)
 def split_raw_frame(features_frame, test_split_fraction, random_seed):
     return model_selection.train_test_split(
         features_frame,
@@ -59,6 +75,7 @@ def split_raw_frame(features_frame, test_split_fraction, random_seed):
 # Fit a logistic regression model on the training data.
 @builder
 def model(train_frame, random_seed, hyperparams_dict):
+    """A binary classifier sklearn model."""
     m = linear_model.LogisticRegression(
         solver='liblinear', random_state=random_seed,
         **hyperparams_dict)
@@ -69,6 +86,12 @@ def model(train_frame, random_seed, hyperparams_dict):
 # Evaluate the model's precision and recall over a range of threshold values.
 @builder
 def precision_recall_frame(model, test_frame):
+    """
+    A dataframe with three columns:
+    - `threshold`: a probability threshold for the model
+    - `precision`: the test set precision resulting from that threshold
+    - `recall`: the test set recall resulting from that threshold
+    """
     predictions = model.predict_proba(test_frame.drop('target', axis=1))[:, 1]
     precisions, recalls, thresholds = metrics.precision_recall_curve(
         test_frame['target'], predictions)
@@ -95,6 +118,10 @@ def precision_recall_frame(model, test_frame):
     also='precision_recall_frame',
     into='gathered_frame')
 def all_hyperparams_pr_plot(gathered_frame, plt):
+    """
+    A plot of precision against recall.  Includes one curve for each set of
+    hyperparameters.
+    """
     _, ax = plt.subplots(figsize=(4, 3))
     for row in gathered_frame.itertuples():
         label = ', '.join(

@@ -156,6 +156,28 @@ def outputs(*names):
     return provider_wrapper(NameSplittingProvider, names)
 
 
+def docstrings(*docstrings):
+    """
+    Assigns docstrings to the entities defined by the decorated function.
+    Typically used in conjuction with ``@outputs`` for functions that return
+    multiple entity values.  (In the more common case where your function
+    returns a single entity value, you can just use a regular Python
+    docstring.)
+
+    Parameters
+    ----------
+
+    docstrings: Sequence of strings
+        Documentation strings for each of the defined entities.
+
+    Returns
+    -------
+    Function:
+        A decorator which can be applied to an entity function.
+    """
+
+    return provider_wrapper(AttrUpdateProvider, 'docstrings', docstrings)
+
 # TODO I'd like to put a @protocols decorator here that exposes the
 # MultiProtocolUpdateProvider class, but that would collide with the
 # protocols.py module.  Let's do this in a later PR.

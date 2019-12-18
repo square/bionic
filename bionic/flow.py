@@ -126,8 +126,10 @@ class FlowState(pyrs.PClass):
 
         # Recreate an empty version of each provider.
         for name, attrs in attrs_by_entity_name.items():
-            protocol = attrs.protocols[attrs.names.index(name)]
-            state = state.create_provider(name, protocol, attrs.docstring)
+            name_ix = attrs.names.index(name)
+            protocol = attrs.protocols[name_ix]
+            docstring = attrs.docstrings[name_ix]
+            state = state.create_provider(name, protocol, docstring)
 
         return state.touch()
 
@@ -704,15 +706,48 @@ class FlowBuilder(object):
         provider = as_provider(func_or_provider)
         if provider.attrs.protocols is None:
             provider = DEFAULT_PROTOCOL(provider)
+        if provider.attrs.docstrings is None:
+            docstrings = [None] * len(provider.attrs.names)
+            provider = decorators.docstrings(*docstrings)(provider)
         if provider.attrs.should_persist is None:
             provider = decorators.persist(True)(provider)
         if provider.attrs.should_memoize is None:
             provider = decorators.memoize(True)(provider)
-        if not (provider.attrs.should_persist or provider.attrs.should_memoize):
+
+        if not (
+                provider.attrs.should_persist or
+                provider.attrs.should_memoize):
             raise ValueError(oneline(f'''
                 Attempted to set both persist and memoize to False.
                 At least one form of storage must be enabled for entities:
                 {func_or_provider.attrs.names!r}'''))
+        if len(provider.attrs.protocols) != len(provider.attrs.names):
+            names = provider.attrs.names
+            protocols = provider.attrs.protocols
+            raise ValueError(oneline(f'''
+                Number of protocols must match the number of names;
+                got {len(names)} names {tuple(names)!r} and
+                {len(protocols)} protocols {tuple(protocols)!r}'''))
+        if len(provider.attrs.docstrings) != len(provider.attrs.names):
+            names = provider.attrs.names
+            docstrings = provider.attrs.docstrings
+            message = oneline(f'''
+                Number of docstrings must match the number of names;
+                got {len(names)} names {tuple(names)!r} and
+                {len(docstrings)} docstrings {tuple(docstrings)!r}''')
+            if len(provider.attrs.docstrings) == 1:
+                prefix = oneline('''
+                    Using a single docstring for a multi-output function is
+                    deprecated and will become an error condition in a future
+                    release; use the ``@docstrings`` decorator to specify
+                    one docstring for each entity.  Details:''')
+                warnings.warn(prefix + '\n' + message)
+
+                docstrings = [docstrings[0]] * len(names)
+                provider = AttrUpdateProvider(
+                    provider, 'docstrings', docstrings, allow_override=True)
+            else:
+                raise ValueError(message)
 
         state = self._state
 
@@ -864,7 +899,7 @@ class Flow(object):
         name: String
             The name of an entity.
         """
-        return self._state.get_provider(name).attrs.docstring
+        return self._state.get_provider(name).docstring_for_name(name)
 
     def to_builder(self):
         """
