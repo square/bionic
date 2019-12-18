@@ -1303,6 +1303,9 @@ class ShortcutProxy(object):
         self._flow = wrapped_method.__self__
         assert isinstance(self._flow, Flow)
 
+        self.__name__ = wrapped_method.__name__
+        # TODO This doesn't seem to affect the output of `help` or Jupyter's
+        # autocomplete; we should figure out a better way to do this.
         self.__doc__ = self._wrapped_method.__doc__
 
     def __call__(self, *args, **kwargs):
