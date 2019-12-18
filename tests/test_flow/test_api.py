@@ -12,7 +12,7 @@ import bionic as bn
 from bionic.exception import (
     UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
 
-from ..helpers import count_calls
+from ..helpers import count_calls, assert_re_matches
 
 
 @pytest.fixture(scope='function')
@@ -639,17 +639,31 @@ def test_entity_docstring(builder):
 
     flow = builder.build()
 
-    # test getting ValueProvider's docstring
+    # Test getting ValueProvider's docstring.
     assert flow.entity_docstring(name='x') is None
     assert flow.entity_docstring(name='y') == "y doc"
     assert flow.entity_docstring(name='z') == "z doc"
 
-    # test getting FunctionProvider's docstring
+    # Test getting FunctionProvider's docstring.
     assert flow.entity_docstring(name='f') == "test docstring"
     assert flow.entity_docstring(name='g') is None
 
-    # test help() can access entity docstring
-    fout = io.StringIO()
-    with contextlib.redirect_stdout(fout):
-        help(flow.get.f)
-    assert "test docstring" in fout.getvalue()
+    # Test that help() can access entity docstring.
+    def help_str(obj):
+        """
+        Return the output of help() as a string (rather than printing to
+        stdout).
+        """
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            help(obj)
+        return buf.getvalue()
+
+    assert_re_matches(
+        r"(?s).*test docstring\s+"
+        r"This function is equivalent to ``get\('f', \*args, \*\*kwargs\)``.*",
+        help_str(flow.get.f))
+    assert_re_matches(
+        r"(?s).*"
+        r"This function is equivalent to ``get\('g', \*args, \*\*kwargs\)``.*",
+        help_str(flow.get.g))

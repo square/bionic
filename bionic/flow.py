@@ -1263,14 +1263,35 @@ class Flow(object):
         self._state = state
         self._deriver = EntityDeriver(state)
 
-        self.get = ShortcutProxy(
-            self.get,
-            docstring_prefix_template='Computes the value(s) for "{name}"')
-        self.setting = ShortcutProxy(
-            self.setting,
-            docstring_prefix_template=oneline('''
-            Returns a copy of this flow with an updated value of "{name}"
-            '''))
+        # We replace the `get` and `setting` methods with wrapper classes
+        # that have an attribute for each entity.  This allows a convenient,
+        # autocompletable way to access entities. We subclass the ShortcutProxy
+        # class for each method so that the docstring shows up properly in help
+        # text. (We could instantiate the ShortcutProxy class and dynamically
+        # set the docstring, but tools like `help` access the class definition
+        # directly and won't pick up the updated docstring.)
+        orig_get_method = self.get
+        orig_setting_method = self.setting
+
+        class GetMethod(ShortcutProxy):
+            __doc__ = orig_get_method.__doc__
+
+            def __init__(self):
+                super(GetMethod, self).__init__(
+                    orig_get_method, 'Computes the value(s) for "{name}"')
+        self.get = GetMethod()
+
+        class SettingMethod(ShortcutProxy):
+            __doc__ = orig_setting_method.__doc__
+
+            def __init__(self):
+                super(SettingMethod, self).__init__(
+                    orig_setting_method,
+                    oneline('''
+                    Returns a copy of this flow with an updated value of
+                    "{name}"'''))
+
+        self.setting = SettingMethod()
 
     def _updating(self, builder_update_func):
         builder = FlowBuilder._from_state(self._state)
@@ -1304,9 +1325,6 @@ class ShortcutProxy(object):
         assert isinstance(self._flow, Flow)
 
         self.__name__ = wrapped_method.__name__
-        # TODO This doesn't seem to affect the output of `help` or Jupyter's
-        # autocomplete; we should figure out a better way to do this.
-        self.__doc__ = self._wrapped_method.__doc__
 
     def __call__(self, *args, **kwargs):
         return self._wrapped_method(*args, **kwargs)
