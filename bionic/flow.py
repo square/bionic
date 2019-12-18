@@ -8,6 +8,7 @@ import shutil
 import warnings
 from pathlib import Path, PosixPath
 from importlib import reload
+from textwrap import dedent
 
 import pyrsistent as pyrs
 import pandas as pd
@@ -1262,8 +1263,14 @@ class Flow(object):
         self._state = state
         self._deriver = EntityDeriver(state)
 
-        self.get = ShortcutProxy(self.get)
-        self.setting = ShortcutProxy(self.setting)
+        self.get = ShortcutProxy(
+            self.get,
+            docstring_prefix_template='Computes the value(s) for "{name}"')
+        self.setting = ShortcutProxy(
+            self.setting,
+            docstring_prefix_template=oneline('''
+            Returns a copy of this flow with an updated value of "{name}"
+            '''))
 
     def _updating(self, builder_update_func):
         builder = FlowBuilder._from_state(self._state)
@@ -1290,8 +1297,9 @@ class ShortcutProxy(object):
     IPython, Jupyter, etc.
     '''
 
-    def __init__(self, wrapped_method):
+    def __init__(self, wrapped_method, docstring_prefix_template):
         self._wrapped_method = wrapped_method
+        self._docstring_prefix_template = docstring_prefix_template
         self._flow = wrapped_method.__self__
         assert isinstance(self._flow, Flow)
 
@@ -1306,7 +1314,25 @@ class ShortcutProxy(object):
     def __getattr__(self, name):
         def partial(*args, **kwargs):
             return self._wrapped_method(name, *args, **kwargs)
-        partial.__doc__ = self._flow.entity_docstring(name)
+
+        partial.__name__ = name
+
+        doc_prefix =\
+            self._docstring_prefix_template.format(name=name)
+        entity_docstring = self._flow.entity_docstring(name)
+        if entity_docstring is None:
+            main_docstring = doc_prefix + "."
+        else:
+            clean_entity_docstring = dedent(entity_docstring).strip()
+            main_docstring = f"{doc_prefix}:\n{clean_entity_docstring}"
+        method_name = self._wrapped_method.__name__
+
+        partial.__doc__ = (
+            f"{main_docstring}"
+            "\n\n"
+            "This function is equivalent to "
+            f"``{method_name}('{name}', *args, **kwargs)``")
+
         return partial
 
 
