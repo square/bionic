@@ -28,12 +28,12 @@ def first_token_from_package_desc(desc):
     if first_mismatch is None:
         return desc
 
-    if desc[first_mismatch.pos] not in ' <>=':
+    if desc[first_mismatch.start()] not in ' <>=':
         raise AssertionError(oneline(f'''
             Package descriptor {desc!r} contained
-            unexpected character {desc[first_mismatch.pos]!r}'''))
+            unexpected character {desc[first_mismatch.start()]!r}'''))
 
-    return desc[:first_mismatch.pos]
+    return desc[:first_mismatch.start()]
 
 
 # For packages that we don't import by the exact package name, these are
