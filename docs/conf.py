@@ -20,7 +20,7 @@ copyright = u'2019, Square'
 author = u'Janek Klawe'
 
 # The short X.Y version
-version = u'0.6.2'
+version = u'0.6.3'
 # The full version, including alpha/beta/rc tags
 release = version
 
