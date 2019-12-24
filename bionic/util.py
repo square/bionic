@@ -350,20 +350,3 @@ def init_basic_logging(level=logging.INFO):
         format='%(asctime)s %(levelname)s %(name)16s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
     )
-
-
-def init_matplotlib():
-    '''
-    Attempts to safely set up an appropriate matplotlib backend.  (The default
-    backend on OS X will crash on Python 2 if you aren't using the system
-    Python.)
-
-    This only has an effect if you call it before matplotlib.pyplot is
-    imported.
-    '''
-    matplotlib = import_optional_dependency('matplotlib', purpose='plotting')
-
-    if matplotlib.get_backend() == 'MacOSX':
-        matplotlib.use('TkAgg', warn=False)
-    else:
-        matplotlib.use('Agg', warn=False)

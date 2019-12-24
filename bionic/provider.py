@@ -18,7 +18,7 @@ import pandas as pd
 from .datatypes import (
     Task, TaskKey, CaseKey, CaseKeySpace, CodeDescriptor, CodeVersion)
 from .bytecode import canonical_bytecode_bytes_from_func
-from .util import groups_dict, init_matplotlib, hash_to_hex, oneline
+from .util import groups_dict, hash_to_hex, oneline
 from .optdep import import_optional_dependency
 
 import logging
@@ -730,7 +730,7 @@ class PyplotProvider(WrappingProvider):
             outer_dep_keys.pop(pyplot_dep_ix)
 
             def wrapped_compute_func(dep_values):
-                init_matplotlib()
+                import_optional_dependency('matplotlib', purpose='plotting')
                 from matplotlib import pyplot as plt
 
                 outer_dep_values = dep_values

@@ -22,7 +22,7 @@ def combine(*dep_lists):
 extras = OrderedDict()
 
 extras['image'] = ['Pillow']
-extras['matplotlib'] = combine(['matplotlib'], extras['image'])
+extras['matplotlib'] = combine(['matplotlib>=3.1'], extras['image'])
 extras['viz'] = combine(['hsluv', 'networkx', 'pydot'], extras['image'])
 
 extras['standard'] = combine(extras['matplotlib'], extras['viz'])
