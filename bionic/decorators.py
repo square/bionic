@@ -205,7 +205,7 @@ def gather(over, also=None, into='gather_df'):
         @builder
         @gather('color', 'colored_shape', 'df')
         def all_color_shapes(df):
-            return ', '.join(gather_df.colored_shape.sort_values())
+            return ', '.join(df.colored_shape.sort_values())
 
         flow = builder.build()
 
