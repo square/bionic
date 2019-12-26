@@ -10,6 +10,7 @@ dask = protocols.DaskProtocol()  # noqa: F401
 image = protocols.ImageProtocol()  # noqa: F401
 numpy = protocols.NumPyProtocol()  # noqa: F401
 yaml = protocols.YamlProtocol()  # noqa: F401
+path = protocols.PathProtocol()  # noqa: F401
 
 
 def frame(func_or_provider=None, file_format=None, check_dtypes=None):

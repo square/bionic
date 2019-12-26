@@ -26,7 +26,9 @@ from .exception import UnsupportedSerializedValueError
 from .provider import (
     provider_wrapper, ProtocolUpdateProvider, is_func_or_provider)
 from .optdep import import_optional_dependency
-from .util import read_hashable_bytes_from_file_or_dir, oneline
+from .util import (
+    read_hashable_bytes_from_file_or_dir, oneline, recursively_copy_path,
+    single_element)
 from . import tokenization
 
 
@@ -395,6 +397,62 @@ class YamlProtocol(BaseProtocol):
     def read(self, path, extension):
         with path.open('r') as file_:
             return yaml.safe_load(file_)
+
+
+class PathProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values are `pathlib.Path` objects
+    referring to local files. When the Path is serialized, the underlying
+    files are transferred to Bionic's internal file cache; this means a Path
+    can be serialized to a cloud cache and then deserialized on a different
+    machine and still work.  The Path can refer to either a file or a directory.
+
+    Parameters
+    ----------
+    operation (string): {"move", "copy"} (default: "copy")
+        Indicates whether the underlying file should be moved or copied to
+        Bionic's internal cache. If the file is created by this entity
+        function, it probably makes sense to use "move", since no one else
+        should be accessing the file anyway. If the file already existed,
+        then "copy" is better.
+    """
+
+    def __init__(self, operation='copy'):
+        super(PathProtocol, self).__init__()
+        known_operations = ('move', 'copy')
+        if operation not in known_operations:
+            raise ValueError(oneline(f'''
+                Operation must be in {known_operations!r}:
+                got {operation}.'''))
+        self.operation = operation
+
+    def get_fixed_file_extension(self):
+        return 'as_path'
+
+    def validate(self, value):
+        assert isinstance(value, Path)
+
+    def write(self, value, path):
+        # We store the path object as a directory containing the actual file:
+        #     .../XXX.as_path/ORIG_FILENAME
+        # (We use a directory because we don't control the `XXX.as_path` name,
+        # so this way the file itself will keep its original name and
+        # extension.)
+
+        src_path = value
+        dst_dir_path = path
+        dst_dir_path.mkdir()
+        dst_path = dst_dir_path / src_path.name
+
+        if self.operation == 'move':
+            shutil.move(src_path, dst_path)
+        elif self.operation == 'copy':
+            recursively_copy_path(src_path, dst_path)
+        else:
+            raise AssertionError(f'Unexpected operation: {self.operation!r}')
+
+    def read(self, path, extension):
+        return single_element(path.iterdir())
 
 
 class CombinedProtocol(BaseProtocol):

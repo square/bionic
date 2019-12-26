@@ -8,6 +8,7 @@ from hashlib import sha256
 from binascii import hexlify
 import subprocess
 import warnings
+import shutil
 
 from .optdep import import_optional_dependency, oneline
 
@@ -53,6 +54,18 @@ def groups_dict(values, keyfunc):
     for value in values:
         valuelists_by_key[keyfunc(value)].append(value)
     return dict(valuelists_by_key)
+
+
+def single_element(iterable):
+    "Takes an iterable with a single element and returns that element."
+    items = list(iterable)
+    if len(items) != 1:
+        raise ValueError(oneline(f'''
+            Expected a sequence with exactly one item;
+            got {len(items)} items.'''))
+    return items[0]
+
+    return next(iter(iterable))
 
 
 def hash_to_hex(bytestring, n_bytes=None):
@@ -157,6 +170,26 @@ def read_hashable_bytes_from_file_or_dir(path):
 
 def ensure_parent_dir_exists(path):
     path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def recursively_copy_path(src_path, dst_path):
+    if not src_path.exists():
+        raise ValueError(f"Path does not exist: {src_path}")
+
+    if src_path.is_file():
+        shutil.copyfile(str(src_path), str(dst_path))
+    else:
+        shutil.copytree(str(src_path), str(dst_path))
+
+
+def recursively_delete_path(path):
+    if not path.exists():
+        raise ValueError(f"Path does not exist: {path}")
+
+    if path.is_file():
+        path.unlink()
+    else:
+        shutil.rmtree(path)
 
 
 class ImmutableSequence(object):
