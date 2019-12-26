@@ -23,7 +23,8 @@ from pyarrow import parquet, Table
 import pandas as pd
 
 from .exception import UnsupportedSerializedValueError
-from .provider import provider_wrapper, ProtocolUpdateProvider
+from .provider import (
+    provider_wrapper, ProtocolUpdateProvider, is_func_or_provider)
 from .optdep import import_optional_dependency
 from .util import read_hashable_bytes_from_file_or_dir, oneline
 from . import tokenization
@@ -117,6 +118,12 @@ class BaseProtocol(object):
             if len(kwargs) > 0:
                 raise ValueError(
                     f"{self} can't be called with both a function and keywords")
+            if not is_func_or_provider(func_or_provider):
+                raise ValueError(oneline(f'''
+                    {self} must be used either (a) directly as a decorator or
+                    (b) with keyword arguments;
+                    it can't take positional arguments.
+                    '''))
 
             wrapper = provider_wrapper(ProtocolUpdateProvider, self)
             return wrapper(func_or_provider)
