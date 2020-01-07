@@ -1370,16 +1370,21 @@ class ShortcutProxy(object):
 
         partial.__name__ = name
 
+        # Set a useful docstring for this function.
+        # First, the prefix explains what the function actually does.
         doc_prefix =\
             self._docstring_prefix_template.format(name=name)
+
+        # If the related entity has any documentation, we include that
+        # afterwards.
         entity_doc = self._flow.entity_doc(name)
         if entity_doc is None:
             main_docstring = doc_prefix + "."
         else:
             clean_entity_doc = dedent(entity_doc).strip()
             main_docstring = f"{doc_prefix}:\n{clean_entity_doc}"
-        method_name = self._wrapped_method.__name__
 
+        method_name = self._wrapped_method.__name__
         partial.__doc__ = (
             f"{main_docstring}"
             "\n\n"
