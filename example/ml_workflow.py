@@ -17,16 +17,16 @@ builder = bn.FlowBuilder('ml_workflow')
 # Define some basic parameters.
 builder.assign(
     'random_seed', 0,
-    docstring='Arbitrary seed for all random decisions in the flow.')
+    doc='Arbitrary seed for all random decisions in the flow.')
 builder.assign(
     'test_split_fraction', 0.3,
-    docstring='Fraction of data to include in test set.')
+    doc='Fraction of data to include in test set.')
 builder.assign(
     'hyperparams_dict', {'C': 1},
-    docstring='Hyperparameters to use when training the model.')
+    doc='Hyperparameters to use when training the model.')
 builder.assign(
     'feature_inclusion_regex', '.*',
-    docstring="Regular expression specifying which feature names to include.")
+    doc="Regular expression specifying which feature names to include.")
 
 
 # Load the raw data.
@@ -60,7 +60,7 @@ def features_frame(raw_frame, feature_inclusion_regex):
 # The `@outputs` decorator tells Bionic to define two new entities from this
 # function (which returns a tuple of two values).
 @bn.outputs('train_frame', 'test_frame')
-@bn.docstrings(
+@bn.docs(
     "Subset of feature data rows, used for model training.",
     "Subset of feature data rows, used for model testing.",
 )

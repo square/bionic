@@ -623,10 +623,10 @@ def test_unhashable_index_values(builder):
     assert index_items == [[1, 2], [2, 3]]
 
 
-def test_entity_docstring(builder):
+def test_entity_doc(builder):
     builder.declare('x')
-    builder.declare('y', docstring="y doc")
-    builder.assign('z', value=3, docstring="z doc")
+    builder.declare('y', doc="y doc")
+    builder.assign('z', value=3, doc="z doc")
 
     @builder
     def f():
@@ -640,15 +640,15 @@ def test_entity_docstring(builder):
     flow = builder.build()
 
     # Test getting ValueProvider's docstring.
-    assert flow.entity_docstring(name='x') is None
-    assert flow.entity_docstring(name='y') == "y doc"
-    assert flow.entity_docstring(name='z') == "z doc"
+    assert flow.entity_doc(name='x') is None
+    assert flow.entity_doc(name='y') == "y doc"
+    assert flow.entity_doc(name='z') == "z doc"
 
     # Test getting FunctionProvider's docstring.
-    assert flow.entity_docstring(name='f') == "test docstring"
-    assert flow.entity_docstring(name='g') is None
+    assert flow.entity_doc(name='f') == "test docstring"
+    assert flow.entity_doc(name='g') is None
 
-    # Test that help() can access entity docstring.
+    # Test that help() can access entity docs.
     def help_str(obj):
         """
         Return the output of help() as a string (rather than printing to
@@ -667,3 +667,14 @@ def test_entity_docstring(builder):
         r"(?s).*"
         r"This function is equivalent to ``get\('g', \*args, \*\*kwargs\)``.*",
         help_str(flow.get.g))
+
+
+def test_entity_doc_legacy_api(builder):
+    with pytest.warns(Warning):
+        builder.assign('x', 1, docstring="x doc")
+    with pytest.warns(Warning):
+        builder.declare('y', docstring="y doc")
+    flow = builder.build()
+    with pytest.warns(Warning):
+        assert flow.entity_docstring('x') == "x doc"
+    assert flow.entity_doc('y') == "y doc"

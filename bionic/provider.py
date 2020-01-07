@@ -30,10 +30,10 @@ class ProviderAttributes(object):
             self, names,
             protocols=None, code_version=None, orig_flow_name=None,
             should_persist=None, should_memoize=None, is_default_value=None,
-            docstrings=None):
+            docs=None):
         self.names = names
         self.protocols = protocols
-        self.docstrings = docstrings
+        self.docs = docs
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
         self.should_persist = should_persist
@@ -98,13 +98,13 @@ class BaseProvider(object):
                 providing only {tuple(self.attrs.names)!r}'''))
         return self.attrs.protocols[name_ix]
 
-    def docstring_for_name(self, name):
+    def doc_for_name(self, name):
         name_ix = self.attrs.names.index(name)
         if name_ix < 0:
             raise ValueError(oneline(f'''
                 Attempted to look up name {name!r} from provider
                 providing only {tuple(self.attrs.names)!r}'''))
-        return self.attrs.docstrings[name_ix]
+        return self.attrs.docs[name_ix]
 
     def __repr__(self):
         return f'{self.__class__.__name__}{tuple(self.attrs.names)!r}'
@@ -261,12 +261,12 @@ class NameSplittingProvider(WrappingProvider):
 
 
 class ValueProvider(BaseProvider):
-    def __init__(self, name, protocol, docstring):
+    def __init__(self, name, protocol, doc):
         super(ValueProvider, self).__init__(
             attrs=ProviderAttributes(
                 names=[name],
                 protocols=[protocol],
-                docstrings=[docstring],
+                docs=[doc],
                 should_persist=False,
                 should_memoize=True,
             ),
@@ -275,12 +275,12 @@ class ValueProvider(BaseProvider):
 
         self.name = name
         self.protocol = protocol
-        self.docstring = docstring
+        self.doc = doc
 
         self.clear_cases()
 
     def copy(self):
-        provider = ValueProvider(self.name, self.protocol, self.docstring)
+        provider = ValueProvider(self.name, self.protocol, self.doc)
         provider.key_space = self.key_space
         provider._has_any_values = self._has_any_values
         provider._values_by_case_key = self._values_by_case_key.copy()
@@ -370,7 +370,7 @@ class FunctionProvider(BaseProvider):
         name = func.__name__
         super(FunctionProvider, self).__init__(attrs=ProviderAttributes(
             names=[name],
-            docstrings=(None if func.__doc__ is None else [func.__doc__]),
+            docs=(None if func.__doc__ is None else [func.__doc__]),
         ))
 
         self._func = func

@@ -159,24 +159,24 @@ syntax:
         """A nice thing to say to someone."""
         return f'{greeting} {subject}!'
 
-If the function defines multiple entities, the :meth:`decorators.docstrings`
+If the function defines multiple entities, the :meth:`decorators.docs`
 decorator can be used to specify documentation for each one:
 
 .. code-block:: python
 
     @builder
     @bn.outputs('first_name', 'last_name')
-    @bn.docstrings('The first name.', 'The last name.')
+    @bn.docs('The first name.', 'The last name.')
     def split_name(full_name):
         first_name, last_name = full_name.split()
         return first_name, last_name
 
-For entities with fixed values, an optional ``docstring`` argument is available:
+For entities with fixed values, an optional ``doc`` argument is available:
 
 .. code-block:: python
 
-    builder.assign('greeting', 'Hello', docstring="A nice way to start a message.")
-    builder.declare('subject', docstring="The person we're talking to.")
+    builder.assign('greeting', 'Hello', doc="A nice way to start a message.")
+    builder.declare('subject', doc="The person we're talking to.")
 
 These documentation strings are helpful for people reading your code, and are
 sometimes visible to the users of your flow.  For example, Python's built-in

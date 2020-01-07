@@ -3,50 +3,50 @@ import pytest
 import bionic as bn
 
 
-def test_no_docstring(builder):
+def test_no_doc(builder):
     @builder
     @bn.outputs('a', 'b')
     def f():
         return 1, 2
 
     flow = builder.build()
-    assert flow.entity_docstring('a') is None
-    assert flow.entity_docstring('b') is None
+    assert flow.entity_doc('a') is None
+    assert flow.entity_doc('b') is None
 
 
-def test_multi_docstrings(builder):
+def test_multi_docs(builder):
     @builder
     @bn.outputs('a', 'b')
-    @bn.docstrings('a doc', 'b doc')
+    @bn.docs('a doc', 'b doc')
     def f():
         return 1, 2
 
     flow = builder.build()
-    assert flow.entity_docstring('a') == 'a doc'
-    assert flow.entity_docstring('b') == 'b doc'
+    assert flow.entity_doc('a') == 'a doc'
+    assert flow.entity_doc('b') == 'b doc'
 
 
-def test_multi_docstrings_decorated_first(builder):
+def test_multi_docs_decorated_first(builder):
     @builder
-    @bn.docstrings('a doc', 'b doc')
+    @bn.docs('a doc', 'b doc')
     @bn.outputs('a', 'b')
     def f():
         return 1, 2
 
     flow = builder.build()
-    assert flow.entity_docstring('a') == 'a doc'
-    assert flow.entity_docstring('b') == 'b doc'
+    assert flow.entity_doc('a') == 'a doc'
+    assert flow.entity_doc('b') == 'b doc'
 
 
-def test_too_many_docstrings(builder):
+def test_too_many_docs(builder):
     with pytest.raises(ValueError):
         @builder
-        @bn.docstrings('a doc', 'b doc')
+        @bn.docs('a doc', 'b doc')
         def f():
             return 1, 2
 
 
-def test_too_few_docstrings(builder):
+def test_too_few_docs(builder):
     with pytest.warns(Warning):
         @builder
         @bn.outputs('a', 'b')
@@ -55,8 +55,8 @@ def test_too_few_docstrings(builder):
             return 1, 2
 
     flow = builder.build()
-    assert flow.entity_docstring('a') == 'a and b doc'
-    assert flow.entity_docstring('b') == 'a and b doc'
+    assert flow.entity_doc('a') == 'a and b doc'
+    assert flow.entity_doc('b') == 'a and b doc'
 
 
 def test_multi_default_protocols(builder):
