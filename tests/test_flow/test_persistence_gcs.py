@@ -12,6 +12,8 @@ import random
 import subprocess
 import getpass
 import shutil
+from pathlib import Path
+import tempfile
 
 import dask.dataframe as dd
 
@@ -256,4 +258,27 @@ def test_gcs_caching(gcs_builder):
 
     assert equal_frame_and_index_content(
         flow.get('df').compute(), dask_df.compute())
+    assert call_counter.times_called() == 0
+
+    # Test file path copying.
+    file_contents = 'DATA'
+
+    @builder
+    @bn.protocol.path(operation='move')
+    def data_path():
+        call_counter.mark()
+        fd, filename = tempfile.mkstemp()
+        with open(fd, 'w') as f:
+            f.write(file_contents)
+        return Path(filename)
+
+    flow = builder.build()
+
+    assert flow.get('data_path').read_text() == file_contents
+    assert call_counter.times_called() == 1
+
+    local_wipe_path(local_cache_path_str)
+    flow = builder.build()
+
+    assert flow.get('data_path').read_text() == file_contents
     assert call_counter.times_called() == 0

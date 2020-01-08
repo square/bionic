@@ -1,17 +1,20 @@
 import pytest
 
 from binascii import hexlify
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
+import dask.dataframe as dd
 
 from ..helpers import (
     count_calls, df_from_csv_str, equal_frame_and_index_content)
 
 import bionic as bn
-import dask.dataframe as dd
+from bionic.util import recursively_delete_path
 from bionic.exception import UnsupportedSerializedValueError
 from bionic.protocols import CombinedProtocol, PicklableProtocol
 
@@ -427,6 +430,68 @@ def test_enum_protocol(builder):
 
     with pytest.raises(AssertionError):
         builder.set('color', 'green')
+
+
+@pytest.mark.parametrize('operation', ['move', 'copy'])
+def test_path_protocol(builder, tmp_path, operation):
+    # Our entities will return paths in this directory.
+    working_dir_path = Path(tempfile.mkdtemp(dir=tmp_path))
+    output_phrase_file_path = working_dir_path / 'phrase'
+    output_colors_dir_path = working_dir_path / 'colors'
+
+    phrase_str = 'hello world'
+    colors = ['red', 'blue']
+
+    @builder
+    @bn.protocol.path(operation=operation)
+    @count_calls
+    def phrase_file_path():
+        "A path to a file containing a phrase."
+        output_phrase_file_path.write_text(phrase_str)
+        return output_phrase_file_path
+
+    @builder
+    @bn.protocol.path(operation=operation)
+    @count_calls
+    def colors_dir_path():
+        "A path to a directory containing some files named after colors."
+        output_colors_dir_path.mkdir()
+        for color in colors:
+            (output_colors_dir_path / color).write_text(color)
+        return output_colors_dir_path
+
+    def check_file_contents(file_path):
+        assert file_path.read_text() == phrase_str
+
+    def check_dir_contents(dir_path):
+        file_paths = list(dir_path.iterdir())
+        assert set(path.name for path in file_paths) == set(colors)
+        for file_path in file_paths:
+            assert file_path.read_text() == file_path.name
+
+    check_file_contents(builder.build().get('phrase_file_path'))
+    check_dir_contents(builder.build().get('colors_dir_path'))
+    assert phrase_file_path.times_called() == 1
+    assert colors_dir_path.times_called() == 1
+
+    if operation == 'copy':
+        # Check that the original files are still there.
+        check_file_contents(output_phrase_file_path)
+        check_dir_contents(output_colors_dir_path)
+
+        # Check that the cached versions are still accessible if we delete the
+        # originals.
+        for sub_path in working_dir_path.iterdir():
+            recursively_delete_path(sub_path)
+
+        check_file_contents(builder.build().get('phrase_file_path'))
+        check_dir_contents(builder.build().get('colors_dir_path'))
+        assert phrase_file_path.times_called() == 0
+        assert colors_dir_path.times_called() == 0
+
+    elif operation == 'move':
+        # Check that the original files have been removed.
+        assert list(working_dir_path.iterdir()) == []
 
 
 def test_combined_protocol(builder):

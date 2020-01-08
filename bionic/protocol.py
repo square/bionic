@@ -1,4 +1,5 @@
 from . import protocols
+from .provider import is_func_or_provider
 from .util import oneline
 
 # These are callable with or without arguments.  See BaseProtocol.__call__ for
@@ -9,6 +10,7 @@ dask = protocols.DaskProtocol()  # noqa: F401
 image = protocols.ImageProtocol()  # noqa: F401
 numpy = protocols.NumPyProtocol()  # noqa: F401
 yaml = protocols.YamlProtocol()  # noqa: F401
+path = protocols.PathProtocol()  # noqa: F401
 
 
 def frame(func_or_provider=None, file_format=None, check_dtypes=None):
@@ -50,6 +52,12 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
         if file_format is not None or check_dtypes is not None:
             raise ValueError(
                 "frame can't be called with both a function and keywords")
+        if not is_func_or_provider(func_or_provider):
+            raise ValueError(oneline('''
+                frame must be used either (a) directly as a decorator or
+                (b) with keyword arguments;
+                it can't take positional arguments.
+                '''))
         return protocols.ParquetDataFrameProtocol()(func_or_provider)
 
     # Otherwise, we have arguments and should return a decorator.

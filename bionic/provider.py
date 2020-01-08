@@ -873,6 +873,10 @@ def is_provider(obj):
     return all(hasattr(obj, method_name) for method_name in PROVIDER_METHODS)
 
 
+def is_func_or_provider(obj):
+    return callable(obj) or is_provider(obj)
+
+
 def as_provider(func_or_provider):
     if is_provider(func_or_provider):
         provider = func_or_provider
