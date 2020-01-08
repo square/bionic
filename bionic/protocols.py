@@ -401,7 +401,7 @@ class YamlProtocol(BaseProtocol):
 
 class PathProtocol(BaseProtocol):
     """
-    Decorator indicating that an entity's values are `pathlib.Path` objects
+    Decorator indicating that an entity's values are ``pathlib.Path`` objects
     referring to local files. When the Path is serialized, the underlying
     files are transferred to Bionic's internal file cache; this means a Path
     can be serialized to a cloud cache and then deserialized on a different
@@ -409,7 +409,7 @@ class PathProtocol(BaseProtocol):
 
     Parameters
     ----------
-    operation (string): {"move", "copy"} (default: "copy")
+    operation: {"move", "copy"} (default: "copy")
         Indicates whether the underlying file should be moved or copied to
         Bionic's internal cache. If the file is created by this entity
         function, it probably makes sense to use "move", since no one else

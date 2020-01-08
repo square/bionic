@@ -79,4 +79,4 @@ Protocol Decorators
 .. autofunction:: bionic.protocol.numpy
 .. autofunction:: bionic.protocol.picklable
 .. autofunction:: bionic.protocol.type
-
+.. autofunction:: bionic.protocol.path
