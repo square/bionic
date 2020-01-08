@@ -12,7 +12,7 @@ import bionic as bn
 from bionic.exception import (
     UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
 
-from ..helpers import count_calls
+from ..helpers import count_calls, assert_re_matches
 
 
 @pytest.fixture(scope='function')
@@ -623,10 +623,10 @@ def test_unhashable_index_values(builder):
     assert index_items == [[1, 2], [2, 3]]
 
 
-def test_entity_docstring(builder):
+def test_entity_doc(builder):
     builder.declare('x')
-    builder.declare('y', docstring="y doc")
-    builder.assign('z', value=3, docstring="z doc")
+    builder.declare('y', doc="y doc")
+    builder.assign('z', value=3, doc="z doc")
 
     @builder
     def f():
@@ -639,17 +639,42 @@ def test_entity_docstring(builder):
 
     flow = builder.build()
 
-    # test getting ValueProvider's docstring
-    assert flow.entity_docstring(name='x') is None
-    assert flow.entity_docstring(name='y') == "y doc"
-    assert flow.entity_docstring(name='z') == "z doc"
+    # Test getting ValueProvider's docstring.
+    assert flow.entity_doc(name='x') is None
+    assert flow.entity_doc(name='y') == "y doc"
+    assert flow.entity_doc(name='z') == "z doc"
 
-    # test getting FunctionProvider's docstring
-    assert flow.entity_docstring(name='f') == "test docstring"
-    assert flow.entity_docstring(name='g') is None
+    # Test getting FunctionProvider's docstring.
+    assert flow.entity_doc(name='f') == "test docstring"
+    assert flow.entity_doc(name='g') is None
 
-    # test help() can access entity docstring
-    fout = io.StringIO()
-    with contextlib.redirect_stdout(fout):
-        help(flow.get.f)
-    assert "test docstring" in fout.getvalue()
+    # Test that help() can access entity docs.
+    def help_str(obj):
+        """
+        Return the output of help() as a string (rather than printing to
+        stdout).
+        """
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            help(obj)
+        return buf.getvalue()
+
+    assert_re_matches(
+        r"(?s).*test docstring\s+"
+        r"This function is equivalent to ``get\('f', \*args, \*\*kwargs\)``.*",
+        help_str(flow.get.f))
+    assert_re_matches(
+        r"(?s).*"
+        r"This function is equivalent to ``get\('g', \*args, \*\*kwargs\)``.*",
+        help_str(flow.get.g))
+
+
+def test_entity_doc_legacy_api(builder):
+    with pytest.warns(Warning):
+        builder.assign('x', 1, docstring="x doc")
+    with pytest.warns(Warning):
+        builder.declare('y', docstring="y doc")
+    flow = builder.build()
+    with pytest.warns(Warning):
+        assert flow.entity_docstring('x') == "x doc"
+    assert flow.entity_doc('y') == "y doc"

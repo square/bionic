@@ -8,6 +8,7 @@ import shutil
 import warnings
 from pathlib import Path, PosixPath
 from importlib import reload
+from textwrap import dedent
 
 import pyrsistent as pyrs
 import pandas as pd
@@ -87,11 +88,11 @@ class FlowState(pyrs.PClass):
     def has_provider(self, name):
         return name in self.providers_by_name
 
-    def create_provider(self, name, protocol, docstring):
+    def create_provider(self, name, protocol, doc):
         if name in self.providers_by_name:
             raise AlreadyDefinedEntityError.for_name(name)
 
-        provider = ValueProvider(name, protocol, docstring)
+        provider = ValueProvider(name, protocol, doc)
         return self._set_provider(provider).touch()
 
     def install_provider(self, provider):
@@ -126,8 +127,10 @@ class FlowState(pyrs.PClass):
 
         # Recreate an empty version of each provider.
         for name, attrs in attrs_by_entity_name.items():
-            protocol = attrs.protocols[attrs.names.index(name)]
-            state = state.create_provider(name, protocol, attrs.docstring)
+            name_ix = attrs.names.index(name)
+            protocol = attrs.protocols[name_ix]
+            doc = attrs.docs[name_ix]
+            state = state.create_provider(name, protocol, doc)
 
         return state.touch()
 
@@ -228,7 +231,7 @@ class FlowBuilder(object):
         self._state = state.touch()
         return flow
 
-    def declare(self, name, protocol=None, docstring=None):
+    def declare(self, name, protocol=None, doc=None, docstring=None):
         """
         Creates a new entity but does not assign it a value.
 
@@ -242,19 +245,27 @@ class FlowBuilder(object):
         protocol: Protocol, optional
             The entity's protocol.  The default is a smart type-detecting
             protocol.
-        docstring: String, optional
+        doc: String, optional
             Description of the new entity.
         """
 
         if protocol is None:
             protocol = DEFAULT_PROTOCOL
 
-        self._state = self._state.create_provider(name, protocol, docstring)
+        if docstring is not None:
+            check_at_most_one_present(doc=doc, docstring=docstring)
+            warnings.warn(
+                "The `docstring` argument to `FlowBuilder.declare` is "
+                "deprecated; use `doc` instead.")
+            doc = docstring
+
+        self._state = self._state.create_provider(name, protocol, doc)
 
     def assign(self, name,
                value=None,
                values=None,
                protocol=None,
+               doc=None,
                docstring=None):
         """
         Creates a new entity and assigns it a value.
@@ -274,7 +285,7 @@ class FlowBuilder(object):
         protocol: Protocol, optional
             The entity's protocol.  The default is a smart type-detecting
             protocol.
-        docstring: String, optional
+        doc: String, optional
             Description of the new entity.
         """
 
@@ -285,12 +296,19 @@ class FlowBuilder(object):
         if protocol is None:
             protocol = DEFAULT_PROTOCOL
 
+        if docstring is not None:
+            check_at_most_one_present(doc=doc, docstring=docstring)
+            warnings.warn(
+                "The `docstring` argument to `FlowBuilder.assign` is "
+                "deprecated; use `doc` instead.")
+            doc = docstring
+
         for value in values:
             protocol.validate(value)
 
         state = self._state
 
-        state = state.create_provider(name, protocol, docstring)
+        state = state.create_provider(name, protocol, doc)
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
             state = state.add_case(name, case_key, value)
@@ -704,15 +722,48 @@ class FlowBuilder(object):
         provider = as_provider(func_or_provider)
         if provider.attrs.protocols is None:
             provider = DEFAULT_PROTOCOL(provider)
+        if provider.attrs.docs is None:
+            docs = [None] * len(provider.attrs.names)
+            provider = decorators.docs(*docs)(provider)
         if provider.attrs.should_persist is None:
             provider = decorators.persist(True)(provider)
         if provider.attrs.should_memoize is None:
             provider = decorators.memoize(True)(provider)
-        if not (provider.attrs.should_persist or provider.attrs.should_memoize):
+
+        if not (
+                provider.attrs.should_persist or
+                provider.attrs.should_memoize):
             raise ValueError(oneline(f'''
                 Attempted to set both persist and memoize to False.
                 At least one form of storage must be enabled for entities:
                 {func_or_provider.attrs.names!r}'''))
+        if len(provider.attrs.protocols) != len(provider.attrs.names):
+            names = provider.attrs.names
+            protocols = provider.attrs.protocols
+            raise ValueError(oneline(f'''
+                Number of protocols must match the number of names;
+                got {len(names)} names {tuple(names)!r} and
+                {len(protocols)} protocols {tuple(protocols)!r}'''))
+        if len(provider.attrs.docs) != len(provider.attrs.names):
+            names = provider.attrs.names
+            docs = provider.attrs.docs
+            message = oneline(f'''
+                Number of docs must match the number of names;
+                got {len(names)} names {tuple(names)!r} and
+                {len(docs)} docs {tuple(docs)!r}''')
+            if len(provider.attrs.docs) == 1:
+                prefix = oneline('''
+                    Using a single doc string for a multi-output function is
+                    deprecated and will become an error condition in a future
+                    release; use the ``@docs`` decorator to specify
+                    one doc string for each entity.  Details:''')
+                warnings.warn(prefix + '\n' + message)
+
+                docs = [docs[0]] * len(names)
+                provider = AttrUpdateProvider(
+                    provider, 'docs', docs, allow_override=True)
+            else:
+                raise ValueError(message)
 
         state = self._state
 
@@ -853,10 +904,10 @@ class Flow(object):
 
         return self._state.get_provider(name).protocol_for_name(name)
 
-    def entity_docstring(self, name):
+    def entity_doc(self, name):
         """
-        Returns the docstring for the named entity if a docstring is defined,
-        otherwise return None.
+        Returns the doc for the named entity if one is defined, otherwise
+        return None.
 
         Parameters
         ----------
@@ -864,7 +915,24 @@ class Flow(object):
         name: String
             The name of an entity.
         """
-        return self._state.get_provider(name).attrs.docstring
+        return self._state.get_provider(name).doc_for_name(name)
+
+    def entity_docstring(self, name):
+        """
+        (Deprecated in favor of `entity_doc`.)
+        Returns the doc for the named entity if one is defined, otherwise
+        return None.
+
+        Parameters
+        ----------
+
+        name: String
+            The name of an entity.
+        """
+        warnings.warn(
+            "`Flow.entity_docstring` is deprecated; "
+            "use `Flow.entity_doc` instead.")
+        return self.entity_doc(name)
 
     def to_builder(self):
         """
@@ -1227,8 +1295,35 @@ class Flow(object):
         self._state = state
         self._deriver = EntityDeriver(state)
 
-        self.get = ShortcutProxy(self.get)
-        self.setting = ShortcutProxy(self.setting)
+        # We replace the `get` and `setting` methods with wrapper classes
+        # that have an attribute for each entity.  This allows a convenient,
+        # autocompletable way to access entities. We subclass the ShortcutProxy
+        # class for each method so that the docstring shows up properly in help
+        # text. (We could instantiate the ShortcutProxy class and dynamically
+        # set the docstring, but tools like `help` access the class definition
+        # directly and won't pick up the updated docstring.)
+        orig_get_method = self.get
+        orig_setting_method = self.setting
+
+        class GetMethod(ShortcutProxy):
+            __doc__ = orig_get_method.__doc__
+
+            def __init__(self):
+                super(GetMethod, self).__init__(
+                    orig_get_method, 'Computes the value(s) for "{name}"')
+        self.get = GetMethod()
+
+        class SettingMethod(ShortcutProxy):
+            __doc__ = orig_setting_method.__doc__
+
+            def __init__(self):
+                super(SettingMethod, self).__init__(
+                    orig_setting_method,
+                    oneline('''
+                    Returns a copy of this flow with an updated value of
+                    "{name}"'''))
+
+        self.setting = SettingMethod()
 
     def _updating(self, builder_update_func):
         builder = FlowBuilder._from_state(self._state)
@@ -1255,12 +1350,13 @@ class ShortcutProxy(object):
     IPython, Jupyter, etc.
     '''
 
-    def __init__(self, wrapped_method):
+    def __init__(self, wrapped_method, docstring_prefix_template):
         self._wrapped_method = wrapped_method
+        self._docstring_prefix_template = docstring_prefix_template
         self._flow = wrapped_method.__self__
         assert isinstance(self._flow, Flow)
 
-        self.__doc__ = self._wrapped_method.__doc__
+        self.__name__ = wrapped_method.__name__
 
     def __call__(self, *args, **kwargs):
         return self._wrapped_method(*args, **kwargs)
@@ -1271,7 +1367,30 @@ class ShortcutProxy(object):
     def __getattr__(self, name):
         def partial(*args, **kwargs):
             return self._wrapped_method(name, *args, **kwargs)
-        partial.__doc__ = self._flow.entity_docstring(name)
+
+        partial.__name__ = name
+
+        # Set a useful docstring for this function.
+        # First, the prefix explains what the function actually does.
+        doc_prefix =\
+            self._docstring_prefix_template.format(name=name)
+
+        # If the related entity has any documentation, we include that
+        # afterwards.
+        entity_doc = self._flow.entity_doc(name)
+        if entity_doc is None:
+            main_docstring = doc_prefix + "."
+        else:
+            clean_entity_doc = dedent(entity_doc).strip()
+            main_docstring = f"{doc_prefix}:\n{clean_entity_doc}"
+
+        method_name = self._wrapped_method.__name__
+        partial.__doc__ = (
+            f"{main_docstring}"
+            "\n\n"
+            "This function is equivalent to "
+            f"``{method_name}('{name}', *args, **kwargs)``")
+
         return partial
 
 
