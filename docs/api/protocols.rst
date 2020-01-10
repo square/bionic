@@ -22,7 +22,7 @@ entity being defined.  For example:
 
     # This entity's value will always be a ``pandas.DataFrame``.
     @builder
-    @bn.protocol.DataFrame
+    @bn.protocol.frame
     def raw_df():
         from sklearn import datasets
         dataset = datasets.load_breast_cancer()
@@ -45,7 +45,7 @@ Protocols can also be used when creating new entities with ``declare`` or
 .. code-block:: python
 
     builder.assign('name_length', 'short', bn.protocol.enum('short', 'long'))
-    builder.declare('raw_df', bn.protocol.DataFrame)
+    builder.declare('raw_df', bn.protocol.frame)
 
 Custom Protocols
 ----------------
@@ -69,8 +69,8 @@ API changes may break your implementation.)
             """Read an object from path object ``path``, and return it."""
             raise NotImplementedError()
 
-Protocol Decorators
--------------------
+Built-In Protocol Decorators
+----------------------------
 
 .. autofunction:: bionic.protocol.dillable
 .. autofunction:: bionic.protocol.enum
