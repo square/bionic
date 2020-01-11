@@ -1169,7 +1169,7 @@ class Flow(object):
 
     def render_dag(self, include_core=False, vertical=False, curvy_lines=False):
         """
-        Returns an image with a visualization of this flow's DAG.
+        Returns a FlowImage with a visualization of this flow's DAG.
 
         Will fail if Graphviz is not installed on the system.
         """
@@ -1178,8 +1178,7 @@ class Flow(object):
 
         graph = self._deriver.export_dag(include_core)
         dot = dagviz.dot_from_graph(graph, vertical, curvy_lines)
-        image = dagviz.image_from_dot(dot)
-        return image
+        return dagviz.FlowImage(dot)
 
     # TODO Should we offer an in-place version of this?  It's contrary to the
     # idea of an immutable API, but it might be more natural for the user, and

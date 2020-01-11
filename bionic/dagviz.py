@@ -4,8 +4,9 @@ pull in several optional dependencies as well.  The external Graphviz library
 is also required.
 """
 
+from pathlib import Path
 from collections import defaultdict
-from io import BytesIO
+from io import BytesIO, IOBase
 
 from .optdep import import_optional_dependency
 module_purpose = 'rendering the flow DAG'
@@ -14,12 +15,51 @@ pydot = import_optional_dependency('pydot', purpose=module_purpose)
 Image = import_optional_dependency('PIL.Image', purpose=module_purpose)
 
 
+class FlowImage:
+    def __init__(self, pydot_graph):
+        """
+        Given a pydot graph object, create Pillow Image or SVG represented as XML text.
+        Replicates the PIL APIs for save and show, for both PIL-supported and SVG formats.
+        """
+        self._pil_image = Image.open(BytesIO(pydot_graph.create_png()))
+        self._xml_text = pydot_graph.create_svg()
+
+    def save(self, fp, format=None, **params):
+        """
+        Save flow visualization to filename, Path, or file object. If file object is passed,
+        must also pass format. Pass additional keyword options supported by PIL using params.
+        Args:
+            fp: Filename (string), pathlib.Path object, or file object
+            format: format parameters
+            **params: additional keyword options supported by PIL
+        """
+        is_file_object = isinstance(fp, IOBase)
+        use_svg = (format == 'svg') or \
+            (format is None and not is_file_object and Path(fp).suffix == '.svg')
+        if use_svg:
+            if is_file_object:
+                fp.write(self._xml_text)
+            else:
+                with open(fp, 'wb') as file:
+                    file.write(self._xml_text)
+        else:
+            self._pil_image.save(fp, format, **params)
+
+    def show(self):
+        """Show image using PIL"""
+        self._pil_image.show()
+
+    def _repr_svg_(self):
+        """Rich display image as SVG in IPython notebook or Qt console."""
+        return str(self._xml_text)
+
+
 def hpluv_color_dict(keys, saturation, lightness):
-    '''
+    """
     Given a list of arbitary keys, generates a dict mapping those keys to a set
     of evenly-spaced, perceptually uniform colors with the specified saturation
     and lightness.
-    '''
+    """
 
     n = len(keys)
     color_strs = [
@@ -30,10 +70,10 @@ def hpluv_color_dict(keys, saturation, lightness):
 
 
 def dot_from_graph(graph, vertical=False, curvy_lines=False):
-    '''
+    """
     Given a NetworkX directed acyclic graph, returns a Pydot object which can
     be visualized using GraphViz.
-    '''
+    """
 
     dot = pydot.Dot(
         graph_type='digraph',
@@ -57,6 +97,9 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False):
     def name_from_node(node):
         return graph.nodes[node]['name']
 
+    def doc_from_node(node):
+        return graph.nodes[node].get('doc')
+
     for cluster, node_list in node_lists_by_cluster.items():
         sorted_nodes = list(sorted(
             node_list, key=lambda node: graph.nodes[node]['task_ix']))
@@ -65,12 +108,16 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False):
 
         for node in sorted_nodes:
             entity_name = graph.nodes[node]['entity_name']
-            subdot.add_node(pydot.Node(
+            entity_tooltip = doc_from_node(node)
+            dot_node = pydot.Node(
                 name_from_node(node),
                 style='filled',
                 fillcolor=color_strs_by_entity_name[entity_name],
                 shape='box',
-            ))
+            )
+            if entity_tooltip:
+                dot_node.set('tooltip', entity_tooltip)
+            subdot.add_node(dot_node)
 
         dot.add_subgraph(subdot)
 
@@ -84,10 +131,3 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False):
             ))
 
     return dot
-
-
-def image_from_dot(dot):
-    '''
-    Given a pydot graph object, renders it into a Pillow Image.
-    '''
-    return Image.open(BytesIO(dot.create_png()))
