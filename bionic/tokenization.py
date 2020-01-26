@@ -40,7 +40,7 @@ def clean_str(string):
 # - to avoid collisions, we need a hash space of 1e6 squared, or 1e12
 # - that's 36 bits
 # - rounding up, that's 5 bytes
-# I picked 1e6 arbitrarily; the hash is only used when two value have the same
+# I picked 1e6 arbitrarily; the hash is only used when two values have the same
 # "clean string" value OR when they can't be converted to strings at all, but
 # that will include things like dicts of hyperparameter values.
 HASH_LEN = 5
