@@ -25,9 +25,6 @@ logger = logging.getLogger(__name__)
 try:
     # The C-based YAML emitter is much faster, but requires separate bindings
     # which may not be installed.
-    # I'm not sure if it's possible to use a C-based loader, since we're using
-    # yaml.full_load.  This is less important since we dump much more than we
-    # load.
     YamlDumper = yaml.CDumper
     YamlLoader = yaml.CLoader
 except AttributeError:
@@ -160,7 +157,7 @@ class CacheAccessor(object):
 
     def save_result(self, result):
         """
-        Saves a Result in each cache layer that doens't already have an exact
+        Saves a Result in each cache layer that doesn't already have an exact
         match.
         """
 
