@@ -12,6 +12,7 @@ class TaskKey(namedtuple('TaskKey', 'entity_name case_key')):
     '''
     A unique identifier for a Task.
     '''
+
     def __new__(cls, entity_name, case_key):
         return super(TaskKey, cls).__new__(cls, entity_name, case_key)
 
@@ -19,8 +20,7 @@ class TaskKey(namedtuple('TaskKey', 'entity_name case_key')):
         return f'TaskKey({self.entity_name!r}, {self.case_key!r})'
 
     def __str__(self):
-        args_str = ', '.join(
-            f'{name}={value}' for name, value in self.case_key.items())
+        args_str = ', '.join(f'{name}={value}' for name, value in self.case_key.items())
         return f'{self.entity_name}({args_str})'
 
 
@@ -29,6 +29,7 @@ class Task(object):
     A unit of work.  Can have dependencies, which are referred to via their
     TaskKeys.
     '''
+
     def __init__(self, keys, dep_keys, compute_func, is_simple_lookup=False):
         self.keys = tuple(keys)
         self.dep_keys = tuple(dep_keys)
@@ -36,12 +37,8 @@ class Task(object):
         self.is_simple_lookup = is_simple_lookup
 
     def key_for_entity_name(self, name):
-        matching_keys = [
-            task_key
-            for task_key in self.keys
-            if task_key.entity_name == name
-        ]
-        key, = matching_keys
+        matching_keys = [task_key for task_key in self.keys if task_key.entity_name == name]
+        (key,) = matching_keys
         return key
 
     def __repr__(self):
@@ -52,8 +49,8 @@ class Query(object):
     '''
     Represents a request for a specific entity value.
     '''
-    def __init__(
-            self, task_key, protocol, provenance):
+
+    def __init__(self, task_key, protocol, provenance):
         self.task_key = task_key
         self.entity_name = task_key.entity_name
         self.case_key = task_key.case_key
@@ -71,8 +68,8 @@ class Result(object):
     '''
     Represents one value for one entity.
     '''
-    def __init__(
-            self, query, value, file_path=None):
+
+    def __init__(self, query, value, file_path=None):
         self.query = query
         self.value = value
         self.file_path = file_path
@@ -86,6 +83,7 @@ class CaseKeySpace(ImmutableSequence):
     A set of CaseKey names (without values) -- represents a space of possible
     CaseKeys.
     '''
+
     def __init__(self, names=None):
         if names is None:
             names = []
@@ -132,15 +130,10 @@ class CaseKey(ImmutableMapping):
     '''
     A collection of name-value pairs that uniquely identifies a case.
     '''
+
     def __init__(self, name_value_token_triples):
-        values_by_name = {
-            name: value
-            for name, value, token in name_value_token_triples
-        }
-        tokens_by_name = {
-            name: token
-            for name, value, token in name_value_token_triples
-        }
+        values_by_name = {name: value for name, value, token in name_value_token_triples}
+        tokens_by_name = {name: token for name, value, token in name_value_token_triples}
 
         super(CaseKey, self).__init__(tokens_by_name)
         self._nvt_triples = name_value_token_triples
@@ -149,24 +142,21 @@ class CaseKey(ImmutableMapping):
         self.space = CaseKeySpace(list(values_by_name.keys()))
 
     def project(self, key_space):
-        return CaseKey([
-            (name, value, token)
-            for name, value, token in self._nvt_triples
-            if name in key_space
-        ])
+        return CaseKey(
+            [(name, value, token) for name, value, token in self._nvt_triples if name in key_space]
+        )
 
     def drop(self, key_space):
-        return CaseKey([
-            (name, value, token)
-            for name, value, token in self._nvt_triples
-            if name not in key_space
-        ])
+        return CaseKey(
+            [
+                (name, value, token)
+                for name, value, token in self._nvt_triples
+                if name not in key_space
+            ]
+        )
 
     def merge(self, other):
-        vt_pairs_by_name = {
-            name: (value, token)
-            for name, value, token in self._nvt_triples
-        }
+        vt_pairs_by_name = {name: (value, token) for name, value, token in self._nvt_triples}
 
         for name, value, token in other._nvt_triples:
             if name in vt_pairs_by_name:
@@ -174,10 +164,7 @@ class CaseKey(ImmutableMapping):
             else:
                 vt_pairs_by_name[name] = value, token
 
-        return CaseKey([
-            (name, value, token)
-            for name, (value, token) in vt_pairs_by_name.items()
-        ])
+        return CaseKey([(name, value, token) for name, (value, token) in vt_pairs_by_name.items()])
 
     def __repr__(self):
         args_str = ', '.join(f'{name}={token}' for name, token in self.items())
@@ -189,6 +176,7 @@ class ResultGroup(ImmutableSequence):
     Represents a collection of Results, distinguished by their CaseKeys.  Each
     CaseKey should have the same set of names.
     '''
+
     def __init__(self, results, key_space):
         super(ResultGroup, self).__init__(results)
 
@@ -222,16 +210,14 @@ def str_from_version_value(value):
     elif isinstance(value, str):
         return value
     else:
-        raise ValueError(
-            f"Version values must be str, int, or None: got {value!r}")
+        raise ValueError(f"Version values must be str, int, or None: got {value!r}")
 
 
 # Describes the code of a function.
-CodeDescriptor = namedtuple(
-    'CodeDescriptor', 'version bytecode_hash orig_flow_name')
+CodeDescriptor = namedtuple('CodeDescriptor', 'version bytecode_hash orig_flow_name')
 
 
 # Encodes the versioning rules to use when computing entity values.
 VersioningPolicy = namedtuple(
-    'VersioningPolicy',
-    'check_for_bytecode_errors treat_bytecode_as_functional')
+    'VersioningPolicy', 'check_for_bytecode_errors treat_bytecode_as_functional'
+)

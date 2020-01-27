@@ -10,10 +10,7 @@ from collections import OrderedDict
 
 def combine(*dep_lists):
     """Combines multiple lists into a single sorted list of distinct items."""
-    return list(sorted(set(
-        dep
-        for dep_list in dep_lists
-        for dep in dep_list)))
+    return list(sorted(set(dep for dep_list in dep_lists for dep in dep_list)))
 
 
 # Construct the mapping from "extra name" to package descriptor.
@@ -36,12 +33,17 @@ extras['full'] = combine(*extras.values())
 
 extras['dev'] = combine(
     [
-        'pytest', 'flake8',
-        'sphinx', 'sphinx_rtd_theme', 'sphinx-autobuild', 'nbsphinx',
+        'pytest',
+        'flake8',
+        'sphinx',
+        'sphinx_rtd_theme',
+        'sphinx-autobuild',
+        'nbsphinx',
         'jupyter',
         'bumpversion',
     ],
-    *extras.values())
+    *extras.values()
+)
 
 # This will be imported by setup.py.
 extras_require = extras

@@ -16,11 +16,7 @@ def oneline(string):
     rendering error messages, which are most easily written as multiline
     string literals but more readable as single-line strings.
     '''
-    return ' '.join(
-        substring.strip()
-        for substring in string.split('\n')
-        if substring.split()
-    )
+    return ' '.join(substring.strip() for substring in string.split('\n') if substring.split())
 
 
 def first_token_from_package_desc(desc):
@@ -29,11 +25,15 @@ def first_token_from_package_desc(desc):
         return desc
 
     if desc[first_mismatch.start()] not in ' <>=':
-        raise AssertionError(oneline(f'''
+        raise AssertionError(
+            oneline(
+                f'''
             Package descriptor {desc!r} contained
-            unexpected character {desc[first_mismatch.start()]!r}'''))
+            unexpected character {desc[first_mismatch.start()]!r}'''
+            )
+        )
 
-    return desc[:first_mismatch.start()]
+    return desc[: first_mismatch.start()]
 
 
 # For packages that we don't import by the exact package name, these are
@@ -41,7 +41,7 @@ def first_token_from_package_desc(desc):
 alias_lists_by_package = {
     'google-cloud-storage': ['google.cloud.storage'],
     'Pillow': ['PIL.Image'],
-    'dask[dataframe]': ['dask.dataframe']
+    'dask[dataframe]': ['dask.dataframe'],
 }
 
 # Now we contruct a new data structure to allow us to give helpful error
@@ -82,9 +82,13 @@ def import_optional_dependency(name, purpose=None, raise_on_missing=True):
     """
 
     if name not in extras_by_importable_name:
-        raise AssertionError(oneline(f'''
+        raise AssertionError(
+            oneline(
+                f'''
             Attempted to import {name!r},
-            which is not registered as a dependency'''))
+            which is not registered as a dependency'''
+            )
+        )
 
     # TODO Once we have specific version requirements for our optional
     # packages, we should check that the version is correct.
@@ -100,10 +104,14 @@ def import_optional_dependency(name, purpose=None, raise_on_missing=True):
             else:
                 description = 'required for ' + purpose
 
-            raise ImportError(oneline(f'''
+            raise ImportError(
+                oneline(
+                    f'''
                 Unable to import package {name!r}, which is {description};
                 you can use ``pip install bionic[{extra_name}]``
-                to resolve this'''))
+                to resolve this'''
+                )
+            )
 
         else:
             return None

@@ -12,8 +12,13 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 
 from .datatypes import CodeVersion
 from .provider import (
-    GatherProvider, AttrUpdateProvider, PyplotProvider, RenamingProvider,
-    NameSplittingProvider, provider_wrapper)
+    GatherProvider,
+    AttrUpdateProvider,
+    PyplotProvider,
+    RenamingProvider,
+    NameSplittingProvider,
+    provider_wrapper,
+)
 from . import interpret
 
 
@@ -54,8 +59,7 @@ def version(major=None, minor=None):
         A decorator which can be applied to an entity function.
     """
 
-    return provider_wrapper(
-        AttrUpdateProvider, 'code_version', CodeVersion(major, minor))
+    return provider_wrapper(AttrUpdateProvider, 'code_version', CodeVersion(major, minor))
 
 
 # In the future I expect we'll have other caching options -- disabling in-memory
@@ -178,6 +182,7 @@ def docs(*docs):
 
     return provider_wrapper(AttrUpdateProvider, 'docs', docs)
 
+
 # TODO I'd like to put a @protocols decorator here that exposes the
 # MultiProtocolUpdateProvider class, but that would collide with the
 # protocols.py module.  Let's do this in a later PR.
@@ -243,8 +248,8 @@ def gather(over, also=None, into='gather_df'):
     over = interpret.str_or_seq_as_list(over)
     also = interpret.str_or_seq_or_none_as_list(also)
     return provider_wrapper(
-        GatherProvider,
-        primary_names=over, secondary_names=also, gathered_dep_name=into)
+        GatherProvider, primary_names=over, secondary_names=also, gathered_dep_name=into
+    )
 
 
 def pyplot(name=None, savefig_kwargs=None):

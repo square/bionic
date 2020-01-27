@@ -15,11 +15,11 @@ from pathlib import Path
 
 from bionic.exception import UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import (
-    get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline)
+from .util import get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline
 from .tokenization import tokenize
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -29,13 +29,18 @@ try:
     YamlLoader = yaml.CLoader
 except AttributeError:
     import os
+
     running_under_readthedocs = os.environ.get('READTHEDOCS') == 'True'
     if not running_under_readthedocs:
-        warnings.warn(oneline('''
+        warnings.warn(
+            oneline(
+                '''
             Failed to find LibYAML bindings;
             falling back to slower Python implementation.
             This may reduce performance on large flows.
-            Installing LibYAML should resolve this.'''))
+            Installing LibYAML should resolve this.'''
+            )
+        )
     YamlDumper = yaml.Dumper
     YamlLoader = yaml.Loader
 
@@ -147,11 +152,7 @@ class CacheAccessor(object):
 
             value = self._value_from_file(file_path)
 
-            return Result(
-                query=self.query,
-                value=value,
-                file_path=file_path,
-            )
+            return Result(query=self.query, value=value, file_path=file_path,)
         except InternalCacheStateError as e:
             self._raise_state_error_with_explanation(e)
 
@@ -199,12 +200,16 @@ class CacheAccessor(object):
                 file_path = self._file_from_value(value_wrapper.value)
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
-                    raise AssertionError(oneline('''
+                    raise AssertionError(
+                        oneline(
+                            '''
                         Attempted to register a descriptor with
                         no result argument and no previously saved values;
                         this suggests we called update_provenance() without
                         previously finding a cached value, which shouldn't
-                        happen.'''))
+                        happen.'''
+                        )
+                    )
                 blob_url = cloud_entry.artifact_url
                 file_path = self._file_from_blob(blob_url)
 
@@ -240,16 +245,14 @@ class CacheAccessor(object):
 
     def _get_local_entry(self):
         if self._stored_local_entry is None:
-            self._stored_local_entry = self._local.inventory.find_entry(
-                self.query)
+            self._stored_local_entry = self._local.inventory.find_entry(self.query)
         return self._stored_local_entry
 
     def _get_cloud_entry(self):
         if self._stored_cloud_entry is None:
             if self._cloud is None:
                 return None
-            self._stored_cloud_entry = self._cloud.inventory.find_entry(
-                self.query)
+            self._stored_cloud_entry = self._cloud.inventory.find_entry(self.query)
         return self._stored_cloud_entry
 
     def _clear_stored_entries(self):
@@ -267,8 +270,7 @@ class CacheAccessor(object):
         try:
             self._cloud.download(file_path, blob_url)
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'artifact blob', blob_url, e)
+            raise InternalCacheStateError.from_failure('artifact blob', blob_url, e)
 
         return file_path
 
@@ -280,8 +282,7 @@ class CacheAccessor(object):
         try:
             self._cloud.upload(file_path, blob_url)
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'artifact file', file_path, e)
+            raise InternalCacheStateError.from_failure('artifact file', file_path, e)
 
         return blob_url
 
@@ -305,31 +306,33 @@ class CacheAccessor(object):
         # can remove this special case.
         old_value_filename_stem = 'value.'
         if value_filename.startswith(old_value_filename_stem):
-            extension = value_filename[len(old_value_filename_stem):]
+            extension = value_filename[len(old_value_filename_stem) :]
         else:
-            extension = value_filename[len(self.value_filename_stem):]
+            extension = value_filename[len(self.value_filename_stem) :]
         try:
             return self.query.protocol.read(file_path, extension)
 
         except UnsupportedSerializedValueError:
             raise
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'artifact file', file_path, e)
+            raise InternalCacheStateError.from_failure('artifact file', file_path, e)
 
     def _raise_state_error_with_explanation(self, source_exc):
         stores = [self._local]
         if self._cloud:
             stores.append(self._cloud)
-        inventory_root_urls = ' and '.join(
-            store.inventory.root_url for store in stores),
+        inventory_root_urls = (' and '.join(store.inventory.root_url for store in stores),)
 
-        raise InvalidCacheStateError(oneline(f'''
+        raise InvalidCacheStateError(
+            oneline(
+                f'''
                     Cached data may be in an invalid state; this should be
                     impossible but could have resulted from either a bug or a
                     change to the cached files. You should be able to repair
                     the problem by removing all cached files under
-                    {inventory_root_urls}.''')) from source_exc
+                    {inventory_root_urls}.'''
+            )
+        ) from source_exc
 
 
 # TODO In Python 3 we can store these comments as docstrings.
@@ -342,8 +345,8 @@ NullableWrapper = namedtuple('NullableWrapper', 'value')
 # Represents a saved artifact tracked by an Inventory; returned by Inventory
 # to CacheAccessor.
 InventoryEntry = namedtuple(
-    'InventoryEntry',
-    'tier has_artifact artifact_url provenance exactly_matches_query')
+    'InventoryEntry', 'tier has_artifact artifact_url provenance exactly_matches_query'
+)
 
 # Represents a match between a query and a saved artifact.  `level` is a string
 # describing the match level, ranging from "functional" to "exact".
@@ -373,21 +376,24 @@ class Inventory(object):
         """
 
         logger.debug(
-            'In     %s inventory for %r, saving artifact URL %s ...',
-            self.tier, query, url)
+            'In     %s inventory for %r, saving artifact URL %s ...', self.tier, query, url
+        )
 
         if self._fs.exists(self._exact_descriptor_url_for_query(query)):
             # This shouldn't happen, because the CacheAccessor shouldn't write
             # to this inventory if we already have an exact match.
             logger.warn(
-                'In %s cache, attempted to create duplicate entry mapping %r '
-                'to %s', self.tier, query, url)
+                'In %s cache, attempted to create duplicate entry mapping %r ' 'to %s',
+                self.tier,
+                query,
+                url,
+            )
             return
         descriptor_url = self._create_and_write_descriptor(query, url)
 
         logger.debug(
-            '... in %s inventory for %r, created descriptor at %s',
-            self.tier, query, descriptor_url)
+            '... in %s inventory for %r, created descriptor at %s', self.tier, query, descriptor_url
+        )
 
     def find_entry(self, query):
         """
@@ -395,13 +401,11 @@ class Inventory(object):
         Query.
         """
 
-        logger.debug(
-            'In     %s inventory for %r, searching ...', self.tier, query)
+        logger.debug('In     %s inventory for %r, searching ...', self.tier, query)
 
         match = self._find_best_match(query)
         if not match:
-            logger.debug(
-                '... in %s inventory for %r, found no match', self.tier, query)
+            logger.debug('... in %s inventory for %r, found no match', self.tier, query)
 
             return InventoryEntry(
                 tier=self.tier,
@@ -413,7 +417,11 @@ class Inventory(object):
 
         logger.debug(
             '... in %s inventory for %r, found %s match at %s',
-            self.tier, query, match.level, match.descriptor_url)
+            self.tier,
+            query,
+            match.level,
+            match.descriptor_url,
+        )
 
         descriptor = self._load_descriptor_from_url(match.descriptor_url)
 
@@ -426,97 +434,67 @@ class Inventory(object):
         )
 
     def _find_best_match(self, query):
-        equivalent_url_prefix =\
-            self._equivalent_descriptor_url_prefix_for_query(query)
+        equivalent_url_prefix = self._equivalent_descriptor_url_prefix_for_query(query)
         possible_urls = self._fs.search(equivalent_url_prefix)
-        equivalent_urls = [
-            url for url in possible_urls
-            if url.endswith('.yaml')
-        ]
+        equivalent_urls = [url for url in possible_urls if url.endswith('.yaml')]
         if len(equivalent_urls) == 0:
             return None
 
         exact_url = self._exact_descriptor_url_for_query(query)
         if exact_url in equivalent_urls:
-            return DescriptorMatch(
-                descriptor_url=exact_url,
-                level='exact',
-            )
+            return DescriptorMatch(descriptor_url=exact_url, level='exact',)
 
-        samecode_url_prefix =\
-            self._samecode_descriptor_url_prefix_for_query(query)
-        samecode_urls = [
-            url for url in equivalent_urls
-            if url.startswith(samecode_url_prefix)
-        ]
+        samecode_url_prefix = self._samecode_descriptor_url_prefix_for_query(query)
+        samecode_urls = [url for url in equivalent_urls if url.startswith(samecode_url_prefix)]
         if len(samecode_urls) > 0:
-            return DescriptorMatch(
-                descriptor_url=samecode_urls[0],
-                level='samecode',
-            )
+            return DescriptorMatch(descriptor_url=samecode_urls[0], level='samecode',)
 
-        nominal_url_prefix =\
-            self._nominal_descriptor_url_prefix_for_query(query)
-        nominal_urls = [
-            url for url in equivalent_urls
-            if url.startswith(nominal_url_prefix)
-        ]
+        nominal_url_prefix = self._nominal_descriptor_url_prefix_for_query(query)
+        nominal_urls = [url for url in equivalent_urls if url.startswith(nominal_url_prefix)]
         if len(nominal_urls) > 0:
-            return DescriptorMatch(
-                descriptor_url=nominal_urls[0],
-                level='nominal',
-            )
+            return DescriptorMatch(descriptor_url=nominal_urls[0], level='nominal',)
 
-        return DescriptorMatch(
-            descriptor_url=equivalent_urls[0],
-            level='equivalent',
-        )
+        return DescriptorMatch(descriptor_url=equivalent_urls[0], level='equivalent',)
 
     def _equivalent_descriptor_url_prefix_for_query(self, query):
-        return (
-            self._fs.root_url + '/' + query.entity_name + '/' +
-            query.provenance.functional_hash
-        )
+        return self._fs.root_url + '/' + query.entity_name + '/' + query.provenance.functional_hash
 
     def _nominal_descriptor_url_prefix_for_query(self, query):
         minor_version_token = tokenize(query.provenance.code_version_minor)
         return (
-            self._equivalent_descriptor_url_prefix_for_query(query) + '/' +
-            'mv_' + minor_version_token
+            self._equivalent_descriptor_url_prefix_for_query(query)
+            + '/'
+            + 'mv_'
+            + minor_version_token
         )
 
     def _samecode_descriptor_url_prefix_for_query(self, query):
         return (
-            self._nominal_descriptor_url_prefix_for_query(query) + '/' +
-            'bc_' + query.provenance.bytecode_hash
+            self._nominal_descriptor_url_prefix_for_query(query)
+            + '/'
+            + 'bc_'
+            + query.provenance.bytecode_hash
         )
 
     def _exact_descriptor_url_for_query(self, query):
         filename = f'descriptor_{query.provenance.exact_hash}.yaml'
-        return (
-            self._nominal_descriptor_url_prefix_for_query(query) + '/' +
-            filename
-        )
+        return self._nominal_descriptor_url_prefix_for_query(query) + '/' + filename
 
     def _load_descriptor_from_url(self, url):
         try:
             descriptor_yaml = self._fs.read_bytes(url).decode('utf8')
             return ArtifactDescriptor.from_yaml(descriptor_yaml)
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'descriptor', url, e)
+            raise InternalCacheStateError.from_failure('descriptor', url, e)
 
     def _create_and_write_descriptor(self, query, artifact_url):
         descriptor = ArtifactDescriptor.from_content(
-            entity_name=query.entity_name,
-            artifact_url=artifact_url,
-            provenance=query.provenance,
+            entity_name=query.entity_name, artifact_url=artifact_url, provenance=query.provenance,
         )
 
         descriptor_url = self._exact_descriptor_url_for_query(query)
 
-        self._fs.write_bytes(
-            descriptor.to_yaml().encode('utf8'), descriptor_url)
+        self._fs.write_bytes(descriptor.to_yaml().encode('utf8'), descriptor_url)
 
         return descriptor_url
 
@@ -533,8 +511,7 @@ class LocalStore(object):
         self._artifact_root_path = root_path / 'artifacts'
 
         inventory_root_path = root_path / 'inventory'
-        self.inventory = Inventory(
-            'local disk', 'local', LocalFilesystem(inventory_root_path))
+        self.inventory = Inventory('local disk', 'local', LocalFilesystem(inventory_root_path))
 
     def generate_unique_dir_path(self, query):
         n_attempts = 0
@@ -548,9 +525,13 @@ class LocalStore(object):
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(oneline(f'''
+                    raise AssertionError(
+                        oneline(
+                            f'''
                         Repeatedly failed to randomly generate a novel
-                        directory name; {path} already exists'''))
+                        directory name; {path} already exists'''
+                        )
+                    )
 
 
 class GcsCloudStore(object):
@@ -563,8 +544,7 @@ class GcsCloudStore(object):
     def __init__(self, url):
         self._tool = GcsTool(url)
 
-        self.inventory = Inventory(
-            'GCS', 'cloud', GcsFilesystem(self._tool, '/inventory'))
+        self.inventory = Inventory('GCS', 'cloud', GcsFilesystem(self._tool, '/inventory'))
         self._artifact_root_url_prefix = url + '/artifacts'
 
     def generate_unique_url_prefix(self, query):
@@ -572,11 +552,9 @@ class GcsCloudStore(object):
         while True:
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
-            url_prefix = '/'.join([
-                str(self._artifact_root_url_prefix),
-                query.entity_name,
-                str(uuid4()),
-            ])
+            url_prefix = '/'.join(
+                [str(self._artifact_root_url_prefix), query.entity_name, str(uuid4()),]
+            )
 
             matching_blobs = self._tool.blobs_matching_url_prefix(url_prefix)
             if len(list(matching_blobs)) == 0:
@@ -584,10 +562,14 @@ class GcsCloudStore(object):
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(oneline(f'''
+                    raise AssertionError(
+                        oneline(
+                            f'''
                         Repeatedly failed to randomly generate a novel
                         blob name; {self._artifact_root_url_prefix}
-                        already exists'''))
+                        already exists'''
+                        )
+                    )
 
     def upload(self, path, url):
         # TODO For large individual files, we may still want to use gsutil.
@@ -653,10 +635,7 @@ class LocalFilesystem(object):
         if not path_prefix.is_dir():
             return []
 
-        return [
-            url_from_path(path_prefix / sub_path)
-            for sub_path in path_prefix.glob('**/*')
-        ]
+        return [url_from_path(path_prefix / sub_path) for sub_path in path_prefix.glob('**/*')]
 
     def write_bytes(self, content_bytes, url):
         path = path_from_url(url)
@@ -713,8 +692,7 @@ class GcsTool(object):
         if url.endswith('/'):
             url = url[:-1]
         self.url = url
-        bucket_name, object_prefix =\
-            self._bucket_and_object_names_from_url(url)
+        bucket_name, object_prefix = self._bucket_and_object_names_from_url(url)
 
         logger.info('Initializing GCS client ...')
         self._client = get_gcs_client_without_warnings()
@@ -739,7 +717,8 @@ class GcsTool(object):
             '-m',  # Transfer files in paralle.
             'cp',
             '-r',  # Recursively sync sub-directories.
-            src_url, dst_url
+            src_url,
+            dst_url,
         ]
         logger.debug('Running command: %s' % ' '.join(args))
         subprocess.check_call(args)
@@ -754,9 +733,9 @@ class GcsTool(object):
     def _bucket_and_object_names_from_url(self, url):
         if not url.startswith(self._GS_URL_PREFIX):
             raise ValueError(f'url must start with "{self._GS_URL_PREFIX}"')
-        url_parts = url[len(self._GS_URL_PREFIX):].split('/', 1)
+        url_parts = url[len(self._GS_URL_PREFIX) :].split('/', 1)
         if len(url_parts) == 1:
-            bucket_name, = url_parts
+            (bucket_name,) = url_parts
             object_prefix = ''
         else:
             bucket_name, object_prefix = url_parts
@@ -772,8 +751,7 @@ class InternalCacheStateError(Exception):
 
     @classmethod
     def from_failure(cls, artifact_type, location, exc):
-        return cls(
-            f"Unable to read {artifact_type} {location!r} in cache: {exc}")
+        return cls(f"Unable to read {artifact_type} {location!r} in cache: {exc}")
 
 
 class InvalidCacheStateError(Exception):
@@ -796,20 +774,18 @@ class ArtifactDescriptor(object):
 
     @classmethod
     def from_content(cls, entity_name, artifact_url, provenance):
-        return cls(body_dict=dict(
-            entity=entity_name,
-            artifact_url=artifact_url,
-            provenance=provenance.to_dict(),
-        ))
+        return cls(
+            body_dict=dict(
+                entity=entity_name, artifact_url=artifact_url, provenance=provenance.to_dict(),
+            )
+        )
 
     @classmethod
     def from_yaml(cls, yaml_str):
         try:
             body_dict = yaml.load(yaml_str, Loader=YamlLoader)
         except yaml.error.YAMLError as e:
-            raise YamlRecordParsingError(
-                f"Couldn't parse {cls.__name__}"
-            ) from e
+            raise YamlRecordParsingError(f"Couldn't parse {cls.__name__}") from e
         return cls(body_dict=body_dict)
 
     def __init__(self, body_dict):
@@ -819,16 +795,10 @@ class ArtifactDescriptor(object):
             self.artifact_url = self._dict['artifact_url']
             self.provenance = Provenance.from_dict(self._dict['provenance'])
         except KeyError as e:
-            raise YamlRecordParsingError(
-                f"YAML for ArtifactDescriptor was missing field: {e}")
+            raise YamlRecordParsingError(f"YAML for ArtifactDescriptor was missing field: {e}")
 
     def to_yaml(self):
-        return yaml.dump(
-            self._dict,
-            default_flow_style=False,
-            encoding=None,
-            Dumper=YamlDumper,
-        )
+        return yaml.dump(self._dict, default_flow_style=False, encoding=None, Dumper=YamlDumper,)
 
     def __repr__(self):
         return f'ArtifactDescriptor({self.entity_name})'
@@ -867,10 +837,9 @@ class Provenance(object):
 
     @classmethod
     def from_computation(
-            cls, code_descriptor, case_key, dep_provenances_by_task_key,
-            treat_bytecode_as_functional):
-        dep_task_key_provenance_pairs = sorted(
-            dep_provenances_by_task_key.items())
+        cls, code_descriptor, case_key, dep_provenances_by_task_key, treat_bytecode_as_functional
+    ):
+        dep_task_key_provenance_pairs = sorted(dep_provenances_by_task_key.items())
 
         functional_code_dict = dict(
             orig_flow_name=code_descriptor.orig_flow_name,
@@ -879,9 +848,7 @@ class Provenance(object):
             # This exists for backwards compatibility with older cache entries.
             python_major_version=3,
         )
-        nonfunctional_code_dict = dict(
-            code_version_minor=code_descriptor.version.minor,
-        )
+        nonfunctional_code_dict = dict(code_version_minor=code_descriptor.version.minor,)
 
         bytecode_hash = code_descriptor.bytecode_hash
         if treat_bytecode_as_functional:
@@ -912,23 +879,21 @@ class Provenance(object):
         ]
 
         exact_deps_hash = hash_simple_obj_to_hex(exact_deps_list)
-        functional_hash = hash_simple_obj_to_hex(dict(
-            code=functional_code_dict,
-            deps=functional_deps_list,
-        ))
-        exact_hash = hash_simple_obj_to_hex(dict(
-            code=full_code_dict,
-            deps=exact_deps_list,
-        ))
+        functional_hash = hash_simple_obj_to_hex(
+            dict(code=functional_code_dict, deps=functional_deps_list,)
+        )
+        exact_hash = hash_simple_obj_to_hex(dict(code=full_code_dict, deps=exact_deps_list,))
 
-        return cls(body_dict=dict(
-            case_key=dict(case_key),
-            code=full_code_dict,
-            functional_deps=functional_deps_list,
-            functional_hash=functional_hash,
-            exact_hash=exact_hash,
-            exact_deps_hash=exact_deps_hash,
-        ))
+        return cls(
+            body_dict=dict(
+                case_key=dict(case_key),
+                code=full_code_dict,
+                functional_deps=functional_deps_list,
+                functional_hash=functional_hash,
+                exact_hash=exact_hash,
+                exact_deps_hash=exact_deps_hash,
+            )
+        )
 
     @classmethod
     def from_dict(cls, body_dict):
@@ -943,8 +908,7 @@ class Provenance(object):
         self.exact_hash = d['exact_hash']
         self.exact_deps_hash = d['exact_deps_hash']
         self.code_version_major = d['code']['functional']['code_version_major']
-        self.code_version_minor =\
-            d['code']['nonfunctional']['code_version_minor']
+        self.code_version_minor = d['code']['nonfunctional']['code_version_minor']
         self.bytecode_hash = d['code']['bytecode_hash']
 
     def to_dict(self):
@@ -970,7 +934,7 @@ FILE_URL_PREFIX = 'file://'
 
 def path_from_url(url):
     assert url.startswith(FILE_URL_PREFIX), url
-    return Path(url[len(FILE_URL_PREFIX):])
+    return Path(url[len(FILE_URL_PREFIX) :])
 
 
 def url_from_path(path):

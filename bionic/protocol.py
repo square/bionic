@@ -50,14 +50,17 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
     # without any other arguments.
     if func_or_provider is not None:
         if file_format is not None or check_dtypes is not None:
-            raise ValueError(
-                "frame can't be called with both a function and keywords")
+            raise ValueError("frame can't be called with both a function and keywords")
         if not is_func_or_provider(func_or_provider):
-            raise ValueError(oneline('''
+            raise ValueError(
+                oneline(
+                    '''
                 frame must be used either (a) directly as a decorator or
                 (b) with keyword arguments;
                 it can't take positional arguments.
-                '''))
+                '''
+                )
+            )
         return protocols.ParquetDataFrameProtocol()(func_or_provider)
 
     # Otherwise, we have arguments and should return a decorator.
@@ -69,9 +72,13 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
     elif file_format == 'feather':
         return protocols.FeatherDataFrameProtocol()
     else:
-        raise ValueError(oneline(f'''
+        raise ValueError(
+            oneline(
+                f'''
             file_format must be one of {'parquet', 'feather'};
-            got {file_format!r}'''))
+            got {file_format!r}'''
+            )
+        )
 
 
 # These need to be called with arguments.

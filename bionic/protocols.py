@@ -23,21 +23,27 @@ from pyarrow import parquet, Table
 import pandas as pd
 
 from .exception import UnsupportedSerializedValueError
-from .provider import (
-    provider_wrapper, ProtocolUpdateProvider, is_func_or_provider)
+from .provider import provider_wrapper, ProtocolUpdateProvider, is_func_or_provider
 from .optdep import import_optional_dependency
 from .util import (
-    read_hashable_bytes_from_file_or_dir, oneline, recursively_copy_path,
-    single_element)
+    read_hashable_bytes_from_file_or_dir,
+    oneline,
+    recursively_copy_path,
+    single_element,
+)
 from . import tokenization
 
 
 def check_is_like_protocol(obj):
     for method_name in 'validate', 'read', 'write':
         if not hasattr(obj, method_name):
-            raise ValueError(oneline(f'''
+            raise ValueError(
+                oneline(
+                    f'''
                 Expected {obj!r} to be a kind of Protocol, but didn't find
-                expected method {method_name!r}'''))
+                expected method {method_name!r}'''
+                )
+            )
 
 
 class BaseProtocol(object):
@@ -61,10 +67,7 @@ class BaseProtocol(object):
         return extension == self.get_fixed_file_extension()
 
     def supports_value(self, value):
-        return any(
-            isinstance(value, type_)
-            for type_ in self.get_all_supported_types()
-        )
+        return any(isinstance(value, type_) for type_ in self.get_all_supported_types())
 
     def write(self, value, path):
         raise NotImplementedError()
@@ -74,8 +77,12 @@ class BaseProtocol(object):
 
     SIMPLE_TYPES = {
         bool,
-        str, bytes, str,
-        int, int, float,
+        str,
+        bytes,
+        str,
+        int,
+        int,
+        float,
     }
 
     def tokenize(self, value):
@@ -118,14 +125,17 @@ class BaseProtocol(object):
     def __call__(self, func_or_provider=None, **kwargs):
         if func_or_provider is not None:
             if len(kwargs) > 0:
-                raise ValueError(
-                    f"{self} can't be called with both a function and keywords")
+                raise ValueError(f"{self} can't be called with both a function and keywords")
             if not is_func_or_provider(func_or_provider):
-                raise ValueError(oneline(f'''
+                raise ValueError(
+                    oneline(
+                        f'''
                     {self} must be used either (a) directly as a decorator or
                     (b) with keyword arguments;
                     it can't take positional arguments.
-                    '''))
+                    '''
+                    )
+                )
 
             wrapper = provider_wrapper(ProtocolUpdateProvider, self)
             return wrapper(func_or_provider)
@@ -176,8 +186,7 @@ class DillableProtocol(BaseProtocol):
             return self._dill
 
         dill_already_imported = 'dill' in sys.modules
-        self._dill = import_optional_dependency(
-            'dill', purpose='the @dillable protocol')
+        self._dill = import_optional_dependency('dill', purpose='the @dillable protocol')
         if not dill_already_imported and self._suppress_dill_side_effects:
             self._dill.extend(False)
 
@@ -230,22 +239,24 @@ class ParquetDataFrameProtocol(BaseProtocol):
         duplicate_cols = {elem: count for elem, count in Counter(df.columns).items() if count > 1}
         if duplicate_cols:
             raise ValueError(
-                oneline(f'''
+                oneline(
+                    f'''
                     Attempted to serialize to Parquet a dataframe which has
                     duplicate columns with the following counts:
                     {duplicate_cols}. You can fix this by dropping duplicate
-                    columns with something like: ''')
-                + '\n' +
-                "df = df.loc[:, ~df.columns.duplicated()]")
+                    columns with something like: '''
+                )
+                + '\n'
+                + "df = df.loc[:, ~df.columns.duplicated()]"
+            )
 
     def _check_no_categorical_cols(self, df):
-        categorical_cols = [
-            col for col in df.columns
-            if df[col].dtype.name == 'category'
-        ]
+        categorical_cols = [col for col in df.columns if df[col].dtype.name == 'category']
 
         if categorical_cols:
-            raise ValueError(oneline(f'''
+            raise ValueError(
+                oneline(
+                    f'''
                 Attempted to serialize to Parquet a dataframe which has
                 categorical columns: {categorical_cols!r} --
                 these columns may be transformed to another type and/or
@@ -253,7 +264,9 @@ class ParquetDataFrameProtocol(BaseProtocol):
                 You can fix this by using
                 (a) ``@frame(file_format='feather')`` to use the Feather
                 format instead, or
-                (b) ``@frame(check_dtypes=False)`` to ignore this check.'''))
+                (b) ``@frame(check_dtypes=False)`` to ignore this check.'''
+                )
+            )
 
 
 class FeatherDataFrameProtocol(BaseProtocol):
@@ -302,8 +315,7 @@ class ImageProtocol(BaseProtocol):
 
     def read(self, path, extension):
         with path.open('rb') as file_:
-            Image = import_optional_dependency(
-                'PIL.Image', purpose='the @image decorator')
+            Image = import_optional_dependency('PIL.Image', purpose='the @image decorator')
             image = Image.open(file_)
             # Image.open() is lazy; if we don't call load() now, the file can
             # be closed or possibly invalidated before it actually gets read.
@@ -367,7 +379,8 @@ class DaskProtocol(BaseProtocol):
                 return dd.read_parquet(path)
             except RuntimeWarning as e:
                 raise UnsupportedSerializedValueError(
-                    f"Reading dataframe failed due to present MultiIndex: {e}")
+                    f"Reading dataframe failed due to present MultiIndex: {e}"
+                )
 
     def write(self, df, path):
         dd.to_parquet(df, path, write_index=True)
@@ -383,6 +396,7 @@ class YamlProtocol(BaseProtocol):
     **kwargs: keyword args for ``yaml.dump``
         E.g. ``default_flow_style``, ``encoding``, etc.
     """
+
     def __init__(self, **kwargs):
         super(YamlProtocol, self).__init__()
         self._kwargs = kwargs
@@ -421,9 +435,13 @@ class PathProtocol(BaseProtocol):
         super(PathProtocol, self).__init__()
         known_operations = ('move', 'copy')
         if operation not in known_operations:
-            raise ValueError(oneline(f'''
+            raise ValueError(
+                oneline(
+                    f'''
                 Operation must be in {known_operations!r}:
-                got {operation}.'''))
+                got {operation}.'''
+                )
+            )
         self.operation = operation
 
     def get_fixed_file_extension(self):
@@ -509,8 +527,8 @@ class CombinedProtocol(BaseProtocol):
     def read(self, path, extension):
         if not self.can_read_file_extension(extension):
             raise ValueError(
-                "This protocol doesn't know how to read a file with "
-                f"extension {extension!r}")
+                "This protocol doesn't know how to read a file with " f"extension {extension!r}"
+            )
         return self._protocol_for_extension(extension).read(path, extension)
 
     def write(self, value, path):

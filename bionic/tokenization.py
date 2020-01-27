@@ -12,8 +12,8 @@ def char_range(first, last):
 
 
 CLEAN_CHARS = set(
-    char_range('a', 'z') + char_range('A', 'Z') + char_range('0', '9') +
-    ['_', '-', '.'])
+    char_range('a', 'z') + char_range('A', 'Z') + char_range('0', '9') + ['_', '-', '.']
+)
 MAX_CLEAN_STR_LEN = 32
 
 
