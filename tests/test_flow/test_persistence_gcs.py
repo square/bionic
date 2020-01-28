@@ -1,74 +1,42 @@
 '''
-This module tests Bionic's GCS caching.  In order to run it, you need to set
-the ``BIONIC_GCS_TEST_BUCKET`` environmet variable with the name of a GCS
-bucket you have access to.  Bionic will cache its data to randomly-generated
-prefix in this bucket, and then clean it up after the tests finish.
+This module tests Bionic's GCS caching. In order to run it, you need to set
+the `--bucket` command line option with a GCS path (like `gs://BUCKET_NAME`).
+Bionic will cache its data to randomly-generated prefix in this bucket, and
+then clean it up after the tests finish.
 
 These tests are pretty slow -- they take about 60 seconds for me.
 '''
 
 import pytest
-import random
-import subprocess
-import getpass
-import shutil
+
 from pathlib import Path
 import tempfile
 
 import dask.dataframe as dd
 
 from ..helpers import (
-    ResettingCounter, skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str,
-    equal_frame_and_index_content)
+    ResettingCounter, df_from_csv_str, equal_frame_and_index_content,
+    gsutil_wipe_path, local_wipe_path)
 from bionic.exception import CodeVersioningError
 
 import bionic as bn
 
 
 # This is detected by pytest and applied to all the tests in this module.
-pytestmark = skip_unless_gcs
-
-
-def gsutil_wipe_path(url):
-    assert 'BNTESTDATA' in url
-    subprocess.check_call(['gsutil', '-q', '-m', 'rm', '-rf', url])
-
-
-def gsutil_path_exists(url):
-    return subprocess.call(['gsutil', 'ls', url]) == 0
-
-
-def local_wipe_path(path_str):
-    assert 'BNTESTDATA' in path_str
-    shutil.rmtree(path_str)
-
-
-@pytest.fixture(scope='module')
-def bucket_name():
-    return GCS_TEST_BUCKET
+pytestmark = pytest.mark.needs_gcs
 
 
 @pytest.fixture(scope='function')
-def tmp_object_path(bucket_name):
-    random_hex_str = '%016x' % random.randint(0, 2 ** 64)
-    path_str = f'{getpass.getuser()}/BNTESTDATA/{random_hex_str}'
+def gcs_builder(builder, tmp_gcs_url_prefix):
+    URL_PREFIX = 'gs://'
+    assert tmp_gcs_url_prefix.startswith(URL_PREFIX)
+    gcs_path = tmp_gcs_url_prefix[len(URL_PREFIX):]
+    bucket_name, object_path = gcs_path.split('/', 1)
 
-    gs_url = f'gs://{bucket_name}/{path_str}'
-    # This emits a stderr warning because the URL doesn't exist.  That's
-    # annoying but I wasn't able to find a straightforward way to avoid it.
-    assert not gsutil_path_exists(gs_url)
-
-    yield path_str
-
-    gsutil_wipe_path(gs_url)
-
-
-@pytest.fixture(scope='function')
-def gcs_builder(builder, bucket_name, tmp_object_path):
     builder = builder.build().to_builder()
 
     builder.set('core__persistent_cache__gcs__bucket_name', bucket_name)
-    builder.set('core__persistent_cache__gcs__object_path', tmp_object_path)
+    builder.set('core__persistent_cache__gcs__object_path', object_path)
     builder.set('core__persistent_cache__gcs__enabled', True)
 
     builder.set('core__versioning_mode', 'assist')
@@ -79,6 +47,8 @@ def gcs_builder(builder, bucket_name, tmp_object_path):
 # This should really be multiple separate tests, but it's expensive to do the
 # setup, teardown, and client initialization, so we'll just do it all in one
 # place.
+# TODO Now that we have a workspace fixture and cached client initialization,
+# this may not be true anymore.
 def test_gcs_caching(gcs_builder):
     # Setup.
 
