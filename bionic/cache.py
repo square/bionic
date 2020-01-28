@@ -152,7 +152,7 @@ class CacheAccessor(object):
 
             value = self._value_from_file(file_path)
 
-            return Result(query=self.query, value=value, file_path=file_path,)
+            return Result(query=self.query, value=value, file_path=file_path)
         except InternalCacheStateError as e:
             self._raise_state_error_with_explanation(e)
 
@@ -442,19 +442,19 @@ class Inventory(object):
 
         exact_url = self._exact_descriptor_url_for_query(query)
         if exact_url in equivalent_urls:
-            return DescriptorMatch(descriptor_url=exact_url, level='exact',)
+            return DescriptorMatch(descriptor_url=exact_url, level='exact')
 
         samecode_url_prefix = self._samecode_descriptor_url_prefix_for_query(query)
         samecode_urls = [url for url in equivalent_urls if url.startswith(samecode_url_prefix)]
         if len(samecode_urls) > 0:
-            return DescriptorMatch(descriptor_url=samecode_urls[0], level='samecode',)
+            return DescriptorMatch(descriptor_url=samecode_urls[0], level='samecode')
 
         nominal_url_prefix = self._nominal_descriptor_url_prefix_for_query(query)
         nominal_urls = [url for url in equivalent_urls if url.startswith(nominal_url_prefix)]
         if len(nominal_urls) > 0:
-            return DescriptorMatch(descriptor_url=nominal_urls[0], level='nominal',)
+            return DescriptorMatch(descriptor_url=nominal_urls[0], level='nominal')
 
-        return DescriptorMatch(descriptor_url=equivalent_urls[0], level='equivalent',)
+        return DescriptorMatch(descriptor_url=equivalent_urls[0], level='equivalent')
 
     def _equivalent_descriptor_url_prefix_for_query(self, query):
         return self._fs.root_url + '/' + query.entity_name + '/' + query.provenance.functional_hash
@@ -489,7 +489,7 @@ class Inventory(object):
 
     def _create_and_write_descriptor(self, query, artifact_url):
         descriptor = ArtifactDescriptor.from_content(
-            entity_name=query.entity_name, artifact_url=artifact_url, provenance=query.provenance,
+            entity_name=query.entity_name, artifact_url=artifact_url, provenance=query.provenance
         )
 
         descriptor_url = self._exact_descriptor_url_for_query(query)
@@ -553,7 +553,7 @@ class GcsCloudStore(object):
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
             url_prefix = '/'.join(
-                [str(self._artifact_root_url_prefix), query.entity_name, str(uuid4()),]
+                [str(self._artifact_root_url_prefix), query.entity_name, str(uuid4())]
             )
 
             matching_blobs = self._tool.blobs_matching_url_prefix(url_prefix)
@@ -776,7 +776,7 @@ class ArtifactDescriptor(object):
     def from_content(cls, entity_name, artifact_url, provenance):
         return cls(
             body_dict=dict(
-                entity=entity_name, artifact_url=artifact_url, provenance=provenance.to_dict(),
+                entity=entity_name, artifact_url=artifact_url, provenance=provenance.to_dict()
             )
         )
 
@@ -798,7 +798,7 @@ class ArtifactDescriptor(object):
             raise YamlRecordParsingError(f"YAML for ArtifactDescriptor was missing field: {e}")
 
     def to_yaml(self):
-        return yaml.dump(self._dict, default_flow_style=False, encoding=None, Dumper=YamlDumper,)
+        return yaml.dump(self._dict, default_flow_style=False, encoding=None, Dumper=YamlDumper)
 
     def __repr__(self):
         return f'ArtifactDescriptor({self.entity_name})'
@@ -848,7 +848,7 @@ class Provenance(object):
             # This exists for backwards compatibility with older cache entries.
             python_major_version=3,
         )
-        nonfunctional_code_dict = dict(code_version_minor=code_descriptor.version.minor,)
+        nonfunctional_code_dict = dict(code_version_minor=code_descriptor.version.minor)
 
         bytecode_hash = code_descriptor.bytecode_hash
         if treat_bytecode_as_functional:
@@ -880,9 +880,9 @@ class Provenance(object):
 
         exact_deps_hash = hash_simple_obj_to_hex(exact_deps_list)
         functional_hash = hash_simple_obj_to_hex(
-            dict(code=functional_code_dict, deps=functional_deps_list,)
+            dict(code=functional_code_dict, deps=functional_deps_list)
         )
-        exact_hash = hash_simple_obj_to_hex(dict(code=full_code_dict, deps=exact_deps_list,))
+        exact_hash = hash_simple_obj_to_hex(dict(code=full_code_dict, deps=exact_deps_list))
 
         return cls(
             body_dict=dict(

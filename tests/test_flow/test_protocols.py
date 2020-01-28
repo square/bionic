@@ -18,13 +18,7 @@ from bionic.exception import UnsupportedSerializedValueError
 from bionic.protocols import CombinedProtocol, PicklableProtocol
 
 
-PICKLABLE_VALUES = [
-    1,
-    'string',
-    True,
-    [1, 2, 3],
-    {'a': 1, 'b': 2},
-]
+PICKLABLE_VALUES = [1, 'string', True, [1, 2, 3], {'a': 1, 'b': 2}]
 
 
 @pytest.mark.parametrize('value', PICKLABLE_VALUES)
@@ -113,7 +107,7 @@ def test_typed_dataframe(builder):
     df_value['int'] = [1, 2, 3]
     df_value['float'] = [1.0, 1.5, float('nan')]
     df_value['str'] = ['red', 'blue', None]
-    df_value['time'] = pd.to_datetime(['2011-02-07', '2011-03-17', '2011-04-27',])
+    df_value['time'] = pd.to_datetime(['2011-02-07', '2011-03-17', '2011-04-27'])
 
     @builder
     @bn.protocol.frame
@@ -261,7 +255,7 @@ def test_typed_dask_dataframe(builder):
     df_value['int'] = [1, 2, 3]
     df_value['float'] = [1.0, 1.5, float('nan')]
     df_value['str'] = ['red', 'blue', None]
-    df_value['time'] = pd.to_datetime(['2011-02-07', '2011-03-17', '2011-04-27',])
+    df_value['time'] = pd.to_datetime(['2011-02-07', '2011-03-17', '2011-04-27'])
     dask_df = dd.from_pandas(df_value, npartitions=1)
 
     @builder
