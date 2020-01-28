@@ -15,18 +15,14 @@ import bionic as bn
 builder = bn.FlowBuilder('ml_workflow')
 
 # Define some basic parameters.
+builder.assign('random_seed', 0, doc='Arbitrary seed for all random decisions in the flow.')
+builder.assign('test_split_fraction', 0.3, doc='Fraction of data to include in test set.')
+builder.assign('hyperparams_dict', {'C': 1}, doc='Hyperparameters to use when training the model.')
 builder.assign(
-    'random_seed', 0,
-    doc='Arbitrary seed for all random decisions in the flow.')
-builder.assign(
-    'test_split_fraction', 0.3,
-    doc='Fraction of data to include in test set.')
-builder.assign(
-    'hyperparams_dict', {'C': 1},
-    doc='Hyperparameters to use when training the model.')
-builder.assign(
-    'feature_inclusion_regex', '.*',
-    doc="Regular expression specifying which feature names to include.")
+    'feature_inclusion_regex',
+    '.*',
+    doc="Regular expression specifying which feature names to include.",
+)
 
 
 # Load the raw data.
@@ -36,10 +32,7 @@ def raw_frame():
     The raw data, including all features and a `target` column of labels.
     """
     dataset = datasets.load_breast_cancer()
-    df = pd.DataFrame(
-        data=dataset.data,
-        columns=dataset.feature_names,
-    )
+    df = pd.DataFrame(data=dataset.data, columns=dataset.feature_names,)
     df['target'] = dataset.target
     return df
 
@@ -49,8 +42,7 @@ def raw_frame():
 def features_frame(raw_frame, feature_inclusion_regex):
     """Labeled data with a selected subset of the feature columns."""
     included_feature_cols = [
-        col for col in raw_frame.columns.drop('target')
-        if re.match(feature_inclusion_regex, col)
+        col for col in raw_frame.columns.drop('target') if re.match(feature_inclusion_regex, col)
     ]
     return raw_frame[included_feature_cols + ['target']]
 
@@ -66,9 +58,7 @@ def features_frame(raw_frame, feature_inclusion_regex):
 )
 def split_raw_frame(features_frame, test_split_fraction, random_seed):
     return model_selection.train_test_split(
-        features_frame,
-        test_size=test_split_fraction,
-        random_state=random_seed,
+        features_frame, test_size=test_split_fraction, random_state=random_seed,
     )
 
 
@@ -77,8 +67,8 @@ def split_raw_frame(features_frame, test_split_fraction, random_seed):
 def model(train_frame, random_seed, hyperparams_dict):
     """A binary classifier sklearn model."""
     m = linear_model.LogisticRegression(
-        solver='liblinear', random_state=random_seed,
-        **hyperparams_dict)
+        solver='liblinear', random_state=random_seed, **hyperparams_dict
+    )
     m.fit(train_frame.drop('target', axis=1), train_frame['target'])
     return m
 
@@ -94,7 +84,8 @@ def precision_recall_frame(model, test_frame):
     """
     predictions = model.predict_proba(test_frame.drop('target', axis=1))[:, 1]
     precisions, recalls, thresholds = metrics.precision_recall_curve(
-        test_frame['target'], predictions)
+        test_frame['target'], predictions
+    )
 
     df = pd.DataFrame()
     df['threshold'] = [0] + list(thresholds) + [1]
@@ -113,10 +104,7 @@ def precision_recall_frame(model, test_frame):
 # "precision_recall_frame" into a single dataframe named "gathered_frame".
 # This might not seem very interesting since "gathered_frame" only has one row,
 # but it will become useful once we introduce multiplicity.
-@bn.gather(
-    over='hyperparams_dict',
-    also='precision_recall_frame',
-    into='gathered_frame')
+@bn.gather(over='hyperparams_dict', also='precision_recall_frame', into='gathered_frame')
 def all_hyperparams_pr_plot(gathered_frame, plt):
     """
     A plot of precision against recall.  Includes one curve for each set of
@@ -124,12 +112,8 @@ def all_hyperparams_pr_plot(gathered_frame, plt):
     """
     _, ax = plt.subplots(figsize=(4, 3))
     for row in gathered_frame.itertuples():
-        label = ', '.join(
-            f'{key}={value}'
-            for key, value in row.hyperparams_dict.items()
-        )
-        row.precision_recall_frame.plot(
-            x='recall', y='precision', label=label, ax=ax)
+        label = ', '.join(f'{key}={value}' for key, value in row.hyperparams_dict.items())
+        row.precision_recall_frame.plot(x='recall', y='precision', label=label, ax=ax)
     ax.set_xlabel('Recall')
     ax.set_ylabel('Precision')
 
@@ -142,16 +126,15 @@ if __name__ == '__main__':
     bn.util.init_basic_logging()
 
     import argparse
-    parser = argparse.ArgumentParser(
-        description='Runs a simple ML workflow example')
-    parser.add_argument(
-        '--bucket', '-b', help='Name of GCS bucket to cache in')
+
+    parser = argparse.ArgumentParser(description='Runs a simple ML workflow example')
+    parser.add_argument('--bucket', '-b', help='Name of GCS bucket to cache in')
 
     args = parser.parse_args()
     if args.bucket is not None:
-        flow = flow\
-            .setting('core__persistent_cache__gcs__bucket_name', args.bucket)\
-            .setting('core__persistent_cache__gcs__enabled', True)
+        flow = flow.setting('core__persistent_cache__gcs__bucket_name', args.bucket).setting(
+            'core__persistent_cache__gcs__enabled', True
+        )
 
     with pd.option_context("display.max_rows", 10):
         print(flow.get('precision_recall_frame'))

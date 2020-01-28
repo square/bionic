@@ -16,15 +16,8 @@ builder.assign('n_samples', 1000)
 @builder
 def my_random_df(random_seed, variance, correlation, n_samples):
     data = multivariate_normal(
-            mean=[0, 0],
-            cov=[
-                [variance, correlation * variance],
-                [correlation * variance, variance],
-            ],
-        ).rvs(
-            size=n_samples,
-            random_state=random_seed,
-        )
+        mean=[0, 0], cov=[[variance, correlation * variance], [correlation * variance, variance],],
+    ).rvs(size=n_samples, random_state=random_seed,)
     return pd.DataFrame(columns=['x', 'y'], data=data)
 
 
@@ -51,10 +44,7 @@ def my_plot(my_random_df, est_correlation, est_intercept, plt):
     with plt.style.context('seaborn-whitegrid'):
         plt.scatter(my_random_df['x'], my_random_df['y'], alpha=0.2)
 
-        line_xs = np.array([
-            my_random_df['x'].min(),
-            my_random_df['x'].max(),
-        ])
+        line_xs = np.array([my_random_df['x'].min(), my_random_df['x'].max(),])
         line_ys = (line_xs + est_correlation) + est_intercept
         plt.plot(line_xs, line_ys)
 
