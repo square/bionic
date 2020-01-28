@@ -33,8 +33,13 @@ class SimpleFlowModel(object):
         return name
 
     def update_entity(
-            self, name, make_func_change=False, make_nonfunc_change=False,
-            update_major=False, update_minor=False):
+        self,
+        name,
+        make_func_change=False,
+        make_nonfunc_change=False,
+        update_major=False,
+        update_minor=False,
+    ):
 
         entity = self._entities_by_name[name]
 
@@ -55,13 +60,11 @@ class SimpleFlowModel(object):
     def expected_entity_value(self, name):
         entity = self._entities_by_name[name]
         dep_values_total = sum(
-            self.expected_entity_value(dep_name)
-            for dep_name in entity.dep_names
+            self.expected_entity_value(dep_name) for dep_name in entity.dep_names
         )
         return entity.func_value + dep_values_total
 
-    def entity_names(
-            self, downstream_of=None, upstream_of=None, with_children=None):
+    def entity_names(self, downstream_of=None, upstream_of=None, with_children=None):
         names = set(self._entities_by_name.keys())
 
         if upstream_of is not None:
@@ -86,8 +89,7 @@ class SimpleFlowModel(object):
 
         if with_children is not None:
             names_with_children = set(
-                name for name in names
-                if len(self._entities_by_name[name].child_names) > 0
+                name for name in names if len(self._entities_by_name[name].child_names) > 0
             )
             if with_children:
                 names = names_with_children
@@ -129,14 +131,16 @@ class SimpleFlowModel(object):
 
         e = entity
         exec(
-            dedent(f'''
+            dedent(
+                f'''
             @builder
             @bn.version(major={e.major_version}, minor={e.minor_version})
             def {name}({', '.join(e.dep_names)}):
                 noop_func({e.nonfunc_value})
                 record_call("{name}")
                 return {' + '.join([str(e.func_value)] + e.dep_names)}
-            '''),
+            '''
+            ),
             vars_dict,
         )
 
@@ -193,7 +197,8 @@ class Fuzzer(object):
         for i in range(n_iterations):
             updated_name = self._random.choice(self.model.entity_names())
             affected_names = self.model.entity_names(
-                downstream_of=updated_name, with_children=False)
+                downstream_of=updated_name, with_children=False
+            )
             make_func_change = self._random_bool()
             make_nonfunc_change = not make_func_change
             update_version = self._random_bool()
@@ -216,8 +221,7 @@ class Fuzzer(object):
                     # should still be returning the old value.
                     affected_name = self._random.choice(affected_names)
                     returned_value = self.model.build_flow().get(affected_name)
-                    expected_value = self.model.expected_entity_value(
-                        affected_name)
+                    expected_value = self.model.expected_entity_value(affected_name)
                     if make_func_change:
                         assert returned_value != expected_value
                     else:
@@ -258,23 +262,20 @@ class Fuzzer(object):
 
                 else:
                     raise AssertionError(
-                        "Unexpected versioning mode: "
-                        f"{self._versioning_mode!r}")
+                        "Unexpected versioning mode: " f"{self._versioning_mode!r}"
+                    )
 
             for affected_name in affected_names:
-                assert (
-                    self.model.build_flow().get(affected_name) ==
-                    self.model.expected_entity_value(affected_name)
-                )
+                assert self.model.build_flow().get(
+                    affected_name
+                ) == self.model.expected_entity_value(affected_name)
 
             if make_func_change or self._versioning_mode == 'auto':
                 expected_called_names = self.model.entity_names(
-                    downstream_of=updated_name,
-                    upstream_of=affected_names,
+                    downstream_of=updated_name, upstream_of=affected_names,
                 )
-                assert (
-                    list(sorted(self.model.called_entity_names())) ==
-                    list(sorted(expected_called_names))
+                assert list(sorted(self.model.called_entity_names())) == list(
+                    sorted(expected_called_names)
                 )
             else:
                 assert len(self.model.called_entity_names()) == 0
@@ -290,8 +291,7 @@ def fuzzer(builder, tmp_path):
     return Fuzzer(builder)
 
 
-foreach_mode = pytest.mark.parametrize(
-    'versioning_mode', ['manual', 'assist', 'auto'])
+foreach_mode = pytest.mark.parametrize('versioning_mode', ['manual', 'assist', 'auto'])
 
 
 @foreach_mode
@@ -304,13 +304,9 @@ def test_small_fixed_flow_short_fuzz(fuzzer, versioning_mode):
     e4 = fuzzer.model.add_entity([e1, e2])
     e5 = fuzzer.model.add_entity([e3, e4])
 
-    assert (
-        fuzzer.model.build_flow().get(e5) ==
-        fuzzer.model.expected_entity_value(e5)
-    )
-    assert (
-        list(sorted(fuzzer.model.called_entity_names())) ==
-        list(sorted(fuzzer.model.entity_names()))
+    assert fuzzer.model.build_flow().get(e5) == fuzzer.model.expected_entity_value(e5)
+    assert list(sorted(fuzzer.model.called_entity_names())) == list(
+        sorted(fuzzer.model.entity_names())
     )
 
     fuzzer.run(n_iterations=30)

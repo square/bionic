@@ -7,8 +7,11 @@ from subprocess import check_call
 import dask.dataframe as dd
 
 from ..helpers import (
-    skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str,
-    equal_frame_and_index_content)
+    skip_unless_gcs,
+    GCS_TEST_BUCKET,
+    df_from_csv_str,
+    equal_frame_and_index_content,
+)
 
 import bionic as bn
 
@@ -32,12 +35,14 @@ def flow(preset_builder):
 
 @pytest.fixture(scope='function')
 def expected_dask_df():
-    df_value = df_from_csv_str('''
+    df_value = df_from_csv_str(
+        '''
     color,number
     red,1
     blue,2
     green,3
-    ''')
+    '''
+    )
     return dd.from_pandas(df_value, npartitions=1)
 
 

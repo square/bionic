@@ -8,17 +8,14 @@ import bionic as bn
 @pytest.fixture(scope='function')
 def builder(tmp_path):
     builder = bn.FlowBuilder('test')
-    builder.set(
-        'core__persistent_cache__flow_dir', str(tmp_path / 'BNTESTDATA'))
+    builder.set('core__persistent_cache__flow_dir', str(tmp_path / 'BNTESTDATA'))
     return builder
 
 
 # These three functions add a --slow command line option to enable slow tests.
 # Seems involved, but it's the approach recommended in the pytest docs.
 def pytest_addoption(parser):
-    parser.addoption(
-        '--slow', action='store_true', default=False, help='run slow tests'
-    )
+    parser.addoption('--slow', action='store_true', default=False, help='run slow tests')
 
 
 def pytest_configure(config):

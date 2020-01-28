@@ -45,10 +45,16 @@ def test_cartesian_product(preset_builder):
 
     flow = builder.build()
 
-    assert flow.get('xy', set) == {2*3, 2*4}  # noqa: E226
-    assert flow.get('yz', set) == {3*5, 3*6, 3*7, 4*5, 4*6, 4*7}  # noqa: E226
+    assert flow.get('xy', set) == {2 * 3, 2 * 4}  # noqa: E226
+    assert flow.get('yz', set) == {3 * 5, 3 * 6, 3 * 7, 4 * 5, 4 * 6, 4 * 7}  # noqa: E226
     assert flow.get('xy_plus_yz', set) == {
-        2*3+3*5, 2*3+3*6, 2*3+3*7, 2*4+4*5, 2*4+4*6, 2*4+4*7}  # noqa: E226
+        2 * 3 + 3 * 5,
+        2 * 3 + 3 * 6,
+        2 * 3 + 3 * 7,
+        2 * 4 + 4 * 5,
+        2 * 4 + 4 * 6,
+        2 * 4 + 4 * 7,
+    }  # noqa: E226
 
 
 def test_empty(preset_builder):

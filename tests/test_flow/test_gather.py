@@ -26,9 +26,7 @@ def preset_builder(builder):
 
 
 def summarize(df):
-    return ' '.join(
-        '.'.join(list(row))
-        for _, row in df.sort_values(list(df.columns)).iterrows())
+    return ' '.join('.'.join(list(row)) for _, row in df.sort_values(list(df.columns)).iterrows())
 
 
 def test_x(preset_builder):

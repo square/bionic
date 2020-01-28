@@ -88,35 +88,39 @@ def test_caching_and_invalidation(builder):
 
     # Update x and y to have multiple values, and confirm that xy and
     # xy_plus_yz are recomputed.
-    flow = builder.build()\
-        .setting('x', values=[2, -2])\
-        .setting('y', values=[3, 6])
+    flow = builder.build().setting('x', values=[2, -2]).setting('y', values=[3, 6])
 
-    assert flow.get('xy', set) == {-2*6, -2*3, 2*3, 2*6}  # noqa: E226
+    assert flow.get('xy', set) == {-2 * 6, -2 * 3, 2 * 3, 2 * 6}  # noqa: E226
     # Note that we only call xy 3 times, because one value was already cached.
     assert xy.times_called() == 3
 
-    assert flow.get('yz', set) == {3*4, 6*4}  # noqa: E226
+    assert flow.get('yz', set) == {3 * 4, 6 * 4}  # noqa: E226
     assert yz.times_called() == 2
 
     assert flow.get('xy_plus_yz', set) == {
-        -2*3+3*4, -2*6+6*4, 2*3+3*4, 2*6+6*4}  # noqa: E226
+        -2 * 3 + 3 * 4,
+        -2 * 6 + 6 * 4,
+        2 * 3 + 3 * 4,
+        2 * 6 + 6 * 4,
+    }  # noqa: E226
     assert xy.times_called() == 0
     assert yz.times_called() == 0
     assert xy_plus_yz.times_called() == 3
 
-    flow = builder.build()\
-        .setting('x', values=[2, -2])\
-        .setting('y', values=[3, 6])
+    flow = builder.build().setting('x', values=[2, -2]).setting('y', values=[3, 6])
 
     assert flow.get('xy', set) == {-12, -6, 6, 12}
     assert xy.times_called() == 0
 
-    assert flow.get('yz', set) == {3*4, 6*4}  # noqa: E226
+    assert flow.get('yz', set) == {3 * 4, 6 * 4}  # noqa: E226
     assert yz.times_called() == 2
 
     assert flow.get('xy_plus_yz', set) == {
-        -2*3+3*4, -2*6+6*4, 2*3+3*4, 2*6+6*4}  # noqa: E226
+        -2 * 3 + 3 * 4,
+        -2 * 6 + 6 * 4,
+        2 * 3 + 3 * 4,
+        2 * 6 + 6 * 4,
+    }  # noqa: E226
     assert xy.times_called() == 0
     assert yz.times_called() == 0
     assert xy_plus_yz.times_called() == 0
@@ -126,14 +130,18 @@ def test_caching_and_invalidation(builder):
 
     flow = flow.setting('y', values=[6, 9])
 
-    assert flow.get('xy', set) == {-2*6, -2*9, 2*6, 2*9}  # noqa: E226
+    assert flow.get('xy', set) == {-2 * 6, -2 * 9, 2 * 6, 2 * 9}  # noqa: E226
     assert xy.times_called() == 2
 
-    assert flow.get('yz', set) == {6*4, 9*4}  # noqa: E226
+    assert flow.get('yz', set) == {6 * 4, 9 * 4}  # noqa: E226
     assert yz.times_called() == 2
 
     assert flow.get('xy_plus_yz', set) == {
-        -2*6+6*4, -2*9+9*4, 2*6+6*4, 2*9+9*4}  # noqa: E226
+        -2 * 6 + 6 * 4,
+        -2 * 9 + 9 * 4,
+        2 * 6 + 6 * 4,
+        2 * 9 + 9 * 4,
+    }  # noqa: E226
     assert xy_plus_yz.times_called() == 2
 
     # This is mainly just to check that the cache wrapper returns a sane set of
@@ -765,6 +773,7 @@ def test_disable_memory_caching(builder):
     assert x_protocol.times_read_called == 2
 
     with pytest.raises(ValueError):
+
         @builder
         @x_protocol
         @bn.persist(False)
@@ -805,7 +814,7 @@ def test_can_still_read_old_filename_convention(builder):
     assert entity_inventory_path.is_dir()
     desc_paths = list(entity_inventory_path.glob('**/*.yaml'))
     assert len(desc_paths) == 1
-    desc_path, = desc_paths
+    (desc_path,) = desc_paths
     desc_yaml = desc_path.read_text()
     assert new_style_filename in desc_yaml
     desc_yaml = desc_yaml.replace(new_style_filename, old_style_filename)

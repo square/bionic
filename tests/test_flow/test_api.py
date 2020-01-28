@@ -10,7 +10,10 @@ import pandas as pd
 
 import bionic as bn
 from bionic.exception import (
-    UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
+    UndefinedEntityError,
+    AlreadyDefinedEntityError,
+    IncompatibleEntityError,
+)
 
 from ..helpers import count_calls, assert_re_matches
 
@@ -51,6 +54,7 @@ def preset_flow(preset_builder):
 
 
 # -- Builder API tests.
+
 
 def test_declare(preset_builder):
     builder = preset_builder
@@ -370,16 +374,14 @@ def test_get_collections(preset_flow):
         # This is a convoluted way of accessing the index, but I don't want
         # the test to be sensitive to whether we output a regular index or a
         # MultiIndex.
-        z_series_index_df = z_series.index.to_frame()\
-            .applymap(lambda x: x.get())
+        z_series_index_df = z_series.index.to_frame().applymap(lambda x: x.get())
         assert list(z_series_index_df.columns) == ['z']
         assert list(z_series_index_df['z']) == [2, 3]
 
         p_series = flow.get('p', collection)
         assert list(p_series) == [4]
         assert p_series.name == 'p'
-        p_series_index_df = p_series.index.to_frame()\
-            .applymap(lambda x: x.get())
+        p_series_index_df = p_series.index.to_frame().applymap(lambda x: x.get())
         assert list(sorted(p_series_index_df.columns)) == ['p', 'q']
         assert list(p_series_index_df['p']) == [4]
         assert list(p_series_index_df['q']) == [5]
@@ -460,11 +462,7 @@ def test_declaring(preset_flow):
 def test_merging(preset_flow):
     flow = preset_flow
 
-    new_flow = (
-        bn.FlowBuilder('new_flow').build()
-        .assigning('x', 5)
-        .assigning('y', 6)
-    )
+    new_flow = bn.FlowBuilder('new_flow').build().assigning('x', 5).assigning('y', 6)
 
     assert flow.get('f', set) == set()
 
@@ -485,10 +483,7 @@ def test_adding_case(preset_flow):
 
     assert flow.get('p', set) == {4}
     assert flow.adding_case('p', 4, 'q', 6).get('q', set) == {5, 6}
-    assert flow\
-        .adding_case('p', 4, 'q', 6)\
-        .adding_case('p', 4, 'q', 7)\
-        .get('q', set) == {5, 6, 7}
+    assert flow.adding_case('p', 4, 'q', 6).adding_case('p', 4, 'q', 7).get('q', set) == {5, 6, 7}
 
     with raises(ValueError):
         flow.adding_case('p', 3)
@@ -505,14 +500,8 @@ def test_then_setting(builder):
 
     flow0 = builder.build()
 
-    flow1 = flow0\
-        .adding_case('a', 1, 'b', 2)\
-        .then_setting('c', 3)\
-
-    flow2 = flow1\
-        .adding_case('a', 4, 'b', 5)\
-        .then_setting('c', 6)\
-
+    flow1 = flow0.adding_case('a', 1, 'b', 2).then_setting('c', 3)
+    flow2 = flow1.adding_case('a', 4, 'b', 5).then_setting('c', 6)
     assert flow0.get('a', set) == set()
     assert flow0.get('b', set) == set()
     assert flow0.get('c', set) == set()
@@ -548,7 +537,16 @@ def test_clearing_cases(preset_flow):
 
 def test_all_entity_names(preset_flow):
     assert set(preset_flow.all_entity_names()) == {
-        'x', 'y', 'z', 'y_fxn', 'f', 'g', 'p', 'q', 'y_plus', 'y_plus_plus'
+        'x',
+        'y',
+        'z',
+        'y_fxn',
+        'f',
+        'g',
+        'p',
+        'q',
+        'y_plus',
+        'y_plus_plus',
     }
 
 
@@ -662,11 +660,12 @@ def test_entity_doc(builder):
     assert_re_matches(
         r"(?s).*test docstring\s+"
         r"This function is equivalent to ``get\('f', \*args, \*\*kwargs\)``.*",
-        help_str(flow.get.f))
+        help_str(flow.get.f),
+    )
     assert_re_matches(
-        r"(?s).*"
-        r"This function is equivalent to ``get\('g', \*args, \*\*kwargs\)``.*",
-        help_str(flow.get.g))
+        r"(?s).*" r"This function is equivalent to ``get\('g', \*args, \*\*kwargs\)``.*",
+        help_str(flow.get.g),
+    )
 
 
 def test_entity_doc_legacy_api(builder):

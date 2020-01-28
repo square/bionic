@@ -84,18 +84,29 @@ def test_immutable_mapping():
 
 def test_oneline():
     from bionic.util import oneline
+
     assert oneline('one two') == 'one two'
     assert oneline(' one two ') == 'one two'
     assert oneline('\none\ntwo') == 'one two'
-    assert oneline('''
+    assert (
+        oneline(
+            '''
        one
-       two   three''') == 'one two   three'
-    assert oneline('''
+       two   three'''
+        )
+        == 'one two   three'
+    )
+    assert (
+        oneline(
+            '''
        one
        two
 
        three
-       ''') == 'one two three'
+       '''
+        )
+        == 'one two three'
+    )
 
 
 # These functions are not in util.py but it's convenient to test them here too.

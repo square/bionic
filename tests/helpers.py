@@ -13,8 +13,7 @@ import bionic as bn
 
 GCS_TEST_BUCKET = os.environ.get('BIONIC_GCS_TEST_BUCKET', None)
 skip_unless_gcs = pytest.mark.skipif(
-    GCS_TEST_BUCKET is None,
-    reason='the BIONIC_GCS_TEST_BUCKET env variable was not set'
+    GCS_TEST_BUCKET is None, reason='the BIONIC_GCS_TEST_BUCKET env variable was not set'
 )
 
 
@@ -77,10 +76,12 @@ def count_calls(func):
         n = wrapped._n_calls_since_last_check
         wrapped._n_calls_since_last_check = 0
         return n
+
     wrapped.times_called = times_called
 
     def total_times_called():
         return wrapped._n_calls_total
+
     wrapped.total_times_called = total_times_called
 
     container.append(wrapped)
@@ -133,8 +134,8 @@ def assert_re_matches(regex, string, flags=0):
     # Otherwise, identify the parts that didn't match.
     assert string.startswith(matched_str)
     assert regex.startswith(matched_rgx)
-    unmatched_str = string[len(matched_str):]
-    unmatched_rgx = regex[len(matched_rgx):]
+    unmatched_str = string[len(matched_str) :]
+    unmatched_rgx = regex[len(matched_rgx) :]
 
     # We'll display the results in two columns: first the matching parts, then
     # the non-matching parts.
@@ -144,16 +145,8 @@ def assert_re_matches(regex, string, flags=0):
             s = s[:8] + '<...>' + s[-7:]
         return s
 
-    matched_parts = [
-        fmt(matched_rgx),
-        fmt(matched_str),
-        '(match)'
-    ]
-    unmatched_parts = [
-        fmt(unmatched_rgx),
-        fmt(unmatched_str),
-        '(MISMATCH)'
-    ]
+    matched_parts = [fmt(matched_rgx), fmt(matched_str), '(match)']
+    unmatched_parts = [fmt(unmatched_rgx), fmt(unmatched_str), '(MISMATCH)']
 
     # Align each column so its elements each have the same width.
     max_matched_len = max(len(s) for s in matched_parts)

@@ -41,6 +41,7 @@ def test_pyplot_name_arg(builder):
 
 def test_pyplot_missing_dep(builder):
     with pytest.raises(ValueError):
+
         @builder
         @bn.pyplot
         def plot(some_arg):

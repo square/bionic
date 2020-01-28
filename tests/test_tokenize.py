@@ -37,13 +37,6 @@ def test_tokenize_complex_type():
 
 
 def test_tokenize_no_collisions():
-    points = [
-        Point(x, y)
-        for x in range(100)
-        for y in range(100)
-    ]
-    tokens = [
-        tokenize(point, pickle.dumps)
-        for point in points
-    ]
+    points = [Point(x, y) for x in range(100) for y in range(100)]
+    tokens = [tokenize(point, pickle.dumps) for point in points]
     assert len(set(tokens)) == len(points)

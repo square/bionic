@@ -89,12 +89,7 @@ def test_outputs_custom_protocols_first(builder):
 # default protocol for each type, but at least we can check that nothing
 # breaks.
 def test_outputs_default_protocols(builder):
-    expected_df = pd.DataFrame(
-        columns=['x', 'y'],
-        data=[
-            [1, 2],
-            [3, 4],
-        ])
+    expected_df = pd.DataFrame(columns=['x', 'y'], data=[[1, 2], [3, 4],])
 
     @builder
     @bn.outputs('size', 'df')

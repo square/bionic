@@ -40,6 +40,7 @@ def test_multi_docs_decorated_first(builder):
 
 def test_too_many_docs(builder):
     with pytest.raises(ValueError):
+
         @builder
         @bn.docs('a doc', 'b doc')
         def f():
@@ -48,6 +49,7 @@ def test_too_many_docs(builder):
 
 def test_too_few_docs(builder):
     with pytest.warns(Warning):
+
         @builder
         @bn.outputs('a', 'b')
         def f():

@@ -2,8 +2,10 @@ import pytest
 
 import bionic as bn
 from bionic.exception import (
-        UndefinedEntityError, AlreadyDefinedEntityError,
-        IncompatibleEntityError)
+    UndefinedEntityError,
+    AlreadyDefinedEntityError,
+    IncompatibleEntityError,
+)
 
 ALL_KEEP_VALUES = ['error', 'old', 'new', 'combine']
 
@@ -52,9 +54,7 @@ class MergeTester(object):
         Each merge is performed with the passed ``keep`` argument.
         """
 
-        header_and_rows = [
-            line.strip().split() for line in grid.strip().splitlines()
-        ]
+        header_and_rows = [line.strip().split() for line in grid.strip().splitlines()]
 
         header = header_and_rows[0]
         rows = header_and_rows[1:]
@@ -65,8 +65,7 @@ class MergeTester(object):
             outcome_keys = row[1:]
 
             for new_flow_key, outcome_key in zip(new_flow_keys, outcome_keys):
-                self._run_test_cell(
-                    old_flow_key, new_flow_key, outcome_key, keep)
+                self._run_test_cell(old_flow_key, new_flow_key, outcome_key, keep)
 
     def _run_test_cell(self, old_flow_key, new_flow_key, outcome_key, keep):
         old_flow = self._flow_for_key(old_flow_key)
@@ -142,9 +141,7 @@ def merge_tester(builder):
 
     tester.add('DerivedJoint', fb.build())
 
-    tester.add(
-        'FixedJoint',
-        f.declaring('x').declaring('y').adding_case('x', 7, 'y', 8))
+    tester.add('FixedJoint', f.declaring('x').declaring('y').adding_case('x', 7, 'y', 8))
 
     # This new flow will use the default cache directory, which is bad, because
     # it could pick up data from previous test runs.  Unfortunately it's tricky
@@ -182,9 +179,7 @@ def merge_tester(builder):
 
     tester.add('DJ', fb.build())
 
-    tester.add(
-        'FJ',
-        f.declaring('x').declaring('y').adding_case('x', 17, 'y', 18))
+    tester.add('FJ', f.declaring('x').declaring('y').adding_case('x', 17, 'y', 18))
 
     return tester
 
@@ -201,7 +196,8 @@ def test_keep_error(merge_tester):
         DerivedSingle  <  <  !  !  !  !  !
          DerivedJoint  <  <  !  !  !  !  !
            FixedJoint  <  <  !  !  !  !  !
-        ''')
+        ''',
+    )
 
 
 def test_keep_old(merge_tester):
@@ -216,7 +212,8 @@ def test_keep_old(merge_tester):
         DerivedSingle  <  <  <  <  <  X  X
          DerivedJoint  <  <  <  <  <  <  <
            FixedJoint  <  <  <  <  <  <  <
-        ''')
+        ''',
+    )
 
 
 def test_keep_new(merge_tester):
@@ -231,7 +228,8 @@ def test_keep_new(merge_tester):
         DerivedSingle  <  <  ^  ^  ^  ^  ^
          DerivedJoint  <  <  X  X  X  ^  ^
            FixedJoint  <  <  X  X  X  ^  ^
-        ''')
+        ''',
+    )
 
 
 def test_old_name_is_kept():
@@ -258,42 +256,33 @@ def test_cache_dir_not_set():
     new_flow = bn.FlowBuilder('new').build()
 
     for keep in ALL_KEEP_VALUES:
-        assert old_flow.merging(new_flow, keep=keep)\
-            .get(CACHE_DIR_ENT) == 'bndata'
+        assert old_flow.merging(new_flow, keep=keep).get(CACHE_DIR_ENT) == 'bndata'
 
 
 def test_cache_dir_already_set():
-    old_flow = bn.FlowBuilder('old').build()\
-        .setting(CACHE_DIR_ENT, 'old_dir')
+    old_flow = bn.FlowBuilder('old').build().setting(CACHE_DIR_ENT, 'old_dir')
     new_flow = bn.FlowBuilder('new').build()
 
     for keep in ALL_KEEP_VALUES:
-        assert old_flow.merging(new_flow, keep=keep)\
-            .get(CACHE_DIR_ENT) == 'old_dir'
+        assert old_flow.merging(new_flow, keep=keep).get(CACHE_DIR_ENT) == 'old_dir'
 
 
 def test_cache_dir_set_on_incoming():
     old_flow = bn.FlowBuilder('old').build()
-    new_flow = bn.FlowBuilder('new').build()\
-        .setting(CACHE_DIR_ENT, 'new_dir')
+    new_flow = bn.FlowBuilder('new').build().setting(CACHE_DIR_ENT, 'new_dir')
 
     for keep in ALL_KEEP_VALUES:
-        assert old_flow.merging(new_flow, keep=keep)\
-            .get(CACHE_DIR_ENT) == 'new_dir'
+        assert old_flow.merging(new_flow, keep=keep).get(CACHE_DIR_ENT) == 'new_dir'
 
 
 def test_cache_dir_conflicts():
-    old_flow = bn.FlowBuilder('old').build()\
-        .setting(CACHE_DIR_ENT, 'old_dir')
-    new_flow = bn.FlowBuilder('new').build()\
-        .setting(CACHE_DIR_ENT, 'new_dir')
+    old_flow = bn.FlowBuilder('old').build().setting(CACHE_DIR_ENT, 'old_dir')
+    new_flow = bn.FlowBuilder('new').build().setting(CACHE_DIR_ENT, 'new_dir')
 
     with pytest.raises(AlreadyDefinedEntityError):
         old_flow.merging(new_flow, keep='error')
-    assert old_flow.merging(new_flow, keep='old').get(CACHE_DIR_ENT) ==\
-        'old_dir'
-    assert old_flow.merging(new_flow, keep='new').get(CACHE_DIR_ENT) ==\
-        'new_dir'
+    assert old_flow.merging(new_flow, keep='old').get(CACHE_DIR_ENT) == 'old_dir'
+    assert old_flow.merging(new_flow, keep='new').get(CACHE_DIR_ENT) == 'new_dir'
 
 
 def test_protocols_conflict(builder):

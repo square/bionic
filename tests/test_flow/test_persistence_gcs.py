@@ -18,8 +18,12 @@ import tempfile
 import dask.dataframe as dd
 
 from ..helpers import (
-    ResettingCounter, skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str,
-    equal_frame_and_index_content)
+    ResettingCounter,
+    skip_unless_gcs,
+    GCS_TEST_BUCKET,
+    df_from_csv_str,
+    equal_frame_and_index_content,
+)
 from bionic.exception import CodeVersioningError
 
 import bionic as bn
@@ -236,8 +240,10 @@ def test_gcs_caching(gcs_builder):
             red,1
             blue,2
             green,3
-            '''),
-        npartitions=1)
+            '''
+        ),
+        npartitions=1,
+    )
 
     @builder
     @bn.protocol.dask
@@ -247,17 +253,14 @@ def test_gcs_caching(gcs_builder):
 
     flow = builder.build()
 
-    assert equal_frame_and_index_content(
-        flow.get('df').compute(), dask_df.compute())
-    assert equal_frame_and_index_content(
-        flow.get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(flow.get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(flow.get('df').compute(), dask_df.compute())
     assert call_counter.times_called() == 1
 
     local_wipe_path(local_cache_path_str)
     flow = builder.build()
 
-    assert equal_frame_and_index_content(
-        flow.get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(flow.get('df').compute(), dask_df.compute())
     assert call_counter.times_called() == 0
 
     # Test file path copying.
