@@ -59,7 +59,9 @@ def version(major=None, minor=None):
         A decorator which can be applied to an entity function.
     """
 
-    return provider_wrapper(AttrUpdateProvider, 'code_version', CodeVersion(major, minor))
+    return provider_wrapper(
+        AttrUpdateProvider, "code_version", CodeVersion(major, minor)
+    )
 
 
 # In the future I expect we'll have other caching options -- disabling in-memory
@@ -85,7 +87,7 @@ def persist(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return provider_wrapper(AttrUpdateProvider, 'should_persist', enabled)
+    return provider_wrapper(AttrUpdateProvider, "should_persist", enabled)
 
 
 def memoize(enabled):
@@ -107,7 +109,7 @@ def memoize(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return provider_wrapper(AttrUpdateProvider, 'should_memoize', enabled)
+    return provider_wrapper(AttrUpdateProvider, "should_memoize", enabled)
 
 
 def output(name):
@@ -180,7 +182,7 @@ def docs(*docs):
         A decorator which can be applied to an entity function.
     """
 
-    return provider_wrapper(AttrUpdateProvider, 'docs', docs)
+    return provider_wrapper(AttrUpdateProvider, "docs", docs)
 
 
 # TODO I'd like to put a @protocols decorator here that exposes the
@@ -188,7 +190,7 @@ def docs(*docs):
 # protocols.py module.  Let's do this in a later PR.
 
 
-def gather(over, also=None, into='gather_df'):
+def gather(over, also=None, into="gather_df"):
     """
     Gathers multiple instances of entities into a single dataframe.
 
@@ -278,7 +280,7 @@ def pyplot(name=None, savefig_kwargs=None):
         A decorator which can be applied to an entity function.
     """
 
-    DEFAULT_NAME = 'pyplot'
+    DEFAULT_NAME = "pyplot"
     if callable(name):
         func_or_provider = name
         wrapper = provider_wrapper(PyplotProvider, DEFAULT_NAME)

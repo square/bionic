@@ -54,29 +54,29 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
         if not is_func_or_provider(func_or_provider):
             raise ValueError(
                 oneline(
-                    '''
+                    """
                 frame must be used either (a) directly as a decorator or
                 (b) with keyword arguments;
                 it can't take positional arguments.
-                '''
+                """
                 )
             )
         return protocols.ParquetDataFrameProtocol()(func_or_provider)
 
     # Otherwise, we have arguments and should return a decorator.
-    if file_format is None or file_format == 'parquet':
+    if file_format is None or file_format == "parquet":
         kwargs = {}
         if check_dtypes is not None:
-            kwargs['check_dtypes'] = check_dtypes
+            kwargs["check_dtypes"] = check_dtypes
         return protocols.ParquetDataFrameProtocol(**kwargs)
-    elif file_format == 'feather':
+    elif file_format == "feather":
         return protocols.FeatherDataFrameProtocol()
     else:
         raise ValueError(
             oneline(
-                f'''
+                f"""
             file_format must be one of {'parquet', 'feather'};
-            got {file_format!r}'''
+            got {file_format!r}"""
             )
         )
 

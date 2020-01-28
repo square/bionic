@@ -1,11 +1,11 @@
-'''
+"""
 Contains the "Provider" class hierarchy.  A provider is the object that knows
 how to produce a value for one or more entities.  This module includes a
 BaseProvider class and various subclasses.
 
 The whole architecture is a bit of a mess and probably needs a substantial
 rethink.
-'''
+"""
 
 import inspect
 from copy import copy
@@ -64,7 +64,9 @@ class BaseProvider(object):
         )
 
         code_version = (
-            CodeVersion(None, None) if self.attrs.code_version is None else self.attrs.code_version
+            CodeVersion(None, None)
+            if self.attrs.code_version is None
+            else self.attrs.code_version
         )
 
         return CodeDescriptor(
@@ -99,9 +101,9 @@ class BaseProvider(object):
         if name_ix < 0:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Attempted to look up name {name!r} from provider
-                providing only {tuple(self.attrs.names)!r}'''
+                providing only {tuple(self.attrs.names)!r}"""
                 )
             )
         return self.attrs.protocols[name_ix]
@@ -111,15 +113,15 @@ class BaseProvider(object):
         if name_ix < 0:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Attempted to look up name {name!r} from provider
-                providing only {tuple(self.attrs.names)!r}'''
+                providing only {tuple(self.attrs.names)!r}"""
                 )
             )
         return self.attrs.docs[name_ix]
 
     def __repr__(self):
-        return f'{self.__class__.__name__}{tuple(self.attrs.names)!r}'
+        return f"{self.__class__.__name__}{tuple(self.attrs.names)!r}"
 
 
 class WrappingProvider(BaseProvider):
@@ -127,9 +129,9 @@ class WrappingProvider(BaseProvider):
         if wrapped_provider.is_mutable:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Can only wrap immutable providers; got mutable provider
-                {wrapped_provider!r}'''
+                {wrapped_provider!r}"""
                 )
             )
         super(WrappingProvider, self).__init__(wrapped_provider.attrs)
@@ -142,13 +144,15 @@ class WrappingProvider(BaseProvider):
         return self.wrapped_provider.get_key_space(dep_key_spaces_by_name)
 
     def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
-        return self.wrapped_provider.get_tasks(dep_key_spaces_by_name, dep_task_key_lists_by_name)
+        return self.wrapped_provider.get_tasks(
+            dep_key_spaces_by_name, dep_task_key_lists_by_name
+        )
 
     def get_source_func(self):
         return self.wrapped_provider.get_source_func()
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.wrapped_provider})'
+        return f"{self.__class__.__name__}({self.wrapped_provider})"
 
 
 class AttrUpdateProvider(WrappingProvider):
@@ -159,11 +163,11 @@ class AttrUpdateProvider(WrappingProvider):
         if old_attr_value is not None and not allow_override:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Attempted to set attribute {attr_name!r} twice
                 on {wrapped_provider!r};
                 old value was {old_attr_value!r},
-                new value is {attr_value!r}'''
+                new value is {attr_value!r}"""
                 )
             )
 
@@ -198,9 +202,9 @@ class RenamingProvider(WrappingProvider):
         if len(orig_names) != 1:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Can't rename a provider that already has multiple
-                names; need exactly one name but got {tuple(orig_names)!r}'''
+                names; need exactly one name but got {tuple(orig_names)!r}"""
                 )
             )
 
@@ -233,9 +237,9 @@ class NameSplittingProvider(WrappingProvider):
         if len(orig_names) != 1:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Can't change a provider's number of names multiple times;
-                need exactly one name but got {tuple(orig_names)!r}'''
+                need exactly one name but got {tuple(orig_names)!r}"""
                 )
             )
 
@@ -260,12 +264,12 @@ class NameSplittingProvider(WrappingProvider):
                 if len(value_seq) != len(self.attrs.names):
                     raise ValueError(
                         oneline(
-                            f'''
+                            f"""
                         Expected provider
                         {self.wrapped_provider.attrs.names[0]!r} to return
                         {len(self.attrs.names)} outputs named
                         {self.attrs.names!r}; got {len(value_seq)} outputs
-                        {tuple(value_seq)!r}'''
+                        {tuple(value_seq)!r}"""
                         )
                     )
 
@@ -323,18 +327,18 @@ class ValueProvider(BaseProvider):
             if case_key.space != self.key_space:
                 raise ValueError(
                     oneline(
-                        f'''
+                        f"""
                     Can't add {case_key!r} to entity {self.name!r}:
-                    key space doesn't match {self.key_space!r}'''
+                    key space doesn't match {self.key_space!r}"""
                     )
                 )
 
             if case_key in self._values_by_case_key:
                 raise ValueError(
                     oneline(
-                        f'''
+                        f"""
                     Can't add {case_key!r} to entity {self.name!r};
-                    that case key already exists'''
+                    that case key already exists"""
                     )
                 )
 
@@ -405,9 +409,9 @@ class FunctionProvider(BaseProvider):
         argspec = inspect.getfullargspec(func)
 
         if argspec.varargs:
-            raise ValueError('Functions with varargs are not supported')
+            raise ValueError("Functions with varargs are not supported")
         if argspec.varkw:
-            raise ValueError('Functions with keyword args are not supported')
+            raise ValueError("Functions with keyword args are not supported")
         self._dep_names = list(argspec.args)
 
     def get_dependency_names(self):
@@ -430,7 +434,9 @@ class FunctionProvider(BaseProvider):
             Task(
                 keys=[TaskKey(self.name, case_key)],
                 dep_keys=[
-                    TaskKey(dep_name, case_key.project(dep_key_spaces_by_name[dep_name]),)
+                    TaskKey(
+                        dep_name, case_key.project(dep_key_spaces_by_name[dep_name]),
+                    )
                     for dep_name in self._dep_names
                 ],
                 compute_func=self._apply,
@@ -443,13 +449,15 @@ class FunctionProvider(BaseProvider):
         return [value]
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self._func})'
+        return f"{self.__class__.__name__}({self._func})"
 
 
 class GatherProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, primary_names, secondary_names, gathered_dep_name):
+    def __init__(
+        self, wrapped_provider, primary_names, secondary_names, gathered_dep_name
+    ):
         # TODO This is still pretty confusing, I think.
-        '''
+        """
         This a very involved wrapper implementing the "gather" decorator.  It
         collects multiple dependencies into a single DataFrame argument, which
         is accessible to the wrapped provider along with its other arguments.
@@ -464,7 +472,7 @@ class GatherProvider(WrappingProvider):
         collapsed into a single frame.  Secondary dependencies do not affect
         the grouping; any variation due to them will result in multiple
         instances of this provider, as normal.
-        '''
+        """
 
         super(GatherProvider, self).__init__(wrapped_provider)
 
@@ -476,14 +484,16 @@ class GatherProvider(WrappingProvider):
 
         self._gather_names = list(self._primary_names) + list(self._secondary_names)
 
-        inner_gathered_dep_ix = self._inner_dep_names.index(self._inner_gathered_dep_name)
+        inner_gathered_dep_ix = self._inner_dep_names.index(
+            self._inner_gathered_dep_name
+        )
         if inner_gathered_dep_ix < 0:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Expected wrapped {self.wrapped_provider!r}
                 to have dependency name {self._inner_gathered_dep_name!r},
-                but only found names {self._inner_dep_names!r}'''
+                but only found names {self._inner_dep_names!r}"""
                 )
             )
 
@@ -492,7 +502,9 @@ class GatherProvider(WrappingProvider):
         assert self._inner_gathered_dep_name not in self._passthrough_dep_names
 
         extra_dep_names = [
-            name for name in self._gather_names if name not in self._passthrough_dep_names
+            name
+            for name in self._gather_names
+            if name not in self._passthrough_dep_names
         ]
         self._outer_dep_names = extra_dep_names + self._passthrough_dep_names
 
@@ -521,7 +533,9 @@ class GatherProvider(WrappingProvider):
         gather_case_key_lists_by_delta_case_key = defaultdict(list)
         for gather_case_key in gather_case_keys:
             delta_case_key = gather_case_key.project(key_spaces.delta)
-            gather_case_key_lists_by_delta_case_key[delta_case_key].append(gather_case_key)
+            gather_case_key_lists_by_delta_case_key[delta_case_key].append(
+                gather_case_key
+            )
 
         delta_case_keys = gather_case_key_lists_by_delta_case_key.keys()
 
@@ -567,7 +581,9 @@ class GatherProvider(WrappingProvider):
             # Remove the key for the aggregated value, and remember its case
             # key.
             passthrough_dep_keys = list(inner_dep_keys)
-            inner_gather_case_key = passthrough_dep_keys.pop(gather_task_key_ix).case_key
+            inner_gather_case_key = passthrough_dep_keys.pop(
+                gather_task_key_ix
+            ).case_key
             delta_case_key = inner_gather_case_key
 
             # Find the task keys that need to be gathered together.
@@ -575,11 +591,14 @@ class GatherProvider(WrappingProvider):
             for dep_name in self._gather_names:
                 dep_key_space = dep_key_spaces_by_name[dep_name]
 
-                relevant_gather_case_keys = gather_case_key_lists_by_delta_case_key[delta_case_key]
+                relevant_gather_case_keys = gather_case_key_lists_by_delta_case_key[
+                    delta_case_key
+                ]
                 for gather_case_key in relevant_gather_case_keys:
                     unique_gather_task_keys.add(
                         TaskKey(
-                            entity_name=dep_name, case_key=gather_case_key.project(dep_key_space),
+                            entity_name=dep_name,
+                            case_key=gather_case_key.project(dep_key_space),
                         )
                     )
 
@@ -613,7 +632,9 @@ class GatherProvider(WrappingProvider):
                 for name in self._gather_names:
                     key_space = dep_key_spaces_by_name[name]
                     gathered_df[name] = [
-                        values_by_task_key.get(TaskKey(name, case_key.project(key_space)), None)
+                        values_by_task_key.get(
+                            TaskKey(name, case_key.project(key_space)), None
+                        )
                         for case_key in row_case_keys
                     ]
 
@@ -628,10 +649,14 @@ class GatherProvider(WrappingProvider):
             # over the network, we need to either use dill or refactor this
             # code.
             return Task(
-                keys=task.keys, dep_keys=wrapped_dep_keys, compute_func=wrapped_compute_func,
+                keys=task.keys,
+                dep_keys=wrapped_dep_keys,
+                compute_func=wrapped_compute_func,
             )
 
-        orig_tasks = self.wrapped_provider.get_tasks(inner_key_spaces_by_name, inner_dtkls)
+        orig_tasks = self.wrapped_provider.get_tasks(
+            inner_key_spaces_by_name, inner_dtkls
+        )
         return [wrap_task(task) for task in orig_tasks]
 
     def _compute_key_spaces(self, dep_key_spaces_by_name):
@@ -642,7 +667,8 @@ class GatherProvider(WrappingProvider):
             # The combined keyspace of all the non-gathered dependencies of the
             # wrapped provider.
             self.passthrough = CaseKeySpace.union_all(
-                dep_key_spaces_by_name[name] for name in gather_provider._passthrough_dep_names
+                dep_key_spaces_by_name[name]
+                for name in gather_provider._passthrough_dep_names
             )
 
             # The combined keyspace of the all the primary gathered
@@ -655,7 +681,8 @@ class GatherProvider(WrappingProvider):
             # The combined keyspace of the all the secondary gathered
             # dependencies.
             self.secondary = CaseKeySpace.union_all(
-                dep_key_spaces_by_name[name] for name in gather_provider._secondary_names
+                dep_key_spaces_by_name[name]
+                for name in gather_provider._secondary_names
             )
 
             # The difference between the secondary and primary key spaces.
@@ -677,16 +704,18 @@ class GatherProvider(WrappingProvider):
 #    process.
 # 3. Try to make Bionic's matplotlib initialization identical to Jupyter's.
 class PyplotProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, name='pyplot', savefig_kwargs=None):
+    def __init__(self, wrapped_provider, name="pyplot", savefig_kwargs=None):
         super(PyplotProvider, self).__init__(wrapped_provider)
 
-        self._Image = import_optional_dependency('PIL.Image', purpose='the @pyplot decorator')
+        self._Image = import_optional_dependency(
+            "PIL.Image", purpose="the @pyplot decorator"
+        )
 
         self._pyplot_name = name
 
         self._savefig_kwargs = {
-            'format': 'png',
-            'bbox_inches': 'tight',
+            "format": "png",
+            "bbox_inches": "tight",
         }
         if savefig_kwargs is not None:
             self._savefig_kwargs.update(savefig_kwargs)
@@ -695,10 +724,10 @@ class PyplotProvider(WrappingProvider):
         if self._pyplot_name not in inner_dep_names:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 When using {self.__class__.__name__},
                 expected wrapped {wrapped_provider} to have a dependency
-                named {self._pyplot_name!r}; only found {inner_dep_names!r}'''
+                named {self._pyplot_name!r}; only found {inner_dep_names!r}"""
                 )
             )
 
@@ -742,7 +771,7 @@ class PyplotProvider(WrappingProvider):
             outer_dep_keys.pop(pyplot_dep_ix)
 
             def wrapped_compute_func(dep_values):
-                import_optional_dependency('matplotlib', purpose='plotting')
+                import_optional_dependency("matplotlib", purpose="plotting")
                 from matplotlib import pyplot as plt
 
                 outer_dep_values = dep_values
@@ -759,10 +788,10 @@ class PyplotProvider(WrappingProvider):
                 if values != [None]:
                     raise ValueError(
                         oneline(
-                            f'''
+                            f"""
                         Providers wrapped by {self.__class__.__name__}
                         should not return values;
-                        got values {tuple(values)!r}'''
+                        got values {tuple(values)!r}"""
                         )
                     )
 
@@ -778,7 +807,11 @@ class PyplotProvider(WrappingProvider):
 
                 return [image]
 
-            return Task(keys=task.keys, dep_keys=outer_dep_keys, compute_func=wrapped_compute_func,)
+            return Task(
+                keys=task.keys,
+                dep_keys=outer_dep_keys,
+                compute_func=wrapped_compute_func,
+            )
 
         outer_tasks = [wrap_task(task) for task in inner_tasks]
         return outer_tasks
@@ -804,10 +837,14 @@ def merge_case_key_lists(case_key_lists):
         common_key_space = cur_key_space.intersection(merged_key_space)
 
         # Group the current keys by their common parts.
-        cur_key_lists_by_common_key = groups_dict(cur_case_keys, common_key_space.select)
+        cur_key_lists_by_common_key = groups_dict(
+            cur_case_keys, common_key_space.select
+        )
 
         # Likewise, group the already-merged keys.
-        merged_key_lists_by_common_key = groups_dict(merged_case_keys, common_key_space.select)
+        merged_key_lists_by_common_key = groups_dict(
+            merged_case_keys, common_key_space.select
+        )
 
         # For each distinct common key, take the Cartesian product of the
         # new and already-merged keys.
@@ -824,11 +861,11 @@ def merge_case_key_lists(case_key_lists):
 
 
 class HashableWrapper(object):
-    '''
+    """
     Wraps an arbitrary object along with a hashable token.
 
     Can be used as a hash key even if the wrapped object can't.
-    '''
+    """
 
     def __init__(self, value, token):
         self._value = value
@@ -846,10 +883,10 @@ class HashableWrapper(object):
         return self._token == other._token
 
     def __str__(self):
-        return f'W({self._value})'
+        return f"W({self._value})"
 
     def __repr__(self):
-        return f'HashableWrapper({self._value!r})'
+        return f"HashableWrapper({self._value!r})"
 
 
 def multi_index_from_case_keys(case_keys, ordered_key_names):
@@ -869,10 +906,10 @@ def multi_index_from_case_keys(case_keys, ordered_key_names):
 # -- Helpers for working with providers.
 
 PROVIDER_METHODS = [
-    'get_code_descriptor',
-    'get_dependency_names',
-    'get_tasks',
-    'get_source_func',
+    "get_code_descriptor",
+    "get_dependency_names",
+    "get_tasks",
+    "get_source_func",
 ]
 
 
@@ -890,7 +927,7 @@ def as_provider(func_or_provider):
     elif callable(func_or_provider):
         provider = FunctionProvider(func_or_provider)
     else:
-        raise ValueError('func must be either callable or a Provider')
+        raise ValueError("func must be either callable or a Provider")
 
     return provider
 

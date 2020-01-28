@@ -25,7 +25,7 @@ class SimpleFlowModel(object):
         self._last_called_names = []
 
     def add_entity(self, dep_names):
-        name = f'e{len(self._entities_by_name) + 1}'
+        name = f"e{len(self._entities_by_name) + 1}"
 
         self._create_entity(name, dep_names)
         self._define_entity(name)
@@ -89,7 +89,9 @@ class SimpleFlowModel(object):
 
         if with_children is not None:
             names_with_children = set(
-                name for name in names if len(self._entities_by_name[name].child_names) > 0
+                name
+                for name in names
+                if len(self._entities_by_name[name].child_names) > 0
             )
             if with_children:
                 names = names_with_children
@@ -123,23 +125,23 @@ class SimpleFlowModel(object):
         entity = self._entities_by_name[name]
 
         vars_dict = {
-            'bn': bn,
-            'builder': self._builder,
-            'record_call': self._last_called_names.append,
-            'noop_func': lambda x: None,
+            "bn": bn,
+            "builder": self._builder,
+            "record_call": self._last_called_names.append,
+            "noop_func": lambda x: None,
         }
 
         e = entity
         exec(
             dedent(
-                f'''
+                f"""
             @builder
             @bn.version(major={e.major_version}, minor={e.minor_version})
             def {name}({', '.join(e.dep_names)}):
                 noop_func({e.nonfunc_value})
                 record_call("{name}")
                 return {' + '.join([str(e.func_value)] + e.dep_names)}
-            '''
+            """
             ),
             vars_dict,
         )
@@ -172,12 +174,12 @@ class Fuzzer(object):
 
     def __init__(self, builder, random_seed=0):
         self.model = SimpleFlowModel(builder)
-        self._versioning_mode = 'manual'
+        self._versioning_mode = "manual"
         self._builder = builder
         self._random = Random(random_seed)
 
     def set_versioning_mode(self, mode):
-        self._builder.set('core__versioning_mode', mode)
+        self._builder.set("core__versioning_mode", mode)
         self._versioning_mode = mode
 
     def add_entities(self, n_entities):
@@ -216,7 +218,7 @@ class Fuzzer(object):
                 # between the entity code and Bionic's understanding.  How this
                 # plays out will depend on the versioning mode.
 
-                if self._versioning_mode == 'manual':
+                if self._versioning_mode == "manual":
                     # Bionic doesn't know the code has changed, so this entity
                     # should still be returning the old value.
                     affected_name = self._random.choice(affected_names)
@@ -239,7 +241,7 @@ class Fuzzer(object):
                         update_minor=make_nonfunc_change,
                     )
 
-                elif self._versioning_mode == 'assist':
+                elif self._versioning_mode == "assist":
                     # Bionic should detect that we forgot to update the
                     # version.
                     affected_name = self._random.choice(affected_names)
@@ -254,7 +256,7 @@ class Fuzzer(object):
                         update_minor=make_nonfunc_change,
                     )
 
-                elif self._versioning_mode == 'auto':
+                elif self._versioning_mode == "auto":
                     # Even if we didn't update the version, Bionic should
                     # do it for us and the flow should already be in a correct
                     # state.
@@ -270,7 +272,7 @@ class Fuzzer(object):
                     affected_name
                 ) == self.model.expected_entity_value(affected_name)
 
-            if make_func_change or self._versioning_mode == 'auto':
+            if make_func_change or self._versioning_mode == "auto":
                 expected_called_names = self.model.entity_names(
                     downstream_of=updated_name, upstream_of=affected_names,
                 )
@@ -284,14 +286,14 @@ class Fuzzer(object):
         return self._random.choice([True, False])
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="function")
 def fuzzer(builder, tmp_path):
-    fake_cloud_store = FakeCloudStore(str(tmp_path / 'BNTESTDATA_FAKE_CLOUD'))
-    builder.set('core__persistent_cache__cloud_store', fake_cloud_store)
+    fake_cloud_store = FakeCloudStore(str(tmp_path / "BNTESTDATA_FAKE_CLOUD"))
+    builder.set("core__persistent_cache__cloud_store", fake_cloud_store)
     return Fuzzer(builder)
 
 
-foreach_mode = pytest.mark.parametrize('versioning_mode', ['manual', 'assist', 'auto'])
+foreach_mode = pytest.mark.parametrize("versioning_mode", ["manual", "assist", "auto"])
 
 
 @foreach_mode

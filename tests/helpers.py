@@ -11,9 +11,10 @@ from decorator import decorate
 
 import bionic as bn
 
-GCS_TEST_BUCKET = os.environ.get('BIONIC_GCS_TEST_BUCKET', None)
+GCS_TEST_BUCKET = os.environ.get("BIONIC_GCS_TEST_BUCKET", None)
 skip_unless_gcs = pytest.mark.skipif(
-    GCS_TEST_BUCKET is None, reason='the BIONIC_GCS_TEST_BUCKET env variable was not set'
+    GCS_TEST_BUCKET is None,
+    reason="the BIONIC_GCS_TEST_BUCKET env variable was not set",
 )
 
 
@@ -38,28 +39,28 @@ def assert_frames_equal_when_sorted(df1, df2):
 
 
 def equal_frame_and_index_content(df1, df2):
-    '''
+    """
     Checks whether the passed dataframes have the same content and index values.  This ignores
     index type, so a dataframe with RangeIndex(start=0, stop=3, step=1) will be considered equal
     to Int64Index([0, 1, 2], dtype='int64', name='index')
-    '''
+    """
     return df1.equals(df2) and list(df1.index) == list(df2.index)
 
 
 def df_from_csv_str(string):
-    bytestring = dedent(string).encode('utf-8')
+    bytestring = dedent(string).encode("utf-8")
     return pd.read_csv(BytesIO(bytestring))
 
 
 def count_calls(func):
-    '''
+    """
     A decorator which counts the number of times the decorated function is
     called.  The decorated function will have two methods attached:
 
     - times_called(): returns the number of calls since the last time
       times_called() was invoked
     - times_called_total(): returns the total number of calls ever
-    '''
+    """
     container = []
 
     def wrapper(func, *args, **kwargs):
@@ -109,20 +110,20 @@ class ResettingCounter(object):
 
 class RoundingProtocol(bn.protocols.BaseProtocol):
     def get_fixed_file_extension(self):
-        return 'round'
+        return "round"
 
     def write(self, value, path):
-        path.write_bytes(str(round(value)).encode('utf-8'))
+        path.write_bytes(str(round(value)).encode("utf-8"))
 
     def read(self, path, extension):
         return float(path.read_bytes())
 
 
 def assert_re_matches(regex, string, flags=0):
-    '''
+    """
     Equivalent to `assert re.match(regex, string, flags)` but with a nicer
     error message that shows how how much of the regex and string matched.
-    '''
+    """
 
     # Check if the full regex matches.
     match = longest_regex_prefix_match(regex, string, flags)
@@ -142,11 +143,11 @@ def assert_re_matches(regex, string, flags=0):
     def fmt(s):
         s = repr(s)
         if len(s) > 20:
-            s = s[:8] + '<...>' + s[-7:]
+            s = s[:8] + "<...>" + s[-7:]
         return s
 
-    matched_parts = [fmt(matched_rgx), fmt(matched_str), '(match)']
-    unmatched_parts = [fmt(unmatched_rgx), fmt(unmatched_str), '(MISMATCH)']
+    matched_parts = [fmt(matched_rgx), fmt(matched_str), "(match)"]
+    unmatched_parts = [fmt(unmatched_rgx), fmt(unmatched_str), "(MISMATCH)"]
 
     # Align each column so its elements each have the same width.
     max_matched_len = max(len(s) for s in matched_parts)
@@ -163,12 +164,12 @@ def assert_re_matches(regex, string, flags=0):
 
 
 def longest_regex_prefix_match(regex, string, flags=0):
-    '''
+    """
     Returns the longest prefix of `regex` that matches `string`. (Note this
     uses re.match, which means the regex needs to match the beginning of the
     string, but not the entire string. This also means that the empty prefix
     will always match, so this function will always return a value.)
-    '''
+    """
 
     # If the full regex matches, then we'll just return that.
     match = re.match(regex, string, flags=flags)

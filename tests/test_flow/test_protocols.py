@@ -18,10 +18,10 @@ from bionic.exception import UnsupportedSerializedValueError
 from bionic.protocols import CombinedProtocol, PicklableProtocol
 
 
-PICKLABLE_VALUES = [1, 'string', True, [1, 2, 3], {'a': 1, 'b': 2}]
+PICKLABLE_VALUES = [1, "string", True, [1, 2, 3], {"a": 1, "b": 2}]
 
 
-@pytest.mark.parametrize('value', PICKLABLE_VALUES)
+@pytest.mark.parametrize("value", PICKLABLE_VALUES)
 def test_picklable_value(builder, value):
     @builder
     @bn.protocol.picklable
@@ -29,8 +29,8 @@ def test_picklable_value(builder, value):
     def picklable_value():
         return value
 
-    assert builder.build().get('picklable_value') == value
-    assert builder.build().get('picklable_value') == value
+    assert builder.build().get("picklable_value") == value
+    assert builder.build().get("picklable_value") == value
     assert picklable_value.times_called() == 1
 
 
@@ -41,12 +41,12 @@ def test_picklable_with_parens(builder):
     def picklable_value():
         return 1
 
-    assert builder.build().get('picklable_value') == 1
-    assert builder.build().get('picklable_value') == 1
+    assert builder.build().get("picklable_value") == 1
+    assert builder.build().get("picklable_value") == 1
     assert picklable_value.times_called() == 1
 
 
-@pytest.mark.parametrize('value', PICKLABLE_VALUES)
+@pytest.mark.parametrize("value", PICKLABLE_VALUES)
 def test_picklable_value_is_also_dillable(builder, value):
     @builder
     @bn.protocol.dillable
@@ -54,8 +54,8 @@ def test_picklable_value_is_also_dillable(builder, value):
     def dillable_value():
         return value
 
-    assert builder.build().get('dillable_value') == value
-    assert builder.build().get('dillable_value') == value
+    assert builder.build().get("dillable_value") == value
+    assert builder.build().get("dillable_value") == value
     assert dillable_value.times_called() == 1
 
 
@@ -76,19 +76,19 @@ def test_dillable(builder):
     def add_two():
         return make_adder(2)
 
-    assert builder.build().get('add_two')(3) == 5
-    assert builder.build().get('add_two')(3) == 5
+    assert builder.build().get("add_two")(3) == 5
+    assert builder.build().get("add_two")(3) == 5
     assert add_two.times_called() == 1
 
 
 def test_simple_dataframe(builder):
     df_value = df_from_csv_str(
-        '''
+        """
     color,number
     red,1
     blue,2
     green,3
-    '''
+    """
     )
 
     @builder
@@ -97,25 +97,25 @@ def test_simple_dataframe(builder):
     def df():
         return df_value
 
-    pdt.assert_frame_equal(builder.build().get('df'), df_value)
-    pdt.assert_frame_equal(builder.build().get('df'), df_value)
+    pdt.assert_frame_equal(builder.build().get("df"), df_value)
+    pdt.assert_frame_equal(builder.build().get("df"), df_value)
     assert df.times_called() == 1
 
 
 def test_typed_dataframe(builder):
     df_value = pd.DataFrame()
-    df_value['int'] = [1, 2, 3]
-    df_value['float'] = [1.0, 1.5, float('nan')]
-    df_value['str'] = ['red', 'blue', None]
-    df_value['time'] = pd.to_datetime(['2011-02-07', '2011-03-17', '2011-04-27'])
+    df_value["int"] = [1, 2, 3]
+    df_value["float"] = [1.0, 1.5, float("nan")]
+    df_value["str"] = ["red", "blue", None]
+    df_value["time"] = pd.to_datetime(["2011-02-07", "2011-03-17", "2011-04-27"])
 
     @builder
     @bn.protocol.frame
     def df():
         return df_value
 
-    pdt.assert_frame_equal(builder.build().get('df'), df_value)
-    assert builder.build().get('df').dtypes.to_dict() == df_value.dtypes.to_dict()
+    pdt.assert_frame_equal(builder.build().get("df"), df_value)
+    assert builder.build().get("df").dtypes.to_dict() == df_value.dtypes.to_dict()
 
 
 def test_dataframe_index_cols(builder):
@@ -123,7 +123,7 @@ def test_dataframe_index_cols(builder):
     @bn.protocol.frame
     def raw_df():
         return df_from_csv_str(
-            '''
+            """
         city,country,continent,metro_pop_mil
         Tokyo,Japan,Asia,38
         Delhi,India,Asia,26
@@ -135,22 +135,22 @@ def test_dataframe_index_cols(builder):
         Osaka,Japan,Asia,20
         Cairo,Egypt,Africa,19
         New York,USA,North America,19
-        '''
+        """
         )
 
     @builder
     @bn.protocol.frame
     def counts_df(raw_df):
-        return raw_df.groupby(['continent', 'country']).size().to_frame('count')
+        return raw_df.groupby(["continent", "country"]).size().to_frame("count")
 
-    df = builder.build().get('counts_df')
-    assert df.loc['Asia'].loc['Japan']['count'] == 2
+    df = builder.build().get("counts_df")
+    assert df.loc["Asia"].loc["Japan"]["count"] == 2
 
 
 def test_dataframe_with_categoricals_fails(builder):
     df_value = pd.DataFrame()
-    df_value['cat'] = pd.Categorical(
-        ['red', 'blue', 'red'], categories=['blue', 'red'], ordered=True
+    df_value["cat"] = pd.Categorical(
+        ["red", "blue", "red"], categories=["blue", "red"], ordered=True
     )
 
     @builder
@@ -158,13 +158,13 @@ def test_dataframe_with_categoricals_fails(builder):
         return df_value
 
     with pytest.raises(ValueError):
-        builder.build().get('df')
+        builder.build().get("df")
 
 
 def test_dataframe_with_categoricals_ignored(builder):
     df_value = pd.DataFrame()
-    df_value['cat'] = pd.Categorical(
-        ['red', 'blue', 'red'], categories=['blue', 'red'], ordered=True
+    df_value["cat"] = pd.Categorical(
+        ["red", "blue", "red"], categories=["blue", "red"], ordered=True
     )
 
     @builder
@@ -176,44 +176,44 @@ def test_dataframe_with_categoricals_ignored(builder):
         # Whether or not the deserialized column has the Categorical Dtype can
         # depend on the version of pyarrow being used, so we'll just convert
         # both columns to the same type here.
-        builder.build().get('df')['cat'].astype(object),
-        df_value['cat'].astype(object),
+        builder.build().get("df")["cat"].astype(object),
+        df_value["cat"].astype(object),
     )
 
 
 def test_dataframe_with_duplicate_columns_fails(builder):
-    df_value = pd.DataFrame(columns=['a', 'b', 'a'], data=[[1, 2, 3]])
+    df_value = pd.DataFrame(columns=["a", "b", "a"], data=[[1, 2, 3]])
 
     @builder
     def df():
         return df_value
 
     with pytest.raises(ValueError):
-        builder.build().get('df')
+        builder.build().get("df")
 
 
 def test_dataframe_with_categorical_works_with_feather(builder):
     df_value = pd.DataFrame()
-    df_value['cat'] = pd.Categorical(
-        ['red', 'blue', 'red'], categories=['blue', 'red'], ordered=True
+    df_value["cat"] = pd.Categorical(
+        ["red", "blue", "red"], categories=["blue", "red"], ordered=True
     )
 
     @builder
-    @bn.protocol.frame(file_format='feather')
+    @bn.protocol.frame(file_format="feather")
     def df():
         return df_value
 
-    pdt.assert_frame_equal(builder.build().get('df'), df_value)
+    pdt.assert_frame_equal(builder.build().get("df"), df_value)
 
 
 def test_simple_dask_dataframe(builder):
     df_value = df_from_csv_str(
-        '''
+        """
     color,number
     red,1
     blue,2
     green,3
-    '''
+    """
     )
     dask_df = dd.from_pandas(df_value, npartitions=1)
 
@@ -223,19 +223,23 @@ def test_simple_dask_dataframe(builder):
     def df():
         return dask_df
 
-    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
-    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(
+        builder.build().get("df").compute(), dask_df.compute()
+    )
+    assert equal_frame_and_index_content(
+        builder.build().get("df").compute(), dask_df.compute()
+    )
     assert df.times_called() == 1
 
 
 def test_multiple_partitions_dask_dataframe(builder):
     df_value = df_from_csv_str(
-        '''
+        """
     color,number
     red,1
     blue,2
     green,3
-    '''
+    """
     )
     dask_df = dd.from_pandas(df_value, npartitions=3)
 
@@ -245,17 +249,21 @@ def test_multiple_partitions_dask_dataframe(builder):
     def df():
         return dask_df
 
-    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
-    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(
+        builder.build().get("df").compute(), dask_df.compute()
+    )
+    assert equal_frame_and_index_content(
+        builder.build().get("df").compute(), dask_df.compute()
+    )
     assert df.times_called() == 1
 
 
 def test_typed_dask_dataframe(builder):
     df_value = pd.DataFrame()
-    df_value['int'] = [1, 2, 3]
-    df_value['float'] = [1.0, 1.5, float('nan')]
-    df_value['str'] = ['red', 'blue', None]
-    df_value['time'] = pd.to_datetime(['2011-02-07', '2011-03-17', '2011-04-27'])
+    df_value["int"] = [1, 2, 3]
+    df_value["float"] = [1.0, 1.5, float("nan")]
+    df_value["str"] = ["red", "blue", None]
+    df_value["time"] = pd.to_datetime(["2011-02-07", "2011-03-17", "2011-04-27"])
     dask_df = dd.from_pandas(df_value, npartitions=1)
 
     @builder
@@ -263,15 +271,18 @@ def test_typed_dask_dataframe(builder):
     def df():
         return dask_df
 
-    assert equal_frame_and_index_content(builder.build().get('df').compute(), dask_df.compute())
+    assert equal_frame_and_index_content(
+        builder.build().get("df").compute(), dask_df.compute()
+    )
     assert (
-        builder.build().get('df').compute().dtypes.to_dict() == dask_df.compute().dtypes.to_dict()
+        builder.build().get("df").compute().dtypes.to_dict()
+        == dask_df.compute().dtypes.to_dict()
     )
 
 
 def test_dask_dataframe_index_cols(builder):
     df_value = df_from_csv_str(
-        '''
+        """
         city,country,continent,metro_pop_mil
         Tokyo,Japan,Asia,38
         Delhi,India,Asia,26
@@ -283,7 +294,7 @@ def test_dask_dataframe_index_cols(builder):
         Osaka,Japan,Asia,20
         Cairo,Egypt,Africa,19
         New York,USA,North America,19
-        '''
+        """
     )
     dask_df = dd.from_pandas(df_value, npartitions=1)
 
@@ -295,22 +306,22 @@ def test_dask_dataframe_index_cols(builder):
     @builder
     @bn.protocol.dask
     def counts_df(raw_df):
-        return raw_df.groupby(['continent', 'country']).size().to_frame('count')
+        return raw_df.groupby(["continent", "country"]).size().to_frame("count")
 
     with pytest.raises(UnsupportedSerializedValueError):
-        builder.build().get('counts_df')
+        builder.build().get("counts_df")
 
 
 def test_image_protocol(builder):
     @builder
     @bn.protocol.image
     def blue_rect():
-        return Image.new('RGB', (4, 2), color='blue')
+        return Image.new("RGB", (4, 2), color="blue")
 
-    image = builder.build().get('blue_rect')
+    image = builder.build().get("blue_rect")
     assert image.width == 4
     assert image.height == 2
-    assert hexlify(image.tobytes()) == (b'0000ff' * 8)
+    assert hexlify(image.tobytes()) == (b"0000ff" * 8)
 
 
 def test_numpy_protocol_1d(builder):
@@ -319,7 +330,7 @@ def test_numpy_protocol_1d(builder):
     def np_array_1d():
         return np.arange(100)
 
-    arr = builder.build().get('np_array_1d')
+    arr = builder.build().get("np_array_1d")
     desired = np.arange(100)
     assert np.array_equal(arr, desired)
 
@@ -330,7 +341,7 @@ def test_numpy_protocol_2d(builder):
     def np_array_2d():
         return np.array([[i + j for i in range(3)] for j in range(3)])
 
-    arr = builder.build().get('np_array_2d')
+    arr = builder.build().get("np_array_2d")
     desired = np.array([[i + j for i in range(3)] for j in range(3)])
     assert np.array_equal(arr, desired)
 
@@ -339,10 +350,14 @@ def test_numpy_protocol_3d(builder):
     @builder
     @bn.protocol.numpy
     def np_array_3d():
-        return np.array([[[i + j + k for i in range(3)] for j in range(3)] for k in range(3)])
+        return np.array(
+            [[[i + j + k for i in range(3)] for j in range(3)] for k in range(3)]
+        )
 
-    arr = builder.build().get('np_array_3d')
-    desired = np.array([[[i + j + k for i in range(3)] for j in range(3)] for k in range(3)])
+    arr = builder.build().get("np_array_3d")
+    desired = np.array(
+        [[[i + j + k for i in range(3)] for j in range(3)] for k in range(3)]
+    )
     assert np.array_equal(arr, desired)
 
 
@@ -352,7 +367,7 @@ def test_numpy_protocol_high_d(builder):
     def np_array_high_d():
         return np.ones(shape=(5, 5, 5, 5, 5))
 
-    arr = builder.build().get('np_array_high_d')
+    arr = builder.build().get("np_array_high_d")
     desired = np.ones(shape=(5, 5, 5, 5, 5))
     assert np.array_equal(arr, desired)
 
@@ -361,79 +376,79 @@ def test_yaml_protocol_list(builder):
     @builder
     @bn.protocol.yaml
     def alist():
-        return ['red', 'blue']
+        return ["red", "blue"]
 
-    assert builder.build().get('alist') == ['red', 'blue']
+    assert builder.build().get("alist") == ["red", "blue"]
 
 
 def test_yaml_protocol_dump_kwargs(builder, tmpdir):
     @builder
     @bn.protocol.yaml(default_flow_style=False)
     def alist():
-        return ['red', 'blue']
+        return ["red", "blue"]
 
     flow = builder.build()
     expected = "- red\n- blue\n"
 
-    assert flow.get('alist', mode='path').read_text() == expected
+    assert flow.get("alist", mode="path").read_text() == expected
 
 
 def test_yaml_protocol_dict(builder):
-    record = {'record': {'name': 'Oscar', 'favorite_things': ['trash', 'green']}}
+    record = {"record": {"name": "Oscar", "favorite_things": ["trash", "green"]}}
 
     @builder
     @bn.protocol.yaml
     def adict():
         return record
 
-    assert builder.build().get('adict') == record
+    assert builder.build().get("adict") == record
 
 
 def test_type_protocol(builder):
-    builder.declare('int_val', bn.protocol.type(int))
-    builder.declare('float_val', bn.protocol.type(float))
-    builder.declare('str_val', bn.protocol.type(str))
+    builder.declare("int_val", bn.protocol.type(int))
+    builder.declare("float_val", bn.protocol.type(float))
+    builder.declare("str_val", bn.protocol.type(str))
 
-    builder.set('int_val', 1)
-    builder.set('float_val', 1.0)
-    builder.set('str_val', 'one')
+    builder.set("int_val", 1)
+    builder.set("float_val", 1.0)
+    builder.set("str_val", "one")
 
     with pytest.raises(AssertionError):
-        builder.set('int_val', 'one')
+        builder.set("int_val", "one")
     with pytest.raises(AssertionError):
-        builder.set('float_val', 1)
+        builder.set("float_val", 1)
     with pytest.raises(AssertionError):
-        builder.set('str_val', 1.0)
+        builder.set("str_val", 1.0)
 
     flow = builder.build()
 
-    assert flow.get('int_val') == 1
-    assert flow.get('float_val') == 1.0
-    assert flow.get('str_val') == 'one'
+    assert flow.get("int_val") == 1
+    assert flow.get("float_val") == 1.0
+    assert flow.get("str_val") == "one"
 
 
 def test_enum_protocol(builder):
-    builder.declare('color', bn.protocol.enum('red', 'blue'))
+    builder.declare("color", bn.protocol.enum("red", "blue"))
 
-    builder.set('color', 'red')
-    assert builder.build().get('color') == 'red'
+    builder.set("color", "red")
+    assert builder.build().get("color") == "red"
 
-    builder.set('color', 'blue')
-    assert builder.build().get('color') == 'blue'
+    builder.set("color", "blue")
+    assert builder.build().get("color") == "blue"
 
     with pytest.raises(AssertionError):
-        builder.set('color', 'green')
+        builder.set("color", "green")
 
 
-@pytest.mark.parametrize('operation', ['move', 'copy'])
+@pytest.mark.parametrize("operation", ["move", "copy"])
 def test_path_protocol(builder, tmp_path, operation):
     # Our entities will return paths in this directory.
     working_dir_path = Path(tempfile.mkdtemp(dir=tmp_path))
-    output_phrase_file_path = working_dir_path / 'phrase'
-    output_colors_dir_path = working_dir_path / 'colors'
+    output_phrase_file_path = working_dir_path / "phrase"
+    output_colors_dir_path = working_dir_path / "colors"
 
-    phrase_str = 'hello world'
-    colors = ['red', 'blue']
+    phrase_str = "hello world"
+    colors = ["red", "blue"]
 
     @builder
     @bn.protocol.path(operation=operation)
@@ -462,12 +477,12 @@ def test_path_protocol(builder, tmp_path, operation):
         for file_path in file_paths:
             assert file_path.read_text() == file_path.name
 
-    check_file_contents(builder.build().get('phrase_file_path'))
-    check_dir_contents(builder.build().get('colors_dir_path'))
+    check_file_contents(builder.build().get("phrase_file_path"))
+    check_dir_contents(builder.build().get("colors_dir_path"))
     assert phrase_file_path.times_called() == 1
     assert colors_dir_path.times_called() == 1
 
-    if operation == 'copy':
+    if operation == "copy":
         # Check that the original files are still there.
         check_file_contents(output_phrase_file_path)
         check_dir_contents(output_colors_dir_path)
@@ -477,12 +492,12 @@ def test_path_protocol(builder, tmp_path, operation):
         for sub_path in working_dir_path.iterdir():
             recursively_delete_path(sub_path)
 
-        check_file_contents(builder.build().get('phrase_file_path'))
-        check_dir_contents(builder.build().get('colors_dir_path'))
+        check_file_contents(builder.build().get("phrase_file_path"))
+        check_dir_contents(builder.build().get("colors_dir_path"))
         assert phrase_file_path.times_called() == 0
         assert colors_dir_path.times_called() == 0
 
-    elif operation == 'move':
+    elif operation == "move":
         # Check that the original files have been removed.
         assert list(working_dir_path.iterdir()) == []
 
@@ -504,10 +519,10 @@ def test_combined_protocol(builder):
         def write(self, value, file_):
             super(WriteValueAsStringProtocol, self).write(self._string_value, file_)
 
-    one_protocol = WriteValueAsStringProtocol(1, 'one')
-    two_protocol = WriteValueAsStringProtocol(2, 'two')
+    one_protocol = WriteValueAsStringProtocol(1, "one")
+    two_protocol = WriteValueAsStringProtocol(2, "two")
 
-    builder.declare('value')
+    builder.declare("value")
 
     @builder
     @one_protocol
@@ -524,19 +539,19 @@ def test_combined_protocol(builder):
     def must_be_one_or_two(value):
         return value
 
-    flow = builder.build().setting('value', 1)
+    flow = builder.build().setting("value", 1)
 
-    assert flow.get('must_be_one') == 'one'
+    assert flow.get("must_be_one") == "one"
     with pytest.raises(AssertionError):
-        flow.get('must_be_two')
-    assert flow.get('must_be_one_or_two') == 'one'
+        flow.get("must_be_two")
+    assert flow.get("must_be_one_or_two") == "one"
 
-    flow = flow.setting('value', 2)
+    flow = flow.setting("value", 2)
     with pytest.raises(AssertionError):
-        flow.get('must_be_one')
-    assert flow.get('must_be_two') == 'two'
-    assert flow.get('must_be_one_or_two') == 'two'
+        flow.get("must_be_one")
+    assert flow.get("must_be_two") == "two"
+    assert flow.get("must_be_one_or_two") == "two"
 
-    flow = flow.setting('value', 3)
+    flow = flow.setting("value", 3)
     with pytest.raises(AssertionError):
-        flow.get('must_be_one_or_two')
+        flow.get("must_be_one_or_two")

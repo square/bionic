@@ -1,6 +1,6 @@
-'''
+"""
 Contains the core logic for resolving Entities by executing Tasks.
-'''
+"""
 
 from .datatypes import Query, Result, ResultGroup
 from .cache import Provenance
@@ -58,7 +58,7 @@ class EntityDeriver(object):
         return self._compute_result_group_for_entity_name(entity_name)
 
     def export_dag(self, include_core=False):
-        '''
+        """
         Constructs a NetworkX graph corresponding to the DAG of tasks.  There
         is one node per task key -- i.e., for each artifact that can be created
         (uniquely defined by an entity name and a case key); and one edge from
@@ -70,8 +70,8 @@ class EntityDeriver(object):
             case_key: the case key for this task key
             task_ix: the task key's index in the ordered series of case keys
                      for its entity
-        '''
-        nx = import_optional_dependency('networkx', purpose='constructing the flow DAG')
+        """
+        nx = import_optional_dependency("networkx", purpose="constructing the flow DAG")
 
         def should_include_entity_name(name):
             return include_core or not self.entity_is_internal(entity_name)
@@ -85,15 +85,19 @@ class EntityDeriver(object):
                 continue
 
             if len(tasks) == 1:
-                name_template = '{entity_name}'
+                name_template = "{entity_name}"
             else:
-                name_template = '{entity_name}[{task_ix}]'
+                name_template = "{entity_name}[{task_ix}]"
 
-            for task_ix, task in enumerate(sorted(tasks, key=lambda task: task.keys[0].case_key)):
+            for task_ix, task in enumerate(
+                sorted(tasks, key=lambda task: task.keys[0].case_key)
+            ):
                 task_key = task.key_for_entity_name(entity_name)
                 state = self._task_states_by_key[task_key]
 
-                node_name = name_template.format(entity_name=entity_name, task_ix=task_ix)
+                node_name = name_template.format(
+                    entity_name=entity_name, task_ix=task_ix
+                )
 
                 graph.add_node(
                     task_key,
@@ -114,7 +118,7 @@ class EntityDeriver(object):
         return graph
 
     def entity_is_internal(self, entity_name):
-        return entity_name.startswith('core__')
+        return entity_name.startswith("core__")
 
     # --- Private helpers.
 
@@ -124,9 +128,9 @@ class EntityDeriver(object):
 
         self._get_ready_for_bootstrap_resolution()
 
-        self._persistent_cache = self._bootstrap_singleton('core__persistent_cache')
+        self._persistent_cache = self._bootstrap_singleton("core__persistent_cache")
 
-        self._versioning_policy = self._bootstrap_singleton('core__versioning_policy')
+        self._versioning_policy = self._bootstrap_singleton("core__versioning_policy")
 
         self._is_ready_for_full_resolution = True
 
@@ -172,7 +176,8 @@ class EntityDeriver(object):
 
         # All names in this task should point to the same provider.
         (task_state.provider,) = set(
-            self._flow_state.get_provider(task_key.entity_name) for task_key in task.keys
+            self._flow_state.get_provider(task_key.entity_name)
+            for task_key in task.keys
         )
         # And all the task keys should have the same case key.
         (task_state.case_key,) = set(task_key.case_key for task_key in task.keys)
@@ -190,7 +195,8 @@ class EntityDeriver(object):
             self._populate_entity_info(dep_name)
 
         dep_key_spaces_by_name = {
-            dep_name: self._key_spaces_by_entity_name[dep_name] for dep_name in dep_names
+            dep_name: self._key_spaces_by_entity_name[dep_name]
+            for dep_name in dep_names
         }
 
         dep_task_key_lists_by_name = {
@@ -214,18 +220,18 @@ class EntityDeriver(object):
         if len(result_group) == 0:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 No values were defined for internal bootstrap entity
-                {entity_name!r}'''
+                {entity_name!r}"""
                 )
             )
         if len(result_group) > 1:
             values = [result.value for result in result_group]
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Bootstrap entity {entity_name!r} must have exactly one
-                value; got {len(values)} ({values!r})'''
+                value; got {len(values)} ({values!r})"""
                 )
             )
         return result_group[0].value
@@ -234,7 +240,9 @@ class EntityDeriver(object):
         tasks = self._task_lists_by_entity_name.get(entity_name)
         if tasks is None:
             raise UndefinedEntityError.for_name(entity_name)
-        requested_task_states = [self._task_states_by_key[task.keys[0]] for task in tasks]
+        requested_task_states = [
+            self._task_states_by_key[task.keys[0]] for task in tasks
+        ]
 
         for task_state in requested_task_states:
             self._set_up_provenance_for_task_state(task_state)
@@ -254,7 +262,7 @@ class EntityDeriver(object):
             if state.is_complete:
                 for task_key in state.task.keys:
                     if task_key not in logged_task_keys:
-                        self._log('Accessed    %s from in-memory cache', task_key)
+                        self._log("Accessed    %s from in-memory cache", task_key)
                         logged_task_keys.add(task_key)
                 continue
 
@@ -313,10 +321,14 @@ class EntityDeriver(object):
             # any versioning policy, so we don't attempt anything fancy.
             treat_bytecode_as_functional = False
         else:
-            treat_bytecode_as_functional = self._versioning_policy.treat_bytecode_as_functional
+            treat_bytecode_as_functional = (
+                self._versioning_policy.treat_bytecode_as_functional
+            )
 
         provenance = Provenance.from_computation(
-            code_descriptor=task_state.provider.get_code_descriptor(task_state.case_key),
+            code_descriptor=task_state.provider.get_code_descriptor(
+                task_state.case_key
+            ),
             case_key=task_state.case_key,
             dep_provenances_by_task_key={
                 dep_key: dep_state.provenance
@@ -346,16 +358,18 @@ class EntityDeriver(object):
             name = task_state.task.keys[0].entity_name
             raise AssertionError(
                 oneline(
-                    f'''
+                    f"""
                 Attempting to load cached state for entity {name!r},
                 but the cache is not available yet because core bootstrap
                 entities depend on this one;
                 you should decorate entity {name!r} with `@persist(False)`
-                or `@immediate` to indicate that it can't be cached.'''
+                or `@immediate` to indicate that it can't be cached."""
                 )
             )
 
-        accessors = [self._persistent_cache.get_accessor(query) for query in task_state.queries]
+        accessors = [
+            self._persistent_cache.get_accessor(query) for query in task_state.queries
+        ]
 
         if self._versioning_policy.check_for_bytecode_errors:
             self._check_accessors_for_version_problems(task_state, accessors)
@@ -384,7 +398,7 @@ class EntityDeriver(object):
                 if old_prov.bytecode_hash != new_prov.bytecode_hash:
                     raise CodeVersioningError(
                         oneline(
-                            f'''
+                            f"""
                         Found a cached artifact with the same
                         name ({accessor.query.entity_name!r}) and
                         version (major={old_prov.code_version_major!r},
@@ -396,7 +410,7 @@ class EntityDeriver(object):
                         version number?
                         Change @version(major=) to indicate that your
                         function's behavior has changed, or @version(minor=)
-                        to indicate that it has *not* changed.'''
+                        to indicate that it has *not* changed."""
                         )
                     )
 
@@ -424,7 +438,7 @@ class EntityDeriver(object):
         results = []
         for accessor in task_state.cache_accessors:
             result = accessor.load_result()
-            self._log('Loaded      %s from disk cache', result.query.task_key)
+            self._log("Loaded      %s from disk cache", result.query.task_key)
 
             # Make sure the result is saved in all caches under this exact
             # query.
@@ -433,7 +447,9 @@ class EntityDeriver(object):
             results.append(result)
 
         if task_state.provider.attrs.should_memoize:
-            task_state.results_by_name = {result.query.entity_name: result for result in results}
+            task_state.results_by_name = {
+                result.query.entity_name: result for result in results
+            }
         task_state.is_complete = True
 
     def _get_results_for_complete_task_state(self, task_state):
@@ -445,7 +461,7 @@ class EntityDeriver(object):
         results_by_name = dict()
         for accessor in task_state.cache_accessors:
             result = accessor.load_result()
-            self._log('Loaded      %s from disk cache', result.query.task_key)
+            self._log("Loaded      %s from disk cache", result.query.task_key)
             results_by_name[result.query.entity_name] = result
 
         return results_by_name
@@ -456,9 +472,9 @@ class EntityDeriver(object):
         task = task_state.task
         dep_keys = task.dep_keys
         dep_results = [
-            self._get_results_for_complete_task_state(self._task_states_by_key[dep_key])[
-                dep_key.entity_name
-            ]
+            self._get_results_for_complete_task_state(
+                self._task_states_by_key[dep_key]
+            )[dep_key.entity_name]
             for dep_key in dep_keys
         ]
 
@@ -466,7 +482,7 @@ class EntityDeriver(object):
 
         if not task.is_simple_lookup:
             for task_key in task.keys:
-                self._log('Computing   %s ...', task_key)
+                self._log("Computing   %s ...", task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
 
@@ -475,9 +491,9 @@ class EntityDeriver(object):
 
         for query in task_state.queries:
             if task.is_simple_lookup:
-                self._log('Accessed    %s from definition', query.task_key)
+                self._log("Accessed    %s from definition", query.task_key)
             else:
-                self._log('Computed    %s', query.task_key)
+                self._log("Computed    %s", query.task_key)
 
         results_by_name = {}
         for ix, (query, value) in enumerate(zip(task_state.queries, values)):
@@ -552,4 +568,4 @@ class TaskState(object):
         return not all(parent.is_complete for parent in self.parents)
 
     def __repr__(self):
-        return f'TaskState({self.task!r})'
+        return f"TaskState({self.task!r})"

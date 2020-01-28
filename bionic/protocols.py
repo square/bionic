@@ -1,4 +1,4 @@
-'''
+"""
 Contains bionic's concept of a "protocol": an object that specifies how to
 handle certain types of data.  A protocol is similar to a Python type, but
 might be more or less specific.  For example, PicklableProtocol can be used
@@ -7,7 +7,7 @@ takes additional arguments that constrain the structure of the DataFrames it
 handles.  Protocols specify how to serialize, deserialize, and validate data.
 
 This module contains a BaseProtocol class and various subclasses.
-'''
+"""
 
 from collections import Counter
 import pickle
@@ -35,13 +35,13 @@ from . import tokenization
 
 
 def check_is_like_protocol(obj):
-    for method_name in 'validate', 'read', 'write':
+    for method_name in "validate", "read", "write":
         if not hasattr(obj, method_name):
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Expected {obj!r} to be a kind of Protocol, but didn't find
-                expected method {method_name!r}'''
+                expected method {method_name!r}"""
                 )
             )
 
@@ -92,7 +92,7 @@ class BaseProtocol(object):
             return tokenization.tokenize(value, self._write_to_bytes)
 
     def _write_to_bytes(self, value):
-        file_name = 'temp_file'
+        file_name = "temp_file"
         temp_dir = Path(tempfile.mkdtemp())
         try:
             temp_file_path = temp_dir / file_name
@@ -125,15 +125,17 @@ class BaseProtocol(object):
     def __call__(self, func_or_provider=None, **kwargs):
         if func_or_provider is not None:
             if len(kwargs) > 0:
-                raise ValueError(f"{self} can't be called with both a function and keywords")
+                raise ValueError(
+                    f"{self} can't be called with both a function and keywords"
+                )
             if not is_func_or_provider(func_or_provider):
                 raise ValueError(
                     oneline(
-                        f'''
+                        f"""
                     {self} must be used either (a) directly as a decorator or
                     (b) with keyword arguments;
                     it can't take positional arguments.
-                    '''
+                    """
                     )
                 )
 
@@ -143,7 +145,7 @@ class BaseProtocol(object):
             return self.__class__(**kwargs)
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(...)'
+        return f"{self.__class__.__name__}(...)"
 
 
 class PicklableProtocol(BaseProtocol):
@@ -153,14 +155,14 @@ class PicklableProtocol(BaseProtocol):
     """
 
     def get_fixed_file_extension(self):
-        return 'pkl'
+        return "pkl"
 
     def write(self, value, path):
-        with path.open('wb') as file_:
+        with path.open("wb") as file_:
             pickle.dump(value, file_)
 
     def read(self, path, extension):
-        with path.open('rb') as file_:
+        with path.open("rb") as file_:
             return pickle.load(file_)
 
 
@@ -173,7 +175,7 @@ class DillableProtocol(BaseProtocol):
     """
 
     def get_fixed_file_extension(self):
-        return 'dill'
+        return "dill"
 
     def __init__(self, suppress_dill_side_effects=True):
         super(DillableProtocol, self).__init__()
@@ -185,19 +187,21 @@ class DillableProtocol(BaseProtocol):
         if self._dill is not None:
             return self._dill
 
-        dill_already_imported = 'dill' in sys.modules
-        self._dill = import_optional_dependency('dill', purpose='the @dillable protocol')
+        dill_already_imported = "dill" in sys.modules
+        self._dill = import_optional_dependency(
+            "dill", purpose="the @dillable protocol"
+        )
         if not dill_already_imported and self._suppress_dill_side_effects:
             self._dill.extend(False)
 
         return self._dill
 
     def write(self, value, path):
-        with path.open('wb') as file_:
+        with path.open("wb") as file_:
             self._get_dill_module().dump(value, file_)
 
     def read(self, path, extension):
-        with path.open('rb') as file_:
+        with path.open("rb") as file_:
             return self._get_dill_module().load(file_)
 
 
@@ -219,44 +223,48 @@ class ParquetDataFrameProtocol(BaseProtocol):
         self._check_dtypes = check_dtypes
 
     def get_fixed_file_extension(self):
-        return 'pq'
+        return "pq"
 
     def validate(self, value):
         assert isinstance(value, pd.DataFrame)
 
     def read(self, path, extension):
-        with path.open('rb') as file_:
+        with path.open("rb") as file_:
             return parquet.read_table(file_).to_pandas()
 
     def write(self, df, path):
         self._check_no_duplicate_cols(df)
         if self._check_dtypes:
             self._check_no_categorical_cols(df)
-        with path.open('wb') as file_:
+        with path.open("wb") as file_:
             parquet.write_table(Table.from_pandas(df), file_)
 
     def _check_no_duplicate_cols(self, df):
-        duplicate_cols = {elem: count for elem, count in Counter(df.columns).items() if count > 1}
+        duplicate_cols = {
+            elem: count for elem, count in Counter(df.columns).items() if count > 1
+        }
         if duplicate_cols:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                     Attempted to serialize to Parquet a dataframe which has
                     duplicate columns with the following counts:
                     {duplicate_cols}. You can fix this by dropping duplicate
-                    columns with something like: '''
+                    columns with something like: """
                 )
-                + '\n'
+                + "\n"
                 + "df = df.loc[:, ~df.columns.duplicated()]"
             )
 
     def _check_no_categorical_cols(self, df):
-        categorical_cols = [col for col in df.columns if df[col].dtype.name == 'category']
+        categorical_cols = [
+            col for col in df.columns if df[col].dtype.name == "category"
+        ]
 
         if categorical_cols:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Attempted to serialize to Parquet a dataframe which has
                 categorical columns: {categorical_cols!r} --
                 these columns may be transformed to another type and/or
@@ -264,7 +272,7 @@ class ParquetDataFrameProtocol(BaseProtocol):
                 You can fix this by using
                 (a) ``@frame(file_format='feather')`` to use the Feather
                 format instead, or
-                (b) ``@frame(check_dtypes=False)`` to ignore this check.'''
+                (b) ``@frame(check_dtypes=False)`` to ignore this check."""
                 )
             )
 
@@ -278,21 +286,21 @@ class FeatherDataFrameProtocol(BaseProtocol):
     """
 
     def get_fixed_file_extension(self):
-        return 'feather'
+        return "feather"
 
     def validate(self, value):
         assert isinstance(value, pd.DataFrame)
 
     def read(self, path, extension):
-        with path.open('rb') as file_:
+        with path.open("rb") as file_:
             return pd.read_feather(file_)
 
     def write(self, df, path):
-        with path.open('wb') as file_:
+        with path.open("wb") as file_:
             df.to_feather(file_)
 
 
-Image = import_optional_dependency('PIL.Image', raise_on_missing=False)
+Image = import_optional_dependency("PIL.Image", raise_on_missing=False)
 
 
 class ImageProtocol(BaseProtocol):
@@ -304,7 +312,7 @@ class ImageProtocol(BaseProtocol):
     """
 
     def get_fixed_file_extension(self):
-        return 'png'
+        return "png"
 
     def validate(self, value):
         # If Image is None, then the PIL library is not present, which
@@ -314,8 +322,10 @@ class ImageProtocol(BaseProtocol):
         assert isinstance(value, Image.Image)
 
     def read(self, path, extension):
-        with path.open('rb') as file_:
-            Image = import_optional_dependency('PIL.Image', purpose='the @image decorator')
+        with path.open("rb") as file_:
+            Image = import_optional_dependency(
+                "PIL.Image", purpose="the @image decorator"
+            )
             image = Image.open(file_)
             # Image.open() is lazy; if we don't call load() now, the file can
             # be closed or possibly invalidated before it actually gets read.
@@ -323,8 +333,8 @@ class ImageProtocol(BaseProtocol):
             return image
 
     def write(self, image, path):
-        with path.open('wb') as file_:
-            image.save(file_, format='png')
+        with path.open("wb") as file_:
+            image.save(file_, format="png")
 
 
 class NumPyProtocol(BaseProtocol):
@@ -336,21 +346,21 @@ class NumPyProtocol(BaseProtocol):
     """
 
     def get_fixed_file_extension(self):
-        return '.npy'
+        return ".npy"
 
     def validate(self, value):
         assert isinstance(value, np.ndarray)
 
     def read(self, path, extension):
-        with path.open('rb') as file_:
+        with path.open("rb") as file_:
             return np.load(file_)
 
     def write(self, array, path):
-        with path.open('wb') as file_:
+        with path.open("wb") as file_:
             np.save(file_, array)
 
 
-dd = import_optional_dependency('dask.dataframe', raise_on_missing=False)
+dd = import_optional_dependency("dask.dataframe", raise_on_missing=False)
 
 
 class DaskProtocol(BaseProtocol):
@@ -362,7 +372,7 @@ class DaskProtocol(BaseProtocol):
     """
 
     def get_fixed_file_extension(self):
-        return 'pq.dask'
+        return "pq.dask"
 
     def validate(self, value):
         # If dd is None, then dask with dataframe (i.e. dask[dataframe]) is not present,
@@ -372,9 +382,9 @@ class DaskProtocol(BaseProtocol):
         assert isinstance(value, dd.DataFrame)
 
     def read(self, path, extension):
-        dd = import_optional_dependency('dask.dataframe', purpose='the @dask decorator')
+        dd = import_optional_dependency("dask.dataframe", purpose="the @dask decorator")
         with warnings.catch_warnings():
-            warnings.filterwarnings('error', message=r".*cannot\s+autodetect\s+index.*")
+            warnings.filterwarnings("error", message=r".*cannot\s+autodetect\s+index.*")
             try:
                 return dd.read_parquet(path)
             except RuntimeWarning as e:
@@ -402,14 +412,14 @@ class YamlProtocol(BaseProtocol):
         self._kwargs = kwargs
 
     def get_fixed_file_extension(self):
-        return 'yaml'
+        return "yaml"
 
     def write(self, value, path):
-        with path.open('w') as file_:
+        with path.open("w") as file_:
             yaml.dump(value, file_, **self._kwargs)
 
     def read(self, path, extension):
-        with path.open('r') as file_:
+        with path.open("r") as file_:
             return yaml.safe_load(file_)
 
 
@@ -431,21 +441,21 @@ class PathProtocol(BaseProtocol):
         then "copy" is better.
     """
 
-    def __init__(self, operation='copy'):
+    def __init__(self, operation="copy"):
         super(PathProtocol, self).__init__()
-        known_operations = ('move', 'copy')
+        known_operations = ("move", "copy")
         if operation not in known_operations:
             raise ValueError(
                 oneline(
-                    f'''
+                    f"""
                 Operation must be in {known_operations!r}:
-                got {operation}.'''
+                got {operation}."""
                 )
             )
         self.operation = operation
 
     def get_fixed_file_extension(self):
-        return 'as_path'
+        return "as_path"
 
     def validate(self, value):
         assert isinstance(value, Path)
@@ -462,12 +472,12 @@ class PathProtocol(BaseProtocol):
         dst_dir_path.mkdir()
         dst_path = dst_dir_path / src_path.name
 
-        if self.operation == 'move':
+        if self.operation == "move":
             shutil.move(src_path, dst_path)
-        elif self.operation == 'copy':
+        elif self.operation == "copy":
             recursively_copy_path(src_path, dst_path)
         else:
-            raise AssertionError(f'Unexpected operation: {self.operation!r}')
+            raise AssertionError(f"Unexpected operation: {self.operation!r}")
 
     def read(self, path, extension):
         return single_element(path.iterdir())
@@ -520,14 +530,15 @@ class CombinedProtocol(BaseProtocol):
             return
 
         if not self._subprotocols:
-            raise AssertionError('No subprotocols defined')
+            raise AssertionError("No subprotocols defined")
         else:
             self._subprotocols[-1].validate(value)
 
     def read(self, path, extension):
         if not self.can_read_file_extension(extension):
             raise ValueError(
-                "This protocol doesn't know how to read a file with " f"extension {extension!r}"
+                "This protocol doesn't know how to read a file with "
+                f"extension {extension!r}"
             )
         return self._protocol_for_extension(extension).read(path, extension)
 
@@ -535,7 +546,7 @@ class CombinedProtocol(BaseProtocol):
         self._protocol_for_value(value).write(value, path)
 
     def __repr__(self):
-        return f'CombinedProtocol{tuple(self._subprotocols)!r}'
+        return f"CombinedProtocol{tuple(self._subprotocols)!r}"
 
 
 class TypeProtocol(PicklableProtocol):
@@ -562,7 +573,7 @@ class TypeProtocol(PicklableProtocol):
         assert isinstance(value, self._type)
 
     def __repr__(self):
-        return f'TypeProtocol({self._type.__name__})'
+        return f"TypeProtocol({self._type.__name__})"
 
 
 class EnumProtocol(PicklableProtocol):
@@ -589,4 +600,4 @@ class EnumProtocol(PicklableProtocol):
         assert value in self._allowed_values
 
     def __repr__(self):
-        return f'EnumProtocol{tuple(self._allowed_values)!r}'
+        return f"EnumProtocol{tuple(self._allowed_values)!r}"
