@@ -50,12 +50,18 @@ like this:
 
 Travis should automatically run these for you when you submit a PR.
 
-Pytest will skip the Google Cloud Storage tests unless you set an environment
-variable telling it which bucket to use:
+Pytest will skip the Google Cloud Storage tests unless you pass a command line
+option telling it which bucket to use:
 
 .. code-block:: bash
 
-    BIONIC_TEST_GCS_BUCKET=my-bucket pytest
+    pytest --bucket=gs://MYBUCKET
+
+It will also skip some other slow tests unless you specifically include them:
+
+.. code-block:: bash
+
+    pytest --slow
 
 Updating the Documentation
 --------------------------

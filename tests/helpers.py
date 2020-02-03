@@ -1,21 +1,14 @@
-import pytest
-
 from io import BytesIO
-import os
 from textwrap import dedent
 import re
+import subprocess
+import shutil
 
 import pandas as pd
 from pandas import testing as pdt
 from decorator import decorate
 
 import bionic as bn
-
-GCS_TEST_BUCKET = os.environ.get('BIONIC_GCS_TEST_BUCKET', None)
-skip_unless_gcs = pytest.mark.skipif(
-    GCS_TEST_BUCKET is None,
-    reason='the BIONIC_GCS_TEST_BUCKET env variable was not set'
-)
 
 
 # TODO This name is cumbersome; maybe one of these shorter names?
@@ -241,3 +234,17 @@ def longest_regex_prefix_match(regex, string, flags=0):
     match = re.search(regex[:max_succ_ix], string, flags=flags)
     assert match is not None
     return match
+
+
+def gsutil_wipe_path(url):
+    assert 'BNTESTDATA' in url
+    subprocess.check_call(['gsutil', '-q', '-m', 'rm', '-rf', url])
+
+
+def gsutil_path_exists(url):
+    return subprocess.call(['gsutil', 'ls', url]) == 0
+
+
+def local_wipe_path(path_str):
+    assert 'BNTESTDATA' in path_str
+    shutil.rmtree(path_str)
