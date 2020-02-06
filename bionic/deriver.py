@@ -325,7 +325,7 @@ class EntityDeriver(object):
                 self._versioning_policy.treat_bytecode_as_functional
 
         provenance = Provenance.from_computation(
-            code_descriptor=task_state.provider.get_code_descriptor(
+            code_fingerprint=task_state.provider.get_code_fingerprint(
                 task_state.case_key),
             case_key=task_state.case_key,
             dep_provenances_by_task_key={

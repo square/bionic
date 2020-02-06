@@ -200,8 +200,8 @@ class CacheAccessor(object):
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
                     raise AssertionError(oneline('''
-                        Attempted to register a descriptor with
-                        no result argument and no previously saved values;
+                        Attempted to register metadata with no result
+                        argument and no previously saved values;
                         this suggests we called update_provenance() without
                         previously finding a cached value, which shouldn't
                         happen.'''))
@@ -347,7 +347,7 @@ InventoryEntry = namedtuple(
 
 # Represents a match between a query and a saved artifact.  `level` is a string
 # describing the match level, ranging from "functional" to "exact".
-DescriptorMatch = namedtuple('DescriptorMatch', 'descriptor_url level')
+MetadataMatch = namedtuple('MetadataMatch', 'metadata_url level')
 
 
 class Inventory(object):
@@ -355,9 +355,10 @@ class Inventory(object):
     Maintains a persistent mapping from Queries to artifact URLs.  An Inventory
     is backed by a "file system", which could correspond to either a local disk
     or a cloud storage service.  This file system is used to store
-    "descriptors", each of which describes a Query and an artifact URL that
-    satisfies it.  Descriptors are stored using a hierarchical naming scheme
-    whose levels correspond to the different levels of Provenance matching.
+    metadata records, each of which describes a Query and an artifact URL that
+    satisfies it. Metadata records are stored using a hierarchical naming
+    scheme whose levels correspond to the different levels of Provenance
+    matching.
     """
 
     def __init__(self, name, tier, filesystem):
@@ -368,7 +369,7 @@ class Inventory(object):
 
     def register_url(self, query, url):
         """
-        Records a descriptor indicating that the provided Query is satisfied
+        Records metadata indicating that the provided Query is satisfied
         by the provided URL.
         """
 
@@ -376,18 +377,18 @@ class Inventory(object):
             'In     %s inventory for %r, saving artifact URL %s ...',
             self.tier, query, url)
 
-        if self._fs.exists(self._exact_descriptor_url_for_query(query)):
+        if self._fs.exists(self._exact_metadata_url_for_query(query)):
             # This shouldn't happen, because the CacheAccessor shouldn't write
             # to this inventory if we already have an exact match.
             logger.warn(
                 'In %s cache, attempted to create duplicate entry mapping %r '
                 'to %s', self.tier, query, url)
             return
-        descriptor_url = self._create_and_write_descriptor(query, url)
+        metadata_url = self._create_and_write_metadata(query, url)
 
         logger.debug(
-            '... in %s inventory for %r, created descriptor at %s',
-            self.tier, query, descriptor_url)
+            '... in %s inventory for %r, created metadata record at %s',
+            self.tier, query, metadata_url)
 
     def find_entry(self, query):
         """
@@ -413,21 +414,21 @@ class Inventory(object):
 
         logger.debug(
             '... in %s inventory for %r, found %s match at %s',
-            self.tier, query, match.level, match.descriptor_url)
+            self.tier, query, match.level, match.metadata_url)
 
-        descriptor = self._load_descriptor_from_url(match.descriptor_url)
+        metadata_record = self._load_metadata_from_url(match.metadata_url)
 
         return InventoryEntry(
             tier=self.tier,
             has_artifact=True,
-            artifact_url=descriptor.artifact_url,
-            provenance=descriptor.provenance,
+            artifact_url=metadata_record.artifact_url,
+            provenance=metadata_record.provenance,
             exactly_matches_query=(match.level == 'exact'),
         )
 
     def _find_best_match(self, query):
         equivalent_url_prefix =\
-            self._equivalent_descriptor_url_prefix_for_query(query)
+            self._equivalent_metadata_url_prefix_for_query(query)
         possible_urls = self._fs.search(equivalent_url_prefix)
         equivalent_urls = [
             url for url in possible_urls
@@ -436,89 +437,89 @@ class Inventory(object):
         if len(equivalent_urls) == 0:
             return None
 
-        exact_url = self._exact_descriptor_url_for_query(query)
+        exact_url = self._exact_metadata_url_for_query(query)
         if exact_url in equivalent_urls:
-            return DescriptorMatch(
-                descriptor_url=exact_url,
+            return MetadataMatch(
+                metadata_url=exact_url,
                 level='exact',
             )
 
         samecode_url_prefix =\
-            self._samecode_descriptor_url_prefix_for_query(query)
+            self._samecode_metadata_url_prefix_for_query(query)
         samecode_urls = [
             url for url in equivalent_urls
             if url.startswith(samecode_url_prefix)
         ]
         if len(samecode_urls) > 0:
-            return DescriptorMatch(
-                descriptor_url=samecode_urls[0],
+            return MetadataMatch(
+                metadata_url=samecode_urls[0],
                 level='samecode',
             )
 
         nominal_url_prefix =\
-            self._nominal_descriptor_url_prefix_for_query(query)
+            self._nominal_metadata_url_prefix_for_query(query)
         nominal_urls = [
             url for url in equivalent_urls
             if url.startswith(nominal_url_prefix)
         ]
         if len(nominal_urls) > 0:
-            return DescriptorMatch(
-                descriptor_url=nominal_urls[0],
+            return MetadataMatch(
+                metadata_url=nominal_urls[0],
                 level='nominal',
             )
 
-        return DescriptorMatch(
-            descriptor_url=equivalent_urls[0],
+        return MetadataMatch(
+            metadata_url=equivalent_urls[0],
             level='equivalent',
         )
 
-    def _equivalent_descriptor_url_prefix_for_query(self, query):
+    def _equivalent_metadata_url_prefix_for_query(self, query):
         return (
             self._fs.root_url + '/' + query.entity_name + '/' +
             query.provenance.functional_hash
         )
 
-    def _nominal_descriptor_url_prefix_for_query(self, query):
+    def _nominal_metadata_url_prefix_for_query(self, query):
         minor_version_token = tokenize(query.provenance.code_version_minor)
         return (
-            self._equivalent_descriptor_url_prefix_for_query(query) + '/' +
+            self._equivalent_metadata_url_prefix_for_query(query) + '/' +
             'mv_' + minor_version_token
         )
 
-    def _samecode_descriptor_url_prefix_for_query(self, query):
+    def _samecode_metadata_url_prefix_for_query(self, query):
         return (
-            self._nominal_descriptor_url_prefix_for_query(query) + '/' +
+            self._nominal_metadata_url_prefix_for_query(query) + '/' +
             'bc_' + query.provenance.bytecode_hash
         )
 
-    def _exact_descriptor_url_for_query(self, query):
-        filename = f'descriptor_{query.provenance.exact_hash}.yaml'
+    def _exact_metadata_url_for_query(self, query):
+        filename = f'metadata_{query.provenance.exact_hash}.yaml'
         return (
-            self._nominal_descriptor_url_prefix_for_query(query) + '/' +
+            self._nominal_metadata_url_prefix_for_query(query) + '/' +
             filename
         )
 
-    def _load_descriptor_from_url(self, url):
+    def _load_metadata_from_url(self, url):
         try:
-            descriptor_yaml = self._fs.read_bytes(url).decode('utf8')
-            return ArtifactDescriptor.from_yaml(descriptor_yaml)
+            metadata_yaml = self._fs.read_bytes(url).decode('utf8')
+            return ArtifactMetadataRecord.from_yaml(metadata_yaml)
         except Exception as e:
             raise InternalCacheStateError.from_failure(
-                'descriptor', url, e)
+                'metadata record', url, e)
 
-    def _create_and_write_descriptor(self, query, artifact_url):
-        descriptor = ArtifactDescriptor.from_content(
+    def _create_and_write_metadata(self, query, artifact_url):
+        metadata_record = ArtifactMetadataRecord.from_content(
             entity_name=query.entity_name,
             artifact_url=artifact_url,
             provenance=query.provenance,
         )
 
-        descriptor_url = self._exact_descriptor_url_for_query(query)
+        metadata_url = self._exact_metadata_url_for_query(query)
 
         self._fs.write_bytes(
-            descriptor.to_yaml().encode('utf8'), descriptor_url)
+            metadata_record.to_yaml().encode('utf8'), metadata_url)
 
-        return descriptor_url
+        return metadata_url
 
 
 class LocalStore(object):
@@ -782,14 +783,14 @@ class InvalidCacheStateError(Exception):
     """
 
 
-CACHE_SCHEMA_VERSION = 3
+CACHE_SCHEMA_VERSION = 4
 
 
 class YamlRecordParsingError(Exception):
     pass
 
 
-class ArtifactDescriptor(object):
+class ArtifactMetadataRecord(object):
     """
     Describes a persisted artifact.  Intended to be stored as a YAML file.
     """
@@ -820,7 +821,7 @@ class ArtifactDescriptor(object):
             self.provenance = Provenance.from_dict(self._dict['provenance'])
         except KeyError as e:
             raise YamlRecordParsingError(
-                f"YAML for ArtifactDescriptor was missing field: {e}")
+                f"YAML for ArtifactMetadataRecord was missing field: {e}")
 
     def to_yaml(self):
         return yaml.dump(
@@ -831,7 +832,7 @@ class ArtifactDescriptor(object):
         )
 
     def __repr__(self):
-        return f'ArtifactDescriptor({self.entity_name})'
+        return f'ArtifactMetadataRecord({self.entity_name})'
 
 
 class Provenance(object):
@@ -867,23 +868,23 @@ class Provenance(object):
 
     @classmethod
     def from_computation(
-            cls, code_descriptor, case_key, dep_provenances_by_task_key,
+            cls, code_fingerprint, case_key, dep_provenances_by_task_key,
             treat_bytecode_as_functional):
         dep_task_key_provenance_pairs = sorted(
             dep_provenances_by_task_key.items())
 
         functional_code_dict = dict(
-            orig_flow_name=code_descriptor.orig_flow_name,
-            code_version_major=code_descriptor.version.major,
+            orig_flow_name=code_fingerprint.orig_flow_name,
+            code_version_major=code_fingerprint.version.major,
             cache_schema_version=CACHE_SCHEMA_VERSION,
             # This exists for backwards compatibility with older cache entries.
             python_major_version=3,
         )
         nonfunctional_code_dict = dict(
-            code_version_minor=code_descriptor.version.minor,
+            code_version_minor=code_fingerprint.version.minor,
         )
 
-        bytecode_hash = code_descriptor.bytecode_hash
+        bytecode_hash = code_fingerprint.bytecode_hash
         if treat_bytecode_as_functional:
             functional_code_dict['bytecode_hash'] = bytecode_hash
         else:

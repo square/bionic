@@ -226,9 +226,9 @@ def str_from_version_value(value):
             f"Version values must be str, int, or None: got {value!r}")
 
 
-# Describes the code of a function.
-CodeDescriptor = namedtuple(
-    'CodeDescriptor', 'version bytecode_hash orig_flow_name')
+# A collection of characteristics attempting to uniquely identify a function.
+CodeFingerprint = namedtuple(
+    'CodeFingerprint', 'version bytecode_hash orig_flow_name')
 
 
 # Encodes the versioning rules to use when computing entity values.

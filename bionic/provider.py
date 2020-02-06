@@ -16,7 +16,7 @@ from io import BytesIO
 import pandas as pd
 
 from .datatypes import (
-    Task, TaskKey, CaseKey, CaseKeySpace, CodeDescriptor, CodeVersion)
+    Task, TaskKey, CaseKey, CaseKeySpace, CodeFingerprint, CodeVersion)
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
 from .optdep import import_optional_dependency
@@ -49,7 +49,7 @@ class BaseProvider(object):
     def get_joint_names(self):
         return self.attrs.names
 
-    def get_code_descriptor(self, case_key):
+    def get_code_fingerprint(self, case_key):
         source_func = self.get_source_func()
         bytecode_hash = (
             None
@@ -63,7 +63,7 @@ class BaseProvider(object):
             self.attrs.code_version
         )
 
-        return CodeDescriptor(
+        return CodeFingerprint(
             version=code_version,
             orig_flow_name=self.attrs.orig_flow_name,
             bytecode_hash=bytecode_hash,
@@ -326,9 +326,9 @@ class ValueProvider(BaseProvider):
         else:
             return self.attrs.names
 
-    def get_code_descriptor(self, case_key):
+    def get_code_fingerprint(self, case_key):
         value_token = self._tokens_by_case_key[case_key]
-        return CodeDescriptor(
+        return CodeFingerprint(
             version=CodeVersion(
                 major=value_token,
                 minor=None,
@@ -864,7 +864,7 @@ def multi_index_from_case_keys(case_keys, ordered_key_names):
 # -- Helpers for working with providers.
 
 PROVIDER_METHODS = [
-    'get_code_descriptor', 'get_dependency_names', 'get_tasks',
+    'get_code_fingerprint', 'get_dependency_names', 'get_tasks',
     'get_source_func',
 ]
 

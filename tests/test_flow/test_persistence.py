@@ -800,7 +800,7 @@ def test_can_still_read_old_filename_convention(builder):
     renamed_artifact_path = artifact_path.parent / old_style_filename
     artifact_path.rename(renamed_artifact_path)
 
-    # Update the descriptor file pointing to it.
+    # Update the metadata file pointing to it.
     entity_inventory_path = artifact_path.parents[3] / 'inventory' / 'one'
     assert entity_inventory_path.is_dir()
     desc_paths = list(entity_inventory_path.glob('**/*.yaml'))
