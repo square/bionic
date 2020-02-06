@@ -299,15 +299,7 @@ class CacheAccessor(object):
 
     def _value_from_file(self, file_path):
         value_filename = file_path.name
-
-        # Older versions of Bionic named all of these files 'value.EXTENSION'.
-        # Once we've updated the CACHE_SCHEMA_VERSION to be greater than 3, we
-        # can remove this special case.
-        old_value_filename_stem = 'value.'
-        if value_filename.startswith(old_value_filename_stem):
-            extension = value_filename[len(old_value_filename_stem):]
-        else:
-            extension = value_filename[len(self.value_filename_stem):]
+        extension = value_filename[len(self.value_filename_stem):]
         try:
             return self.query.protocol.read(file_path, extension)
 
