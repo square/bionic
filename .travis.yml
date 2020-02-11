@@ -4,7 +4,7 @@ python:
 - '3.7'
 before_install:
 - sudo apt-get install graphviz
-- pip install --upgrade .[dev]
+- pip install --upgrade --upgrade-strategy eager .[dev]
 # This prints out all installed package versions, which may help for debugging
 # build failures.
 - pip freeze
