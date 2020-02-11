@@ -5,6 +5,9 @@ python:
 before_install:
 - sudo apt-get install graphviz
 - pip install --upgrade .[dev]
+# This prints out all installed package versions, which may help for debugging
+# build failures.
+- pip freeze
 script:
 - pytest --slow
 - flake8
