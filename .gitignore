@@ -91,3 +91,6 @@ bndata
 
 # Python virtual environment
 .venv
+
+# Test data
+!tests/test_flow/test_persistence_compatibility/artifacts/**/*.pkl

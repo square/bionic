@@ -15,9 +15,9 @@ def builder(builder):
     return builder
 
 
-def test_move_cache_files(builder, datadir):
-    cur_dir = os.path.join(datadir, 'current')
-    new_dir = os.path.join(datadir, 'new')
+def test_move_cache_files(builder, tmp_path):
+    cur_dir = os.path.join(tmp_path, 'current')
+    new_dir = os.path.join(tmp_path, 'new')
 
     builder.set('core__persistent_cache__flow_dir', cur_dir)
     flow = builder.build()

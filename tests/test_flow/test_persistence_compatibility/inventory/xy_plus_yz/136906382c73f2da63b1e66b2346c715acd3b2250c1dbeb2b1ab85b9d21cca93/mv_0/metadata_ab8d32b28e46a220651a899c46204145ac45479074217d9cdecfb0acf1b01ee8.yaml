@@ -1,0 +1,31 @@
+artifact_url: ../../../../artifacts/xy_plus_yz/b723ebc0-9700-41fa-ad9c-354af07a90f7/xy_plus_yz.pkl
+entity: xy_plus_yz
+provenance:
+  case_key:
+    x: '2'
+    y: '3'
+    z: '4'
+  code:
+    bytecode_hash: c7f0c1bc5e61e9e625cda626ce6a2972f405b157a486671bb150b0b5df84cc95
+    functional:
+      cache_schema_version: 4
+      code_version_major: '0'
+      orig_flow_name: null
+      python_major_version: 3
+    nonfunctional:
+      bytecode_hash: c7f0c1bc5e61e9e625cda626ce6a2972f405b157a486671bb150b0b5df84cc95
+      code_version_minor: '0'
+  exact_deps_hash: 3ebf682b55938d8573c5b5eaf7e69ad7158dda8070688f66ba1d1699f2539031
+  exact_hash: ab8d32b28e46a220651a899c46204145ac45479074217d9cdecfb0acf1b01ee8
+  functional_deps:
+  - case_key:
+      x: '2'
+      y: '3'
+    entity: xy
+    provenance_hash: 52b38009673756da842c9152b2c1e2798d15d16b8a7d3d0d8225a038fe4cbe0a
+  - case_key:
+      y: '3'
+      z: '4'
+    entity: yz
+    provenance_hash: 70eeebe4b8db914be9ca4e2894dffba3d936cde6b917fc682c5b138981f19597
+  functional_hash: 136906382c73f2da63b1e66b2346c715acd3b2250c1dbeb2b1ab85b9d21cca93
