@@ -5,6 +5,7 @@ point of entry is the PersistentCache, which encapsulates this functionality.
 
 from collections import namedtuple
 from hashlib import sha256
+import os
 import shutil
 import subprocess
 import tempfile
@@ -28,7 +29,6 @@ try:
     YamlDumper = yaml.CDumper
     YamlLoader = yaml.CLoader
 except AttributeError:
-    import os
     running_under_readthedocs = os.environ.get('READTHEDOCS') == 'True'
     if not running_under_readthedocs:
         warnings.warn(oneline('''
@@ -494,19 +494,20 @@ class Inventory(object):
     def _load_metadata_from_url(self, url):
         try:
             metadata_yaml = self._fs.read_bytes(url).decode('utf8')
-            return ArtifactMetadataRecord.from_yaml(metadata_yaml)
+            return ArtifactMetadataRecord.from_yaml(metadata_yaml, url)
         except Exception as e:
             raise InternalCacheStateError.from_failure(
                 'metadata record', url, e)
 
     def _create_and_write_metadata(self, query, artifact_url):
+        metadata_url = self._exact_metadata_url_for_query(query)
+
         metadata_record = ArtifactMetadataRecord.from_content(
             entity_name=query.entity_name,
             artifact_url=artifact_url,
             provenance=query.provenance,
+            metadata_url=metadata_url
         )
-
-        metadata_url = self._exact_metadata_url_for_query(query)
 
         self._fs.write_bytes(
             metadata_record.to_yaml().encode('utf8'), metadata_url)
@@ -788,22 +789,24 @@ class ArtifactMetadataRecord(object):
     """
 
     @classmethod
-    def from_content(cls, entity_name, artifact_url, provenance):
+    def from_content(cls, entity_name, artifact_url, provenance, metadata_url):
         return cls(body_dict=dict(
             entity=entity_name,
-            artifact_url=artifact_url,
+            artifact_url=relativize_url(artifact_url, metadata_url),
             provenance=provenance.to_dict(),
         ))
 
     @classmethod
-    def from_yaml(cls, yaml_str):
+    def from_yaml(cls, yaml_str, metadata_url):
         try:
             body_dict = yaml.load(yaml_str, Loader=YamlLoader)
         except yaml.error.YAMLError as e:
             raise YamlRecordParsingError(
                 f"Couldn't parse {cls.__name__}"
             ) from e
-        return cls(body_dict=body_dict)
+        record = cls(body_dict=body_dict)
+        record.artifact_url = derelativize_url(record.artifact_url, metadata_url)
+        return record
 
     def __init__(self, body_dict):
         try:
@@ -961,6 +964,10 @@ class Provenance(object):
 FILE_URL_PREFIX = 'file://'
 
 
+def is_file_url(url):
+    return url.startswith(FILE_URL_PREFIX)
+
+
 def path_from_url(url):
     assert url.startswith(FILE_URL_PREFIX), url
     return Path(url[len(FILE_URL_PREFIX):])
@@ -1017,3 +1024,21 @@ def update_hash(hash_, obj):
             update_hash(hash_, value)
     else:
         raise ValueError(f"Unable to hash object {obj!r} of type {type(obj)!r}")
+
+
+def relativize_url(artifact_url, metadata_url):
+    """Returns the relative artifact url wrt to metadata url
+    when both urls start with file://. Otherwise, returns the original url."""
+    if not is_file_url(artifact_url) or not is_file_url(metadata_url):
+        return artifact_url
+    return os.path.relpath(artifact_url, os.path.dirname(metadata_url))
+
+
+def derelativize_url(artifact_url, metadata_url):
+    """Returns the absolute artifact url when it is relative wrt metadata url.
+    Otherwise returns the original url."""
+    if os.path.isabs(artifact_url):
+        return artifact_url
+    abspath = os.path.normpath(os.path.join(os.path.dirname(metadata_url), artifact_url))
+    # normpath removes redundant `/`. We need to add them back from the url prefix
+    return abspath.replace("file:", FILE_URL_PREFIX)

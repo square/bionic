@@ -1,0 +1,31 @@
+import os
+import pytest
+import shutil
+
+
+@pytest.fixture
+def builder(builder):
+    builder.assign('x', 2)
+    builder.assign('y', 3)
+
+    @builder
+    def xy(x, y):
+        return x * y
+
+    return builder
+
+
+def test_move_cache_files(builder, datadir):
+    cur_dir = os.path.join(datadir, 'current')
+    new_dir = os.path.join(datadir, 'new')
+
+    builder.set('core__persistent_cache__flow_dir', cur_dir)
+    flow = builder.build()
+    # call a method to create cache
+    assert flow.get('xy') == 6
+
+    shutil.copytree(cur_dir, new_dir)
+
+    builder.set('core__persistent_cache__flow_dir', new_dir)
+    flow = builder.build()
+    assert flow.get('xy') == 6
