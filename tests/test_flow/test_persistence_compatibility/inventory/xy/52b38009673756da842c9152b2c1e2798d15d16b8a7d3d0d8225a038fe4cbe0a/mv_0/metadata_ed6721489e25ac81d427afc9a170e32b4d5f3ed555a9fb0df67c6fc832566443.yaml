@@ -1,0 +1,28 @@
+artifact_url: ../../../../artifacts/xy/b0c5c940-eb50-4fcf-8245-6f926d53f571/xy.pkl
+entity: xy
+provenance:
+  case_key:
+    x: '2'
+    y: '3'
+  code:
+    bytecode_hash: 7da623ad440a31e1ef771d363bfba8f819cf4ecf211b60fbcafa06aa4f291b77
+    functional:
+      cache_schema_version: 4
+      code_version_major: '0'
+      orig_flow_name: null
+      python_major_version: 3
+    nonfunctional:
+      bytecode_hash: 7da623ad440a31e1ef771d363bfba8f819cf4ecf211b60fbcafa06aa4f291b77
+      code_version_minor: '0'
+  exact_deps_hash: 11bfd1bc78a2ee5e95a0eae3c006e0500f624a2c3a544ea66a8ccf38445a1af9
+  exact_hash: ed6721489e25ac81d427afc9a170e32b4d5f3ed555a9fb0df67c6fc832566443
+  functional_deps:
+  - case_key:
+      x: '2'
+    entity: x
+    provenance_hash: 8af4a1711bf9c321c513fa64d431756c4d6c43f292eb2e677c85aa956b147fd1
+  - case_key:
+      y: '3'
+    entity: y
+    provenance_hash: 3fbb9cd92592d25977e97f1ee55fd42afd7e7c3db584e5189456ad3ea138175a
+  functional_hash: 52b38009673756da842c9152b2c1e2798d15d16b8a7d3d0d8225a038fe4cbe0a

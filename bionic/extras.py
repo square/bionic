@@ -36,7 +36,7 @@ extras['full'] = combine(*extras.values())
 
 extras['dev'] = combine(
     [
-        'pytest', 'flake8', 'pytest-datadir',
+        'pytest', 'flake8',
         'sphinx', 'sphinx_rtd_theme', 'sphinx-autobuild', 'nbsphinx',
         'jupyter',
         'bumpversion',
