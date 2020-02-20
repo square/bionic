@@ -13,6 +13,7 @@ import yaml
 import warnings
 from uuid import uuid4
 from pathlib import Path
+from urllib.parse import urlparse
 
 from bionic.exception import UnsupportedSerializedValueError
 from .datatypes import Result
@@ -258,7 +259,7 @@ class CacheAccessor(object):
 
     def _file_from_blob(self, blob_url):
         dir_path = self._local.generate_unique_dir_path(self.query)
-        filename = blob_url.split('/')[-1]
+        filename = path_from_url(blob_url).name
         file_path = dir_path / filename
 
         ensure_parent_dir_exists(file_path)
@@ -746,16 +747,14 @@ class GcsTool(object):
         return object_name
 
     def _bucket_and_object_names_from_url(self, url):
-        if not url.startswith(self._GS_URL_PREFIX):
-            raise ValueError(f'url must start with "{self._GS_URL_PREFIX}"')
-        url_parts = url[len(self._GS_URL_PREFIX):].split('/', 1)
-        if len(url_parts) == 1:
-            bucket_name, = url_parts
-            object_prefix = ''
-        else:
-            bucket_name, object_prefix = url_parts
-
-        return bucket_name, object_prefix
+        if not is_gcs_url(url):
+            raise ValueError(f'url must have schema "{GCS_SCHEME}"')
+        result = urlparse(url)
+        result_path = result.path
+        # urlparse always parses the url with a leading slash in path
+        # but we don't want the leading slash for gcs object name
+        assert result_path.startswith('/')
+        return result.netloc, result_path[1:]
 
 
 class InternalCacheStateError(Exception):
@@ -961,20 +960,38 @@ class Provenance(object):
 
 
 # Helpers for managing files.
-FILE_URL_PREFIX = 'file://'
+FILE_SCHEME = 'file'
+GCS_SCHEME = 'gs'
+SUPPORTED_SCHEMES = [FILE_SCHEME, GCS_SCHEME]
 
 
 def is_file_url(url):
-    return url.startswith(FILE_URL_PREFIX)
+    result = urlparse(url)
+    return result.scheme == FILE_SCHEME
+
+
+def is_gcs_url(url):
+    result = urlparse(url)
+    return result.scheme == GCS_SCHEME
+
+
+def is_absolute_url(url):
+    result = urlparse(url)
+    if not result.scheme:
+        return False
+    if result.scheme not in SUPPORTED_SCHEMES:
+        raise ValueError(
+            f'Found a URL with unsupported scheme {result.scheme!r}.')
+    return True
 
 
 def path_from_url(url):
-    assert url.startswith(FILE_URL_PREFIX), url
-    return Path(url[len(FILE_URL_PREFIX):])
+    result = urlparse(url)
+    return Path(result.path)
 
 
 def url_from_path(path):
-    return FILE_URL_PREFIX + str(path)
+    return Path(path).as_uri()
 
 
 def recursive_file_copy(src_path, dst_path):
@@ -1028,17 +1045,20 @@ def update_hash(hash_, obj):
 
 def relativize_url(artifact_url, metadata_url):
     """Returns the relative artifact url wrt to metadata url
-    when both urls start with file://. Otherwise, returns the original url."""
+    when both urls are file urls. Otherwise, returns the original url."""
     if not is_file_url(artifact_url) or not is_file_url(metadata_url):
         return artifact_url
-    return os.path.relpath(artifact_url, os.path.dirname(metadata_url))
+    artifact_path = path_from_url(artifact_url)
+    metadata_path = path_from_url(metadata_url)
+    return os.path.relpath(artifact_path, metadata_path.parent)
 
 
 def derelativize_url(artifact_url, metadata_url):
     """Returns the absolute artifact url when it is relative wrt metadata url.
     Otherwise returns the original url."""
-    if os.path.isabs(artifact_url):
+    if is_absolute_url(artifact_url):
         return artifact_url
-    abspath = os.path.normpath(os.path.join(os.path.dirname(metadata_url), artifact_url))
-    # normpath removes redundant `/`. We need to add them back from the url prefix
-    return abspath.replace("file:", FILE_URL_PREFIX)
+    metadata_path = path_from_url(metadata_url)
+    artifact_path = path_from_url(artifact_url)
+    abspath = os.path.normpath(metadata_path.parent.joinpath(artifact_path))
+    return url_from_path(abspath)
