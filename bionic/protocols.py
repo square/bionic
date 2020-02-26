@@ -84,6 +84,9 @@ class BaseProtocol(object):
         else:
             return tokenization.tokenize(value, self._write_to_bytes)
 
+    def tokenize_file(self, path):
+        return tokenization.tokenize(path, read_hashable_bytes_from_file_or_dir)
+
     def _write_to_bytes(self, value):
         file_name = 'temp_file'
         temp_dir = Path(tempfile.mkdtemp())

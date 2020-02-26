@@ -567,7 +567,9 @@ def test_indirect_versioning_auto(builder):
 
     assert builder.build().get('f') == 6
     assert y_call_counter.times_called() == 1
-    assert f_call_counter.times_called() == 1
+    # f uses the cached value since final values
+    # of x and y are still the same
+    assert f_call_counter.times_called() == 0
 
     @builder  # noqa: F811
     @bn.version(1)
@@ -577,7 +579,9 @@ def test_indirect_versioning_auto(builder):
 
     assert builder.build().get('f') == 6
     assert y_call_counter.times_called() == 1
-    assert f_call_counter.times_called() == 1
+    # f uses the cached value since final values
+    # of x and y are still the same
+    assert f_call_counter.times_called() == 0
 
     @builder  # noqa: F811
     @bn.version(1, minor=1)
@@ -648,6 +652,49 @@ def test_deps_of_cached_values_not_needed(builder):
 
     assert y_protocol.times_read_called == 1
     assert z_protocol.times_read_called == 2
+
+
+def test_deps_not_called_when_values_not_changed(builder):
+    builder.assign('x', 2)
+    builder.assign('y', 3)
+    builder.assign('z', 4)
+
+    @builder
+    @count_calls
+    def xy(x, y):
+        return x * y
+
+    @builder
+    @count_calls
+    def yz(y, z):
+        return y * z
+
+    @builder
+    @count_calls
+    def xy_plus_yz(xy, yz):
+        return xy + yz
+
+    flow = builder.build()
+    assert flow.get('xy') == 6
+    assert flow.get('yz') == 12
+    assert flow.get('xy_plus_yz') == 18
+
+    assert xy.times_called() == 1
+    assert yz.times_called() == 1
+    assert xy_plus_yz.times_called() == 1
+
+    flow = flow.\
+        setting('x', 1).\
+        setting('y', 6).\
+        setting('z', 2)
+    assert flow.get('xy') == 6
+    assert flow.get('yz') == 12
+    assert flow.get('xy_plus_yz') == 18
+
+    # xy_plus_yz should not be called again
+    assert xy.times_called() == 1
+    assert yz.times_called() == 1
+    assert xy_plus_yz.times_called() == 0
 
 
 def test_gather_cache_invalidation(builder):
