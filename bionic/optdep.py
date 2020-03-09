@@ -102,7 +102,7 @@ def import_optional_dependency(name, purpose=None, raise_on_missing=True):
 
             raise ImportError(oneline(f'''
                 Unable to import package {name!r}, which is {description};
-                you can use ``pip install bionic[{extra_name}]``
+                you can use ``pip install 'bionic[{extra_name}]'``
                 to resolve this'''))
 
         else:

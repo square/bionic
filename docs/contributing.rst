@@ -26,7 +26,7 @@ of the repo:
 
 .. code-block:: bash
 
-    pip install -e .[dev]
+    pip install -e '.[dev]'
 
 If you want to build the documentation, you also need to install `pandoc
 <https://pandoc.org/>`_, which is used to convert notebook files into Sphinx

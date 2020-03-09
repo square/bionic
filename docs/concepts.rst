@@ -428,7 +428,7 @@ entity computation a bit slower.
 
 In order to use GCS caching, you must have the `gsutil`_ tool installed, and
 you must have GCP credentials configured.  You should also use ``pip install
-bionic[gcp]`` to install the required Python libraries.
+'bionic[gcp]'`` to install the required Python libraries.
 
 .. _gsutil: https://cloud.google.com/storage/docs/gsutil
 
