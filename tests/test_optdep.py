@@ -7,7 +7,7 @@ from bionic.optdep import (
 def test_import_missing_dependency():
     with pytest.raises(
             ImportError,
-            match='.*%s.*PURPOSE.*pip install bionic\\[%s\\].*' % (
+            match=".*%s.*PURPOSE.*pip install 'bionic\\[%s\\]'.*" % (
                 TEST_PACKAGE_NAME, TEST_EXTRA_NAME)):
         import_optional_dependency(TEST_PACKAGE_NAME, purpose='PURPOSE')
 

@@ -9,7 +9,7 @@ Bionic can be installed using ``pip``:
 
 .. code-block:: bash
 
-    pip install bionic[standard]
+    pip install 'bionic[standard]'
 
 The ``bionic[standard]`` package includes the core framework as well as the
 most commonly-used dependencies.  There are several other subpackages offering
@@ -56,32 +56,32 @@ as well as `graph visualization`_.
 
 The full set of subpackages is as follows:
 
-========== ================================== =================================
-Subpackage  Installation Command              Enables
-========== ================================== =================================
-dev        ``pip install bionic[dev]``        every feature; testing; building
-                                              documentation
----------- ---------------------------------- ---------------------------------
-dask       ``pip install bionic[dask]``       the ``@dask`` decorator
----------- ---------------------------------- ---------------------------------
-dill       ``pip install bionic[dill]``       the ``@dillable`` decorator
----------- ---------------------------------- ---------------------------------
-examples   ``pip install bionic[examples]``   the tutorial example code
----------- ---------------------------------- ---------------------------------
-full       ``pip install bionic[full]``       every non-development feature
----------- ---------------------------------- ---------------------------------
-gcp        ``pip install bionic[gcp]``        caching to GCS
----------- ---------------------------------- ---------------------------------
-image      ``pip install bionic[image]``      automatic de/serialization of
-                                              ``PIL.Image`` objects
----------- ---------------------------------- ---------------------------------
-matplotlib ``pip install bionic[matplotlib]`` the ``@pyplot`` decorator
----------- ---------------------------------- ---------------------------------
-standard   ``pip install bionic[standard]``   graph visualization; ``Image``
-                                              handling; ``@pyplot``
----------- ---------------------------------- ---------------------------------
-viz        ``pip install bionic[viz]``        graph visualization
-========== ================================== =================================
+========== ==================================== ================================
+Subpackage  Installation Command                Enables
+========== ==================================== ================================
+dev        ``pip install 'bionic[dev]'``        every feature; testing; building
+                                                documentation
+---------- ------------------------------------ --------------------------------
+dask       ``pip install 'bionic[dask]'``       the ``@dask`` decorator
+---------- ------------------------------------ --------------------------------
+dill       ``pip install 'bionic[dill]'``       the ``@dillable`` decorator
+---------- ------------------------------------ --------------------------------
+examples   ``pip install 'bionic[examples]'``   the tutorial example code
+---------- ------------------------------------ --------------------------------
+full       ``pip install 'bionic[full]'``       every non-development feature
+---------- ------------------------------------ --------------------------------
+gcp        ``pip install 'bionic[gcp]'``        caching to GCS
+---------- ------------------------------------ --------------------------------
+image      ``pip install 'bionic[image]'``      automatic de/serialization of
+                                                ``PIL.Image`` objects
+---------- ------------------------------------ --------------------------------
+matplotlib ``pip install 'bionic[matplotlib]'`` the ``@pyplot`` decorator
+---------- ------------------------------------ --------------------------------
+standard   ``pip install 'bionic[standard]'``   graph visualization; ``Image``
+                                                handling; ``@pyplot``
+---------- ------------------------------------ --------------------------------
+viz        ``pip install 'bionic[viz]'``        graph visualization
+========== ==================================== ================================
 
 Tutorials
 ---------
