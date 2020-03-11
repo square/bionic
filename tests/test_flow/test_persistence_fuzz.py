@@ -192,11 +192,14 @@ class Fuzzer(object):
     def run(self, n_iterations):
         for i in range(n_iterations):
             updated_name = self._random.choice(self.model.entity_names())
-            affected_names = self.model.entity_names(
-                downstream_of=updated_name, with_children=False)
             make_func_change = self._random_bool()
             make_nonfunc_change = not make_func_change
             update_version = self._random_bool()
+
+            affected_names = [updated_name]
+            if make_func_change:
+                affected_names = self.model.entity_names(
+                    downstream_of=updated_name, with_children=False)
 
             self.model.update_entity(
                 updated_name,

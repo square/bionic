@@ -147,12 +147,30 @@ class CacheAccessor(object):
                 raise AssertionError("Unrecognized tier: " + entry.tier)
 
             value = self._value_from_file(file_path)
+            value_hash = self.query.protocol.tokenize_file(file_path)
 
             return Result(
                 query=self.query,
                 value=value,
                 file_path=file_path,
+                value_hash=value_hash,
             )
+        except InternalCacheStateError as e:
+            self._raise_state_error_with_explanation(e)
+
+    def load_result_value_hash(self):
+        """
+        Returns only the value hash for the nearest cached artifact for
+        this query, if one exists.
+        """
+
+        try:
+            entry = self._get_nearest_entry_with_artifact()
+
+            if entry is None:
+                return None
+
+            return entry.value_hash
         except InternalCacheStateError as e:
             self._raise_state_error_with_explanation(e)
 
@@ -187,17 +205,21 @@ class CacheAccessor(object):
         if result is not None:
             value_wrapper = NullableWrapper(result.value)
             file_path = result.file_path
+            value_hash = result.value_hash
         else:
             value_wrapper = None
             file_path = None
+            value_hash = None
 
         blob_url = None
 
         if file_path is None:
             if local_entry.has_artifact:
                 file_path = path_from_url(local_entry.artifact_url)
+                value_hash = local_entry.value_hash
             elif value_wrapper is not None:
                 file_path = self._file_from_value(value_wrapper.value)
+                value_hash = self.query.protocol.tokenize_file(file_path)
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
                     raise AssertionError(oneline('''
@@ -208,10 +230,11 @@ class CacheAccessor(object):
                         happen.'''))
                 blob_url = cloud_entry.artifact_url
                 file_path = self._file_from_blob(blob_url)
+                value_hash = cloud_entry.value_hash
 
         if not local_entry.exactly_matches_query:
             file_url = url_from_path(file_path)
-            self._local.inventory.register_url(self.query, file_url)
+            self._local.inventory.register_url(self.query, file_url, value_hash)
 
         if self._cloud:
             assert cloud_entry is not None
@@ -221,7 +244,7 @@ class CacheAccessor(object):
                         blob_url = cloud_entry.artifact_url
                     else:
                         blob_url = self._blob_from_file(file_path)
-                self._cloud.inventory.register_url(self.query, blob_url)
+                self._cloud.inventory.register_url(self.query, blob_url, value_hash)
 
     def _get_nearest_entry_with_artifact(self):
         """
@@ -336,7 +359,7 @@ NullableWrapper = namedtuple('NullableWrapper', 'value')
 # to CacheAccessor.
 InventoryEntry = namedtuple(
     'InventoryEntry',
-    'tier has_artifact artifact_url provenance exactly_matches_query')
+    'tier has_artifact artifact_url provenance exactly_matches_query value_hash')
 
 # Represents a match between a query and a saved artifact.  `level` is a string
 # describing the match level, ranging from "functional" to "exact".
@@ -360,7 +383,7 @@ class Inventory(object):
         self._fs = filesystem
         self.root_url = filesystem.root_url
 
-    def register_url(self, query, url):
+    def register_url(self, query, url, value_hash):
         """
         Records metadata indicating that the provided Query is satisfied
         by the provided URL.
@@ -377,7 +400,7 @@ class Inventory(object):
                 'In %s cache, attempted to create duplicate entry mapping %r '
                 'to %s', self.tier, query, url)
             return
-        metadata_url = self._create_and_write_metadata(query, url)
+        metadata_url = self._create_and_write_metadata(query, url, value_hash)
 
         logger.debug(
             '... in %s inventory for %r, created metadata record at %s',
@@ -403,6 +426,7 @@ class Inventory(object):
                 artifact_url=None,
                 provenance=None,
                 exactly_matches_query=False,
+                value_hash=None,
             )
 
         logger.debug(
@@ -417,6 +441,7 @@ class Inventory(object):
             artifact_url=metadata_record.artifact_url,
             provenance=metadata_record.provenance,
             exactly_matches_query=(match.level == 'exact'),
+            value_hash=metadata_record.value_hash
         )
 
     def _find_best_match(self, query):
@@ -500,14 +525,15 @@ class Inventory(object):
             raise InternalCacheStateError.from_failure(
                 'metadata record', url, e)
 
-    def _create_and_write_metadata(self, query, artifact_url):
+    def _create_and_write_metadata(self, query, artifact_url, value_hash):
         metadata_url = self._exact_metadata_url_for_query(query)
 
         metadata_record = ArtifactMetadataRecord.from_content(
             entity_name=query.entity_name,
             artifact_url=artifact_url,
             provenance=query.provenance,
-            metadata_url=metadata_url
+            metadata_url=metadata_url,
+            value_hash=value_hash
         )
 
         self._fs.write_bytes(
@@ -775,7 +801,7 @@ class InvalidCacheStateError(Exception):
     """
 
 
-CACHE_SCHEMA_VERSION = 4
+CACHE_SCHEMA_VERSION = 5
 
 
 class YamlRecordParsingError(Exception):
@@ -788,11 +814,12 @@ class ArtifactMetadataRecord(object):
     """
 
     @classmethod
-    def from_content(cls, entity_name, artifact_url, provenance, metadata_url):
+    def from_content(cls, entity_name, artifact_url, provenance, metadata_url, value_hash):
         return cls(body_dict=dict(
             entity=entity_name,
             artifact_url=relativize_url(artifact_url, metadata_url),
             provenance=provenance.to_dict(),
+            value_hash=value_hash
         ))
 
     @classmethod
@@ -813,6 +840,7 @@ class ArtifactMetadataRecord(object):
             self.entity_name = self._dict['entity']
             self.artifact_url = self._dict['artifact_url']
             self.provenance = Provenance.from_dict(self._dict['provenance'])
+            self.value_hash = self._dict['value_hash']
         except KeyError as e:
             raise YamlRecordParsingError(
                 f"YAML for ArtifactMetadataRecord was missing field: {e}")
@@ -862,10 +890,10 @@ class Provenance(object):
 
     @classmethod
     def from_computation(
-            cls, code_fingerprint, case_key, dep_provenances_by_task_key,
+            cls, code_fingerprint, case_key, dep_provenance_digests_by_task_key,
             treat_bytecode_as_functional):
-        dep_task_key_provenance_pairs = sorted(
-            dep_provenances_by_task_key.items())
+        dep_task_key_provenance_digest_pairs = sorted(
+            dep_provenance_digests_by_task_key.items())
 
         functional_code_dict = dict(
             orig_flow_name=code_fingerprint.orig_flow_name,
@@ -892,18 +920,16 @@ class Provenance(object):
         functional_deps_list = [
             dict(
                 entity=task_key.entity_name,
-                case_key=dict(task_key.case_key),
-                provenance_hash=provenance.functional_hash,
+                hash=provenance_digest.functional_hash,
             )
-            for task_key, provenance in dep_task_key_provenance_pairs
+            for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
         ]
         exact_deps_list = [
             dict(
                 entity=task_key.entity_name,
-                case_key=dict(task_key.case_key),
-                provenance_hash=provenance.exact_hash,
+                hash=provenance_digest.exact_hash,
             )
-            for task_key, provenance in dep_task_key_provenance_pairs
+            for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
         ]
 
         exact_deps_hash = hash_simple_obj_to_hex(exact_deps_list)

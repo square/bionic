@@ -158,7 +158,7 @@ def read_hashable_bytes_from_file_or_dir(path):
         sub_paths = list(sorted(path.iterdir()))
         return b'D' + num_as_bytes(len(sub_paths)) + b':' + b':'.join(
             b'N' + num_as_bytes(len(sub_path.name)) + b':' +
-            sub_path.name + b':' +
+            sub_path.name.encode("UTF-8") + b':' +
             read_hashable_bytes_from_file_or_dir(sub_path)
             for sub_path in sub_paths
         )

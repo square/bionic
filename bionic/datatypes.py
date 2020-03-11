@@ -45,23 +45,19 @@ class Task(object):
         return key
 
     def __repr__(self):
-        return f'Task({self.key!r}, {self.dep_keys!r})'
+        return f'Task({self.keys!r}, {self.dep_keys!r})'
 
 
 class Query(object):
     '''
     Represents a request for a specific entity value.
     '''
-    def __init__(
-            self, task_key, protocol, provenance):
+    def __init__(self, task_key, protocol, provenance):
         self.task_key = task_key
         self.entity_name = task_key.entity_name
         self.case_key = task_key.case_key
         self.protocol = protocol
         self.provenance = provenance
-
-    def to_result(self, value):
-        return Result(query=self, value=value)
 
     def __repr__(self):
         return f'Query({self.task_key}, {self.provenance!r})'
@@ -72,13 +68,34 @@ class Result(object):
     Represents one value for one entity.
     '''
     def __init__(
-            self, query, value, file_path=None):
+            self, query, value, value_hash=None, file_path=None):
         self.query = query
         self.value = value
+        # Only present when value should persist.
         self.file_path = file_path
+        self.value_hash = value_hash
 
     def __repr__(self):
         return f'Result({self.query!r}, {self.value!r})'
+
+
+class ProvenanceDigest(object):
+    '''
+    A collection of values used by Provenance for different chained hashes.
+    These hashes depend on the entities and can come from either another
+    provenance or the value hash of a result.
+    '''
+    def __init__(self, functional_hash, exact_hash):
+        self.functional_hash = functional_hash
+        self.exact_hash = exact_hash
+
+    @classmethod
+    def from_provenance(cls, provenance):
+        return cls(provenance.functional_hash, provenance.exact_hash)
+
+    @classmethod
+    def from_value_hash(cls, value_hash):
+        return cls(value_hash, value_hash)
 
 
 class CaseKeySpace(ImmutableSequence):

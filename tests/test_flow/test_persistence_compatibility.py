@@ -31,6 +31,6 @@ def test_caching_compatibility(older_serialized_cache_harness):
     assert flow.get('xy_plus_yz') == 18
 
     # assert that no methods were called
-    older_serialized_cache_harness.xy.times_called() == 0
-    older_serialized_cache_harness.yz.times_called() == 0
-    older_serialized_cache_harness.xy_plus_yz.times_called() == 0
+    assert older_serialized_cache_harness.xy.times_called() == 0
+    assert older_serialized_cache_harness.yz.times_called() == 0
+    assert older_serialized_cache_harness.xy_plus_yz.times_called() == 0
