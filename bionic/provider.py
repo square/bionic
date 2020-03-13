@@ -17,6 +17,7 @@ import pandas as pd
 
 from .datatypes import (
     Task, TaskKey, CaseKey, CaseKeySpace, CodeFingerprint, CodeVersion)
+from .exception import EntityComputationError
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
 from .optdep import import_optional_dependency
@@ -419,7 +420,19 @@ class FunctionProvider(BaseProvider):
         ]
 
     def _apply(self, dep_values):
-        value = self._func(*dep_values)
+        try:
+            value = self._func(*dep_values)
+        except Exception as e:
+            entity_description = (
+                f'entity {self.attrs.names[0]!r}'
+                if len(self.attrs.names) == 1 else
+                f'entities {self.attrs.names!r}'
+            )
+            raise EntityComputationError(oneline(
+                f'''
+                An exception was thrown while computing the value of
+                {entity_description}
+                ''')) from e
         return [value]
 
     def __repr__(self):

@@ -297,7 +297,6 @@ class EntityDeriver(object):
         assert not task_state.is_complete
 
         # First, set up provenance.
-        assert task_state.provenance is None
         if not self._is_ready_for_full_resolution:
             # If we're still in the bootstrap resolution phase, we don't have
             # any versioning policy, so we don't attempt anything fancy.
@@ -327,7 +326,6 @@ class EntityDeriver(object):
         )
 
         # Then set up queries.
-        assert task_state.queries is None
         task_state.queries = [
             Query(
                 task_key=task_key,
@@ -338,7 +336,6 @@ class EntityDeriver(object):
         ]
 
         # Lastly, set up cache accessors.
-        assert task_state.cache_accessors is None
         if task_state.provider.attrs.should_persist:
             if not self._is_ready_for_full_resolution:
                 name = task_state.task.keys[0].entity_name
