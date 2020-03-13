@@ -15,7 +15,8 @@ from uuid import uuid4
 from pathlib import Path
 from urllib.parse import urlparse
 
-from bionic.exception import UnsupportedSerializedValueError
+from bionic.exception import (
+    EntitySerializationError, UnsupportedSerializedValueError)
 from .datatypes import Result
 from .util import (
     get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline)
@@ -317,7 +318,14 @@ class CacheAccessor(object):
         value_path = dir_path / value_filename
 
         ensure_parent_dir_exists(value_path)
-        self.query.protocol.write(value, value_path)
+        try:
+            self.query.protocol.write(value, value_path)
+        except Exception as e:
+            raise EntitySerializationError(oneline(
+                f'''
+                Value of entity {self.query.entity_name!r}
+                could not be serialized to disk
+                ''')) from e
 
         return value_path
 

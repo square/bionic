@@ -10,7 +10,8 @@ import pandas as pd
 
 import bionic as bn
 from bionic.exception import (
-    UndefinedEntityError, AlreadyDefinedEntityError, IncompatibleEntityError)
+    AlreadyDefinedEntityError, EntityComputationError, EntitySerializationError,
+    IncompatibleEntityError, UndefinedEntityError)
 
 from ..helpers import count_calls, assert_re_matches
 
@@ -621,6 +622,45 @@ def test_unhashable_index_values(builder):
 
     index_items = [wrapper.get() for wrapper, in sums_series.index]
     assert index_items == [[1, 2], [2, 3]]
+
+
+def test_entity_serialization_exception(builder):
+    @builder
+    def unpicklable_value():
+        def f():
+            return 1
+        return f
+
+    try:
+        builder.build().get('unpicklable_value')
+    except EntitySerializationError as e:
+        # AttributeError is what happens when we try to pickle a function.
+        assert isinstance(e.__cause__, AttributeError)
+
+
+def test_entity_computation_exception(builder):
+    @builder
+    def uncomputable_value():
+        return 1 / 0
+
+    try:
+        builder.build().get('uncomputable_value')
+    except EntityComputationError as e:
+        assert isinstance(e.__cause__, ZeroDivisionError)
+
+
+def test_multiple_compute_attempts(builder):
+    @builder
+    def uncomputable_value():
+        return 1 / 0
+
+    flow = builder.build()
+    with pytest.raises(EntityComputationError):
+        flow.get('uncomputable_value')
+    # Even if we throw an exception while computing this value, we want
+    # the flow to be in a valid state and able to attempt another run.
+    with pytest.raises(EntityComputationError):
+        flow.get('uncomputable_value')
 
 
 def test_entity_doc(builder):

@@ -15,7 +15,8 @@ from ..helpers import (
 
 import bionic as bn
 from bionic.util import recursively_delete_path
-from bionic.exception import UnsupportedSerializedValueError
+from bionic.exception import (
+    UnsupportedSerializedValueError, EntitySerializationError)
 from bionic.protocols import CombinedProtocol, PicklableProtocol
 
 
@@ -166,7 +167,7 @@ def test_dataframe_with_categoricals_fails(builder):
     def df():
         return df_value
 
-    with pytest.raises(ValueError):
+    with pytest.raises(EntitySerializationError):
         builder.build().get('df')
 
 
@@ -197,7 +198,7 @@ def test_dataframe_with_duplicate_columns_fails(builder):
     def df():
         return df_value
 
-    with pytest.raises(ValueError):
+    with pytest.raises(EntitySerializationError):
         builder.build().get('df')
 
 

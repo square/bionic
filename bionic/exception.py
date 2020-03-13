@@ -25,3 +25,11 @@ class UnsupportedSerializedValueError(Exception):
 
 class CodeVersioningError(Exception):
     pass
+
+
+class EntitySerializationError(Exception):
+    pass
+
+
+class EntityComputationError(Exception):
+    pass
