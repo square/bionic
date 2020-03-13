@@ -69,8 +69,10 @@ E.g.:
 Built-In Decorators
 -------------------
 
+.. autofunction:: bionic.docs
 .. autofunction:: bionic.gather
 .. autofunction:: bionic.immediate
+.. autofunction:: bionic.memoize
 .. autofunction:: bionic.output
 .. autofunction:: bionic.outputs
 .. autofunction:: bionic.persist

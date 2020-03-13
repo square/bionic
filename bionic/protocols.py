@@ -349,7 +349,7 @@ class DaskProtocol(BaseProtocol):
     Decorator indicating that an entity's values always have the
     ``dask.dataframe.DataFrame`` type.
 
-    These values will be serialized a .dask.pq directory.
+    These values will be serialized to a .dask.pq directory.
     """
 
     def get_fixed_file_extension(self):
