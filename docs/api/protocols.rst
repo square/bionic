@@ -72,11 +72,13 @@ API changes may break your implementation.)
 Built-In Protocol Decorators
 ----------------------------
 
+.. autofunction:: bionic.protocol.dask
 .. autofunction:: bionic.protocol.dillable
 .. autofunction:: bionic.protocol.enum
 .. autofunction:: bionic.protocol.frame
 .. autofunction:: bionic.protocol.image
 .. autofunction:: bionic.protocol.numpy
+.. autofunction:: bionic.protocol.path
 .. autofunction:: bionic.protocol.picklable
 .. autofunction:: bionic.protocol.type
-.. autofunction:: bionic.protocol.path
+.. autofunction:: bionic.protocol.yaml
