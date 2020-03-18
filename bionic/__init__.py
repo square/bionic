@@ -1,7 +1,7 @@
 from .flow import Flow, FlowBuilder  # noqa: F401
 from .decorators import (  # noqa: F401
     version, output, outputs, docs, gather, persist, memoize, pyplot,
-    immediate
+    immediate, changes_per_run
 )
 
 from . import protocol  # noqa: F401

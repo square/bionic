@@ -159,7 +159,7 @@ syntax:
         """A nice thing to say to someone."""
         return f'{greeting} {subject}!'
 
-If the function defines multiple entities, the :meth:`decorators.docs`
+If the function defines multiple entities, the :meth:`@docs <bionic.docs>`
 decorator can be used to specify documentation for each one:
 
 .. code-block:: python
@@ -200,10 +200,10 @@ Caching and Protocols
 ---------------------
 
 Whenever Bionic computes an entity's value, it automatically caches that value
-in memory (in case you access it again in from the same ``Flow`` object) and in
-persistent storage (in case you want to access it later, perhaps after
-restarting your script or notebook).  Currently the only supported location for
-persistent storage is your computer's hard disk.
+in memory (in case you access it again in from the same ``Flow`` object) and to
+disk (in case you want to access it later, perhaps after restarting your script
+or notebook).  Bionic can also be configured to cache to
+:ref:`Google Cloud Storage <google_cloud_storage_anchor>`.
 
 Bionic's caching can be seen in action in the `ML tutorial`_.
 
@@ -355,6 +355,9 @@ we can disable persistent caching altogether:
     def message(subject):
         return f'Hello {subject}.'
 
+If your goal is just to force an entity to be recomputed more frequently, you may
+want :ref:`@changes_per_run <changes_per_run>` instead.
+
 
 Disabling In-Memory Caching
 ............................
@@ -370,6 +373,91 @@ cases, we can disable in-memory caching:
     @bionic.memoize(False)
     def message(subject):
         return f'Hello {subject}.'
+
+
+.. _changes_per_run :
+
+Non-Deterministic Computation
+.............................
+
+.. versionadded:: 0.6.5
+
+The basic assumption behind Bionic's caching behavior is that entity functions
+are *deterministic*: if you call them multiple times with the same input, they
+always return the same output.  However, some functions are
+*non-deterministic*: their output can change even when their input doesn't.
+For example, a function that retrieves data from an external database may
+return different results whenever the database's contents change.  In
+cases like this, it's not appropriate to reuse the function's previous cached
+values; we want Bionic to recompute the value each time.
+
+You can tell Bionic that a function is non-deterministic by applying the 
+:meth:`@changes_per_run <bionic.changes_per_run>` decorator:
+
+.. code-block:: python
+
+    @builder
+    @bn.changes_per_run
+    def current_data():
+        return download_data()
+
+This causes Bionic to recompute the value instead of loading a cached value
+from disk. (However, this recomputation will only happen once for any given
+``Flow`` instance; after that, the value will be cached in memory and reused
+[#f3]_.)
+
+.. [#f3] I.e., the value is computed once per "run".  This is a compromise:
+  although it makes logical sense to recompute the value every single time,
+  it's much simpler for each entity to have a consistent value within a single
+  flow instance.
+
+``@changes_per_run`` vs ``@persist``
+::::::::::::::::::::::::::::::::::::
+
+Note that ``@changes_per_run`` has a different effect from ``@persist(False)``.
+If an entity is decorated with ``@persist(False)``, Bionic will never cache its
+value to disk, but it will still assume that its output is deterministic. The
+difference can be see when we add a downstream entity:
+
+.. code-block:: python
+
+    @builder
+    @bn.persist(False)
+    def current_data():
+        return download_data()
+
+    @builder
+    def summary(current_data):
+        return summarize(current_data)
+
+In this case, ``builder.build().get('current_data')`` will always recompute
+``current_data``, since its value is never persisted. However,
+``builder.build().get('summary')`` will use a cached value if one is available;
+Bionic won't bother to recompute ``current_data`` because it assumes its value
+will be the same anyway. In more complex flows, this incorrect assumption may
+lead to inconsistent results.
+
+By contrast, if we use the appropriate decorator, ``@bn.changes_per_run``:
+
+.. code-block:: python
+
+    @builder
+    @bn.changes_per_run
+    def current_data():
+        return download_data()
+
+    @builder
+    def summary(current_data):
+        return summarize(current_data)
+
+
+Here ``builder.build().get('summary')`` will always recompute ``current_data``
+first. Then, if ``current_data``'s value has changed, it will recompute
+``summary`` as well; otherwise it will use a cached value.
+
+As a rule: use ``@persist(False)`` for entities whose values are *impossible to
+serialize* or *not worth serializing*. Use ``@changes_per_run`` for
+entities whose values are *non-deterministic*.
 
 
 Location of the Cache Directory
@@ -388,6 +476,9 @@ two internal entities:
 
     # Cache this flow's data in /my_cache_dir/
     builder.set('core__persistent_cache__flow_dir', 'my_cache_dir')
+
+
+.. _google_cloud_storage_anchor :
 
 Caching in Google Cloud Storage
 ...............................

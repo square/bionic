@@ -3,7 +3,7 @@ import pytest
 import math
 
 from ..helpers import count_calls, ResettingCounter, RoundingProtocol
-from bionic.exception import CodeVersioningError
+from bionic.exception import (AttributeValidationError, CodeVersioningError)
 
 import bionic as bn
 
@@ -821,3 +821,116 @@ def test_disable_memory_caching(builder):
 
         flow = builder.build()
         assert flow.get('y') == 1
+
+
+def test_changes_per_run_and_not_persist(builder):
+    builder.assign('x', 5)
+
+    @builder
+    @bn.persist(False)
+    @bn.changes_per_run
+    @count_calls
+    def x_plus_one(x):
+        return x + 1
+
+    @builder
+    @bn.persist(False)
+    @count_calls
+    def x_plus_two(x_plus_one):
+        return x_plus_one + 1
+
+    @builder
+    @count_calls
+    def x_plus_three(x_plus_two):
+        return x_plus_two + 1
+
+    @builder
+    @count_calls
+    def x_plus_four(x_plus_three):
+        return x_plus_three + 1
+
+    flow = builder.build()
+    assert flow.get('x_plus_four') == 9
+    assert x_plus_one.times_called() == 1
+    assert x_plus_two.times_called() == 1
+    assert x_plus_three.times_called() == 1
+    assert x_plus_four.times_called() == 1
+    # In the same flow, a nondeterministic entity is not recomputed.
+    assert flow.get('x_plus_one') == 6
+    assert flow.get('x_plus_four') == 9
+    assert x_plus_one.times_called() == 0
+    assert x_plus_two.times_called() == 0
+    assert x_plus_three.times_called() == 0
+    assert x_plus_four.times_called() == 0
+
+    flow = builder.build()
+    assert flow.get('x_plus_four') == 9
+    # x_plus_one changes per run and should be recomputed between runs.
+    assert x_plus_one.times_called() == 1
+    # x_plus_two is a child of a nondeterministic parent which does not persist
+    # and should also be recomputed between runs.
+    assert x_plus_two.times_called() == 1
+    # x_plus_three is a child of a parent that has a nondeterministic parent
+    # and is not persisted. Hence the provenance also contains the
+    # noise from nondeterministic ancestor, cannot use the persisted value and
+    # should also be recomputed.
+    assert x_plus_three.times_called() == 1
+    # x_plus_four uses the value hash of its parent which didn't change.
+    # Should not be recomputed and should use cached value instead.
+    assert x_plus_four.times_called() == 0
+
+
+def test_changes_per_run_and_persist(builder):
+    builder.assign('x', 5)
+
+    @builder
+    @bn.changes_per_run
+    @count_calls
+    def x_plus_one(x):
+        return x + 1
+
+    @builder
+    @bn.persist(False)
+    @count_calls
+    def x_plus_two(x_plus_one):
+        return x_plus_one + 1
+
+    @builder
+    @count_calls
+    def x_plus_three(x_plus_two):
+        return x_plus_two + 1
+
+    flow = builder.build()
+    assert flow.get('x_plus_three') == 8
+    assert x_plus_one.times_called() == 1
+    assert x_plus_two.times_called() == 1
+    assert x_plus_three.times_called() == 1
+    # In the same flow, a nondeterministic entity is not recomputed.
+    assert flow.get('x_plus_one') == 6
+    assert flow.get('x_plus_three') == 8
+    assert x_plus_one.times_called() == 0
+    assert x_plus_two.times_called() == 0
+    assert x_plus_three.times_called() == 0
+
+    flow = builder.build()
+    assert flow.get('x_plus_three') == 8
+    # x_plus_one changes per run and should be recomputed between runs.
+    assert x_plus_one.times_called() == 1
+    # Since the value does not persist, x_plus_two is recomputed.
+    assert x_plus_two.times_called() == 1
+    # Since value of x_plus_one didn't change even though it changes per run,
+    # x_plus_three is not computed.
+    assert x_plus_three.times_called() == 0
+
+
+def test_changes_per_run_and_not_memoize(builder):
+    builder.assign('x', 5)
+
+    @builder
+    @bn.memoize(False)
+    @bn.changes_per_run
+    def x_plus_one(x):
+        return x + 1
+
+    with pytest.raises(AttributeValidationError):
+        builder.build().get('x_plus_one')

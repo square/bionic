@@ -26,8 +26,9 @@ class EntityDeriver(object):
 
     # --- Public API.
 
-    def __init__(self, flow_state):
+    def __init__(self, flow_state, flow_instance_uuid):
         self._flow_state = flow_state
+        self._flow_instance_uuid = flow_instance_uuid
 
         # This state is needed to do any resolution at all.  Once it's
         # initialized, we can use it to bootstrap the requirements for "full"
@@ -308,7 +309,7 @@ class EntityDeriver(object):
         dep_provenance_digests_by_task_key = {}
         for dep_key, dep_state in zip(task_state.task.dep_keys, task_state.parents):
             # Use value hash of persistable values.
-            if dep_state.provider.attrs.should_persist:
+            if dep_state.provider.attrs.should_persist():
                 value_hash = dep_state.result_value_hashes_by_name[dep_key.entity_name]
                 dep_provenance_digests_by_task_key[dep_key] =\
                     ProvenanceDigest.from_value_hash(value_hash)
@@ -323,6 +324,8 @@ class EntityDeriver(object):
             case_key=task_state.case_key,
             dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
             treat_bytecode_as_functional=treat_bytecode_as_functional,
+            can_functionally_change_per_run=task_state.provider.attrs.changes_per_run,
+            flow_instance_uuid=self._flow_instance_uuid,
         )
 
         # Then set up queries.
@@ -336,7 +339,7 @@ class EntityDeriver(object):
         ]
 
         # Lastly, set up cache accessors.
-        if task_state.provider.attrs.should_persist:
+        if task_state.provider.attrs.should_persist():
             if not self._is_ready_for_full_resolution:
                 name = task_state.task.keys[0].entity_name
                 raise AssertionError(oneline(f'''
@@ -355,7 +358,7 @@ class EntityDeriver(object):
                 self._check_accessors_for_version_problems(task_state)
 
         # See if we can load it from the cache.
-        if task_state.provider.attrs.should_persist and \
+        if task_state.provider.attrs.should_persist() and \
                 all(axr.can_load() for axr in task_state.cache_accessors):
             # We only load the hashed result while completing task state
             # and lazily load the entire result when needed later.
@@ -422,7 +425,7 @@ class EntityDeriver(object):
 
             results_by_name[result.query.entity_name] = result
 
-        if task_state.provider.attrs.should_memoize:
+        if task_state.provider.attrs.should_memoize():
             task_state._results_by_name = results_by_name
 
         return results_by_name
@@ -463,7 +466,7 @@ class EntityDeriver(object):
                 value=value,
             )
 
-            if provider.attrs.should_persist:
+            if provider.attrs.should_persist():
                 accessor = task_state.cache_accessors[ix]
                 accessor.save_result(result)
 
@@ -476,11 +479,11 @@ class EntityDeriver(object):
         # Otherwise, load it lazily later so that if the serialized/deserialized
         # value is not exactly the same as the original, we still
         # always return the same value.
-        if provider.attrs.should_memoize and not provider.attrs.should_persist:
+        if provider.attrs.should_memoize() and not provider.attrs.should_persist():
             task_state._results_by_name = results_by_name
 
         # But we cache the hashed values eagerly since they are cheap to load.
-        if provider.attrs.should_persist:
+        if provider.attrs.should_persist():
             task_state.result_value_hashes_by_name = result_value_hashes_by_name
 
     def _log(self, message, *args):
@@ -522,7 +525,7 @@ class TaskState(object):
         # EntityDeriver._compute_task_state().
         #
         # This will be present if and only if both is_complete and
-        # provider.attrs.should_persist are True.
+        # provider.attrs.should_persist() are True.
         self.result_value_hashes_by_name = None
 
         # This can be set by

@@ -1,5 +1,6 @@
 import pytest
 
+from numpy.random import choice
 from textwrap import dedent
 from random import Random
 
@@ -24,10 +25,10 @@ class SimpleFlowModel(object):
         self._entities_by_name = {}
         self._last_called_names = []
 
-    def add_entity(self, dep_names):
+    def add_entity(self, dep_names, nondeterministic=False):
         name = f'e{len(self._entities_by_name) + 1}'
 
-        self._create_entity(name, dep_names)
+        self._create_entity(name, dep_names, nondeterministic)
         self._define_entity(name)
 
         return name
@@ -96,19 +97,47 @@ class SimpleFlowModel(object):
 
         return list(sorted(names))
 
+    def nondeterministic_upstream_entity_names(self, upstream_of):
+        bot_names = interpret.str_or_seq_as_list(upstream_of)
+
+        upstream_names = set()
+        for bot_name in bot_names:
+            bot_entity = self._entities_by_name[bot_name]
+            upstream_names |= bot_entity.all_nondeterministic_upstream_names
+
+        return upstream_names
+
+    def entity_has_nondeterministic_ancestor(self, entity_name):
+        entity = self._entities_by_name[entity_name]
+        return len(entity.all_nondeterministic_upstream_names) > 0
+
+    def entity_is_nondeterministic(self, entity_name):
+        return self._entities_by_name[entity_name].is_nondeterministic
+
     def called_entity_names(self):
         names = list(self._last_called_names)
-        while self._last_called_names:
-            self._last_called_names.pop()
+        self._last_called_names.clear()
         return names
 
-    def _create_entity(self, name, dep_names):
-        entity = ModelEntity(name=name, dep_names=dep_names)
+    def peek_called_entity_names(self):
+        names = list(self._last_called_names)
+        return names
+
+    def reset_called_entity_names(self):
+        self._last_called_names.clear()
+
+    def _create_entity(self, name, dep_names, is_nondeterministic):
+        entity = ModelEntity(
+            name=name, dep_names=dep_names, is_nondeterministic=is_nondeterministic)
 
         entity.all_upstream_names = {name}
+        if is_nondeterministic:
+            entity.all_nondeterministic_upstream_names = {name}
         for dep_name in dep_names:
             dep_entity = self._entities_by_name[dep_name]
             entity.all_upstream_names.update(dep_entity.all_upstream_names)
+            entity.all_nondeterministic_upstream_names.update(
+                dep_entity.all_nondeterministic_upstream_names)
             dep_entity.child_names.append(name)
         entity.all_downstream_names = {name}
 
@@ -131,6 +160,7 @@ class SimpleFlowModel(object):
         exec(
             dedent(f'''
             @builder
+            @bn.changes_per_run({e.is_nondeterministic})
             @bn.version(major={e.major_version}, minor={e.minor_version})
             def {name}({', '.join(e.dep_names)}):
                 noop_func({e.nonfunc_value})
@@ -146,9 +176,10 @@ class ModelEntity(object):
     Represents one entity in the SimpleFlowModel.
     """
 
-    def __init__(self, name, dep_names):
+    def __init__(self, name, dep_names, is_nondeterministic):
         self.name = name
         self.dep_names = dep_names
+        self.is_nondeterministic = is_nondeterministic
 
         self.major_version = 0
         self.minor_version = 0
@@ -157,6 +188,7 @@ class ModelEntity(object):
 
         self.child_names = []
         self.all_upstream_names = set()
+        self.all_nondeterministic_upstream_names = set()
         self.all_downstream_names = set()
 
 
@@ -181,25 +213,32 @@ class Fuzzer(object):
             all_names = self.model.entity_names()
 
             dep_names = []
+            is_nondeterministic = self._random_bool_with_weighted_probability(0.05)
             for name in all_names:
                 if self._random_bool():
                     dep_names.append(name)
-            new_name = self.model.add_entity(dep_names)
+            new_name = self.model.add_entity(dep_names, is_nondeterministic)
 
             self.model.build_flow().get(new_name)
-            assert self.model.called_entity_names() == [new_name]
+            expected_called_names =\
+                self.model.nondeterministic_upstream_entity_names(new_name)
+            expected_called_names.add(new_name)
+            assert (
+                sorted(self.model.called_entity_names()) ==
+                sorted(list(expected_called_names))
+            )
 
     def run(self, n_iterations):
         for i in range(n_iterations):
             updated_name = self._random.choice(self.model.entity_names())
+            affected_names = self.model.entity_names(
+                downstream_of=updated_name, with_children=False)
             make_func_change = self._random_bool()
             make_nonfunc_change = not make_func_change
             update_version = self._random_bool()
 
-            affected_names = [updated_name]
-            if make_func_change:
-                affected_names = self.model.entity_names(
-                    downstream_of=updated_name, with_children=False)
+            is_updated_entity_nondeterministic = self.model.entity_is_nondeterministic(updated_name)
+            is_updated_entity_deterministic = not is_updated_entity_nondeterministic
 
             self.model.update_entity(
                 updated_name,
@@ -221,14 +260,22 @@ class Fuzzer(object):
                     returned_value = self.model.build_flow().get(affected_name)
                     expected_value = self.model.expected_entity_value(
                         affected_name)
-                    if make_func_change:
+
+                    # When the change is functional and bionic doesn't recompute the
+                    # entity, the expected and returned values will be different.
+                    if make_func_change and is_updated_entity_deterministic:
                         assert returned_value != expected_value
                     else:
                         assert returned_value == expected_value
 
-                    # We should have used the cached value, so no new
-                    # computation should have happened.
-                    assert len(self.model.called_entity_names()) == 0
+                    # We peek at the called entity names to avoid changing the results of
+                    # called_entity_names() later.
+                    actual_called_names = self.model.peek_called_entity_names()
+                    expects_updated_entity_value_change =\
+                        make_func_change and is_updated_entity_nondeterministic
+                    expected_called_names = self._expected_called_names(
+                        updated_name, affected_name, expects_updated_entity_value_change)
+                    assert set(actual_called_names) == expected_called_names
 
                     # Now update the version to get the flow back into a
                     # "correct" state.
@@ -239,11 +286,17 @@ class Fuzzer(object):
                     )
 
                 elif self._versioning_mode == 'assist':
-                    # Bionic should detect that we forgot to update the
-                    # version.
                     affected_name = self._random.choice(affected_names)
-                    with pytest.raises(CodeVersioningError):
-                        self.model.build_flow().get(affected_name)
+
+                    if is_updated_entity_deterministic:
+                        # Bionic should detect that we forgot to update the
+                        # version.
+                        with pytest.raises(CodeVersioningError):
+                            self.model.build_flow().get(affected_name)
+                    else:
+                        # Version does not matter for nondeterministic entities.
+                        assert self.model.build_flow().get(affected_name) ==\
+                            self.model.expected_entity_value(affected_name)
 
                     # Now update the version to get the flow back into a
                     # "correct" state.
@@ -270,20 +323,39 @@ class Fuzzer(object):
                     self.model.expected_entity_value(affected_name)
                 )
 
-            if make_func_change or self._versioning_mode == 'auto':
-                expected_called_names = self.model.entity_names(
-                    downstream_of=updated_name,
-                    upstream_of=affected_names,
-                )
-                assert (
-                    list(sorted(self.model.called_entity_names())) ==
-                    list(sorted(expected_called_names))
-                )
-            else:
-                assert len(self.model.called_entity_names()) == 0
+            actual_called_names = self.model.called_entity_names()
+            expected_called_names = self._expected_called_names(
+                updated_name, affected_names, make_func_change)
+            assert set(actual_called_names) == expected_called_names
 
     def _random_bool(self):
         return self._random.choice([True, False])
+
+    def _random_bool_with_weighted_probability(self, prob_true):
+        assert 0.0 <= prob_true <= 1.0
+        return choice([True, False], p=[prob_true, 1 - prob_true])
+
+    def _expected_called_names(
+            self, updated_name, affected_name_or_names, expects_updated_entity_value_change):
+        if expects_updated_entity_value_change:
+            entity_names_in_between = set(self.model.entity_names(
+                downstream_of=updated_name,
+                upstream_of=affected_name_or_names,
+            ))
+            nondeterministic_ancestors =\
+                self.model.nondeterministic_upstream_entity_names(entity_names_in_between)
+            expected_called_names = entity_names_in_between | nondeterministic_ancestors
+
+        # When the updated entity value doesn't change, we don't call anything between the
+        # updated and affected entities since all the entities are persisted and use their
+        # parents' value (hash) which did not change.
+        else:
+            expected_called_names =\
+                self.model.nondeterministic_upstream_entity_names(affected_name_or_names)
+            if self._versioning_mode == 'auto':
+                expected_called_names.add(updated_name)
+
+        return expected_called_names
 
 
 @pytest.fixture(scope='function')
