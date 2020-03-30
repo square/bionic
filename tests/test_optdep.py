@@ -1,20 +1,19 @@
 import pytest
 
-from bionic.optdep import (
-    import_optional_dependency, TEST_EXTRA_NAME, TEST_PACKAGE_NAME)
+from bionic.optdep import import_optional_dependency, TEST_EXTRA_NAME, TEST_PACKAGE_NAME
 
 
 def test_import_missing_dependency():
     with pytest.raises(
-            ImportError,
-            match=".*%s.*PURPOSE.*pip install 'bionic\\[%s\\]'.*" % (
-                TEST_PACKAGE_NAME, TEST_EXTRA_NAME)):
-        import_optional_dependency(TEST_PACKAGE_NAME, purpose='PURPOSE')
+        ImportError,
+        match=".*%s.*PURPOSE.*pip install 'bionic\\[%s\\]'.*"
+        % (TEST_PACKAGE_NAME, TEST_EXTRA_NAME),
+    ):
+        import_optional_dependency(TEST_PACKAGE_NAME, purpose="PURPOSE")
 
 
 def test_import_missing_dependency_without_raising():
-    module = import_optional_dependency(
-        TEST_PACKAGE_NAME, raise_on_missing=False)
+    module = import_optional_dependency(TEST_PACKAGE_NAME, raise_on_missing=False)
     assert module is None
 
 

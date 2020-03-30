@@ -10,10 +10,7 @@ from collections import OrderedDict
 
 def combine(*dep_lists):
     """Combines multiple lists into a single sorted list of distinct items."""
-    return list(sorted(set(
-        dep
-        for dep_list in dep_lists
-        for dep in dep_list)))
+    return list(sorted(set(dep for dep_list in dep_lists for dep in dep_list)))
 
 
 # Construct the mapping from "extra name" to package descriptor.
@@ -21,27 +18,32 @@ def combine(*dep_lists):
 # extras were added first.
 extras = OrderedDict()
 
-extras['image'] = ['Pillow']
-extras['matplotlib'] = combine(['matplotlib>=3.1'], extras['image'])
-extras['viz'] = combine(['hsluv', 'networkx', 'pydot'], extras['image'])
+extras["image"] = ["Pillow"]
+extras["matplotlib"] = combine(["matplotlib>=3.1"], extras["image"])
+extras["viz"] = combine(["hsluv", "networkx", "pydot"], extras["image"])
 
-extras['standard'] = combine(extras['matplotlib'], extras['viz'])
+extras["standard"] = combine(extras["matplotlib"], extras["viz"])
 
-extras['dill'] = ['dill']
-extras['dask'] = ['dask[dataframe]']
-extras['gcp'] = ['google-cloud-storage']
+extras["dill"] = ["dill"]
+extras["dask"] = ["dask[dataframe]"]
+extras["gcp"] = ["google-cloud-storage"]
 
-extras['examples'] = combine(extras['standard'], ['scikit-learn'])
-extras['full'] = combine(*extras.values())
+extras["examples"] = combine(extras["standard"], ["scikit-learn"])
+extras["full"] = combine(*extras.values())
 
-extras['dev'] = combine(
+extras["dev"] = combine(
     [
-        'pytest', 'flake8',
-        'sphinx', 'sphinx_rtd_theme', 'sphinx-autobuild', 'nbsphinx',
-        'jupyter',
-        'bumpversion',
+        "pytest",
+        "flake8",
+        "sphinx",
+        "sphinx_rtd_theme",
+        "sphinx-autobuild",
+        "nbsphinx",
+        "jupyter",
+        "bumpversion",
     ],
-    *extras.values())
+    *extras.values()
+)
 
 # This will be imported by setup.py.
 extras_require = extras

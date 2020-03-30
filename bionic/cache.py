@@ -15,14 +15,13 @@ from uuid import uuid4
 from pathlib import Path
 from urllib.parse import urlparse
 
-from bionic.exception import (
-    EntitySerializationError, UnsupportedSerializedValueError)
+from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import (
-    get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline)
+from .util import get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline
 from .tokenization import tokenize
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -31,13 +30,17 @@ try:
     YamlDumper = yaml.CDumper
     YamlLoader = yaml.CLoader
 except AttributeError:
-    running_under_readthedocs = os.environ.get('READTHEDOCS') == 'True'
+    running_under_readthedocs = os.environ.get("READTHEDOCS") == "True"
     if not running_under_readthedocs:
-        warnings.warn(oneline('''
+        warnings.warn(
+            oneline(
+                """
             Failed to find LibYAML bindings;
             falling back to slower Python implementation.
             This may reduce performance on large flows.
-            Installing LibYAML should resolve this.'''))
+            Installing LibYAML should resolve this."""
+            )
+        )
     YamlDumper = yaml.Dumper
     YamlLoader = yaml.Loader
 
@@ -137,10 +140,10 @@ class CacheAccessor(object):
             if entry is None:
                 return None
 
-            if entry.tier == 'local':
+            if entry.tier == "local":
                 file_path = path_from_url(entry.artifact_url)
 
-            elif entry.tier == 'cloud':
+            elif entry.tier == "cloud":
                 blob_url = entry.artifact_url
                 file_path = self._file_from_blob(blob_url)
 
@@ -223,12 +226,16 @@ class CacheAccessor(object):
                 value_hash = self.query.protocol.tokenize_file(file_path)
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
-                    raise AssertionError(oneline('''
+                    raise AssertionError(
+                        oneline(
+                            """
                         Attempted to register metadata with no result
                         argument and no previously saved values;
                         this suggests we called update_provenance() without
                         previously finding a cached value, which shouldn't
-                        happen.'''))
+                        happen."""
+                        )
+                    )
                 blob_url = cloud_entry.artifact_url
                 file_path = self._file_from_blob(blob_url)
                 value_hash = cloud_entry.value_hash
@@ -265,16 +272,14 @@ class CacheAccessor(object):
 
     def _get_local_entry(self):
         if self._stored_local_entry is None:
-            self._stored_local_entry = self._local.inventory.find_entry(
-                self.query)
+            self._stored_local_entry = self._local.inventory.find_entry(self.query)
         return self._stored_local_entry
 
     def _get_cloud_entry(self):
         if self._stored_cloud_entry is None:
             if self._cloud is None:
                 return None
-            self._stored_cloud_entry = self._cloud.inventory.find_entry(
-                self.query)
+            self._stored_cloud_entry = self._cloud.inventory.find_entry(self.query)
         return self._stored_cloud_entry
 
     def _clear_stored_entries(self):
@@ -288,25 +293,23 @@ class CacheAccessor(object):
 
         ensure_parent_dir_exists(file_path)
 
-        logger.info('Downloading %s from GCS ...', self.query.task_key)
+        logger.info("Downloading %s from GCS ...", self.query.task_key)
         try:
             self._cloud.download(file_path, blob_url)
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'artifact blob', blob_url, e)
+            raise InternalCacheStateError.from_failure("artifact blob", blob_url, e)
 
         return file_path
 
     def _blob_from_file(self, file_path):
         url_prefix = self._cloud.generate_unique_url_prefix(self.query)
-        blob_url = url_prefix + '/' + file_path.name
+        blob_url = url_prefix + "/" + file_path.name
 
-        logger.info('Uploading %s to GCS ...', self.query.task_key)
+        logger.info("Uploading %s to GCS ...", self.query.task_key)
         try:
             self._cloud.upload(file_path, blob_url)
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'artifact file', file_path, e)
+            raise InternalCacheStateError.from_failure("artifact file", file_path, e)
 
         return blob_url
 
@@ -321,57 +324,65 @@ class CacheAccessor(object):
         try:
             self.query.protocol.write(value, value_path)
         except Exception as e:
-            raise EntitySerializationError(oneline(
-                f'''
+            raise EntitySerializationError(
+                oneline(
+                    f"""
                 Value of entity {self.query.dnode.to_entity_name()!r}
                 could not be serialized to disk
-                ''')) from e
+                """
+                )
+            ) from e
 
         return value_path
 
     def _value_from_file(self, file_path):
         value_filename = file_path.name
-        extension = value_filename[len(self.value_filename_stem):]
+        extension = value_filename[len(self.value_filename_stem) :]
         try:
             return self.query.protocol.read(file_path, extension)
 
         except UnsupportedSerializedValueError:
             raise
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'artifact file', file_path, e)
+            raise InternalCacheStateError.from_failure("artifact file", file_path, e)
 
     def _raise_state_error_with_explanation(self, source_exc):
         stores = [self._local]
         if self._cloud:
             stores.append(self._cloud)
-        inventory_root_urls = ' and '.join(
-            store.inventory.root_url for store in stores),
+        inventory_root_urls = (
+            " and ".join(store.inventory.root_url for store in stores),
+        )
 
-        raise InvalidCacheStateError(oneline(f'''
+        raise InvalidCacheStateError(
+            oneline(
+                f"""
                     Cached data may be in an invalid state; this should be
                     impossible but could have resulted from either a bug or a
                     change to the cached files. You should be able to repair
                     the problem by removing all cached files under
-                    {inventory_root_urls}.''')) from source_exc
+                    {inventory_root_urls}."""
+            )
+        ) from source_exc
 
 
 # TODO In Python 3 we can store these comments as docstrings.
 # A simple wrapper for a value that might be None.  We use this when we want
 # to distinguish between "we have a value which is None" from "we don't have a
 # value".
-NullableWrapper = namedtuple('NullableWrapper', 'value')
+NullableWrapper = namedtuple("NullableWrapper", "value")
 
 
 # Represents a saved artifact tracked by an Inventory; returned by Inventory
 # to CacheAccessor.
 InventoryEntry = namedtuple(
-    'InventoryEntry',
-    'tier has_artifact artifact_url provenance exactly_matches_query value_hash')
+    "InventoryEntry",
+    "tier has_artifact artifact_url provenance exactly_matches_query value_hash",
+)
 
 # Represents a match between a query and a saved artifact.  `level` is a string
 # describing the match level, ranging from "functional" to "exact".
-MetadataMatch = namedtuple('MetadataMatch', 'metadata_url level')
+MetadataMatch = namedtuple("MetadataMatch", "metadata_url level")
 
 
 class Inventory(object):
@@ -398,21 +409,30 @@ class Inventory(object):
         """
 
         logger.debug(
-            'In     %s inventory for %r, saving artifact URL %s ...',
-            self.tier, query, url)
+            "In     %s inventory for %r, saving artifact URL %s ...",
+            self.tier,
+            query,
+            url,
+        )
 
         if self._fs.exists(self._exact_metadata_url_for_query(query)):
             # This shouldn't happen, because the CacheAccessor shouldn't write
             # to this inventory if we already have an exact match.
             logger.warn(
-                'In %s cache, attempted to create duplicate entry mapping %r '
-                'to %s', self.tier, query, url)
+                "In %s cache, attempted to create duplicate entry mapping %r " "to %s",
+                self.tier,
+                query,
+                url,
+            )
             return
         metadata_url = self._create_and_write_metadata(query, url, value_hash)
 
         logger.debug(
-            '... in %s inventory for %r, created metadata record at %s',
-            self.tier, query, metadata_url)
+            "... in %s inventory for %r, created metadata record at %s",
+            self.tier,
+            query,
+            metadata_url,
+        )
 
     def find_entry(self, query):
         """
@@ -420,13 +440,11 @@ class Inventory(object):
         Query.
         """
 
-        logger.debug(
-            'In     %s inventory for %r, searching ...', self.tier, query)
+        logger.debug("In     %s inventory for %r, searching ...", self.tier, query)
 
         match = self._find_best_match(query)
         if not match:
-            logger.debug(
-                '... in %s inventory for %r, found no match', self.tier, query)
+            logger.debug("... in %s inventory for %r, found no match", self.tier, query)
 
             return InventoryEntry(
                 tier=self.tier,
@@ -438,8 +456,12 @@ class Inventory(object):
             )
 
         logger.debug(
-            '... in %s inventory for %r, found %s match at %s',
-            self.tier, query, match.level, match.metadata_url)
+            "... in %s inventory for %r, found %s match at %s",
+            self.tier,
+            query,
+            match.level,
+            match.metadata_url,
+        )
 
         metadata_record = self._load_metadata_from_url(match.metadata_url)
 
@@ -448,90 +470,73 @@ class Inventory(object):
             has_artifact=True,
             artifact_url=metadata_record.artifact_url,
             provenance=metadata_record.provenance,
-            exactly_matches_query=(match.level == 'exact'),
-            value_hash=metadata_record.value_hash
+            exactly_matches_query=(match.level == "exact"),
+            value_hash=metadata_record.value_hash,
         )
 
     def _find_best_match(self, query):
-        equivalent_url_prefix =\
-            self._equivalent_metadata_url_prefix_for_query(query)
+        equivalent_url_prefix = self._equivalent_metadata_url_prefix_for_query(query)
         possible_urls = self._fs.search(equivalent_url_prefix)
-        equivalent_urls = [
-            url for url in possible_urls
-            if url.endswith('.yaml')
-        ]
+        equivalent_urls = [url for url in possible_urls if url.endswith(".yaml")]
         if len(equivalent_urls) == 0:
             return None
 
         exact_url = self._exact_metadata_url_for_query(query)
         if exact_url in equivalent_urls:
-            return MetadataMatch(
-                metadata_url=exact_url,
-                level='exact',
-            )
+            return MetadataMatch(metadata_url=exact_url, level="exact",)
 
-        samecode_url_prefix =\
-            self._samecode_metadata_url_prefix_for_query(query)
+        samecode_url_prefix = self._samecode_metadata_url_prefix_for_query(query)
         samecode_urls = [
-            url for url in equivalent_urls
-            if url.startswith(samecode_url_prefix)
+            url for url in equivalent_urls if url.startswith(samecode_url_prefix)
         ]
         if len(samecode_urls) > 0:
-            return MetadataMatch(
-                metadata_url=samecode_urls[0],
-                level='samecode',
-            )
+            return MetadataMatch(metadata_url=samecode_urls[0], level="samecode",)
 
-        nominal_url_prefix =\
-            self._nominal_metadata_url_prefix_for_query(query)
+        nominal_url_prefix = self._nominal_metadata_url_prefix_for_query(query)
         nominal_urls = [
-            url for url in equivalent_urls
-            if url.startswith(nominal_url_prefix)
+            url for url in equivalent_urls if url.startswith(nominal_url_prefix)
         ]
         if len(nominal_urls) > 0:
-            return MetadataMatch(
-                metadata_url=nominal_urls[0],
-                level='nominal',
-            )
+            return MetadataMatch(metadata_url=nominal_urls[0], level="nominal",)
 
-        return MetadataMatch(
-            metadata_url=equivalent_urls[0],
-            level='equivalent',
-        )
+        return MetadataMatch(metadata_url=equivalent_urls[0], level="equivalent",)
 
     def _equivalent_metadata_url_prefix_for_query(self, query):
         return (
-            self._fs.root_url + '/' + valid_filename_from_query(query) + '/' +
-            query.provenance.functional_hash
+            self._fs.root_url
+            + "/"
+            + valid_filename_from_query(query)
+            + "/"
+            + query.provenance.functional_hash
         )
 
     def _nominal_metadata_url_prefix_for_query(self, query):
         minor_version_token = tokenize(query.provenance.code_version_minor)
         return (
-            self._equivalent_metadata_url_prefix_for_query(query) + '/' +
-            'mv_' + minor_version_token
+            self._equivalent_metadata_url_prefix_for_query(query)
+            + "/"
+            + "mv_"
+            + minor_version_token
         )
 
     def _samecode_metadata_url_prefix_for_query(self, query):
         return (
-            self._nominal_metadata_url_prefix_for_query(query) + '/' +
-            'bc_' + query.provenance.bytecode_hash
+            self._nominal_metadata_url_prefix_for_query(query)
+            + "/"
+            + "bc_"
+            + query.provenance.bytecode_hash
         )
 
     def _exact_metadata_url_for_query(self, query):
-        filename = f'metadata_{query.provenance.exact_hash}.yaml'
-        return (
-            self._nominal_metadata_url_prefix_for_query(query) + '/' +
-            filename
-        )
+        filename = f"metadata_{query.provenance.exact_hash}.yaml"
+        return self._nominal_metadata_url_prefix_for_query(query) + "/" + filename
 
     def _load_metadata_from_url(self, url):
         try:
-            metadata_yaml = self._fs.read_bytes(url).decode('utf8')
+            metadata_yaml = self._fs.read_bytes(url).decode("utf8")
             return ArtifactMetadataRecord.from_yaml(metadata_yaml, url)
         except Exception as e:
-            raise InternalCacheStateError.from_failure(
-                'metadata record', url, e)
+            raise InternalCacheStateError.from_failure("metadata record", url, e)
 
     def _create_and_write_metadata(self, query, artifact_url, value_hash):
         metadata_url = self._exact_metadata_url_for_query(query)
@@ -541,11 +546,10 @@ class Inventory(object):
             artifact_url=artifact_url,
             provenance=query.provenance,
             metadata_url=metadata_url,
-            value_hash=value_hash
+            value_hash=value_hash,
         )
 
-        self._fs.write_bytes(
-            metadata_record.to_yaml().encode('utf8'), metadata_url)
+        self._fs.write_bytes(metadata_record.to_yaml().encode("utf8"), metadata_url)
 
         return metadata_url
 
@@ -559,11 +563,12 @@ class LocalStore(object):
 
     def __init__(self, root_path_str):
         root_path = Path(root_path_str).absolute()
-        self._artifact_root_path = root_path / 'artifacts'
+        self._artifact_root_path = root_path / "artifacts"
 
-        inventory_root_path = root_path / 'inventory'
+        inventory_root_path = root_path / "inventory"
         self.inventory = Inventory(
-            'local disk', 'local', LocalFilesystem(inventory_root_path))
+            "local disk", "local", LocalFilesystem(inventory_root_path)
+        )
 
     def generate_unique_dir_path(self, query):
         n_attempts = 0
@@ -571,17 +576,23 @@ class LocalStore(object):
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
             path = (
-                self._artifact_root_path / valid_filename_from_query(query) /
-                str(uuid4()))
+                self._artifact_root_path
+                / valid_filename_from_query(query)
+                / str(uuid4())
+            )
 
             if not path.exists():
                 return path
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(oneline(f'''
+                    raise AssertionError(
+                        oneline(
+                            f"""
                         Repeatedly failed to randomly generate a novel
-                        directory name; {path} already exists'''))
+                        directory name; {path} already exists"""
+                        )
+                    )
 
 
 class GcsCloudStore(object):
@@ -595,19 +606,22 @@ class GcsCloudStore(object):
         self._tool = GcsTool(url)
 
         self.inventory = Inventory(
-            'GCS', 'cloud', GcsFilesystem(self._tool, '/inventory'))
-        self._artifact_root_url_prefix = url + '/artifacts'
+            "GCS", "cloud", GcsFilesystem(self._tool, "/inventory")
+        )
+        self._artifact_root_url_prefix = url + "/artifacts"
 
     def generate_unique_url_prefix(self, query):
         n_attempts = 0
         while True:
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
-            url_prefix = '/'.join([
-                str(self._artifact_root_url_prefix),
-                valid_filename_from_query(query),
-                str(uuid4()),
-            ])
+            url_prefix = "/".join(
+                [
+                    str(self._artifact_root_url_prefix),
+                    valid_filename_from_query(query),
+                    str(uuid4()),
+                ]
+            )
 
             matching_blobs = self._tool.blobs_matching_url_prefix(url_prefix)
             if len(list(matching_blobs)) == 0:
@@ -615,10 +629,14 @@ class GcsCloudStore(object):
             else:
                 n_attempts += 1
                 if n_attempts > 3:
-                    raise AssertionError(oneline(f'''
+                    raise AssertionError(
+                        oneline(
+                            f"""
                         Repeatedly failed to randomly generate a novel
                         blob name; {self._artifact_root_url_prefix}
-                        already exists'''))
+                        already exists"""
+                        )
+                    )
 
     def upload(self, path, url):
         # TODO For large individual files, we may still want to use gsutil.
@@ -635,7 +653,7 @@ class GcsCloudStore(object):
             # `gsutil cp -r gs://A/B X/Y` doesn't work when B contains
             # multiple files and Y doesn't exist yet.  However, if B == Y, we
             # can run `gsutil cp -r gs://A/B X`, which will create Y for us.
-            assert path.name == blob.name.rsplit('/', 1)[1]
+            assert path.name == blob.name.rsplit("/", 1)[1]
             self._tool.gsutil_cp(url, str(path.parent))
         else:
             blob.download_to_filename(str(path))
@@ -686,7 +704,7 @@ class LocalFilesystem(object):
 
         return [
             url_from_path(path_prefix / sub_path)
-            for sub_path in path_prefix.glob('**/*')
+            for sub_path in path_prefix.glob("**/*")
         ]
 
     def write_bytes(self, content_bytes, url):
@@ -694,7 +712,7 @@ class LocalFilesystem(object):
         ensure_parent_dir_exists(path)
         working_dir = Path(tempfile.mkdtemp(dir=str(path.parent)))
         try:
-            working_path = working_dir / 'tmp_file'
+            working_path = working_dir / "tmp_file"
             working_path.write_bytes(content_bytes)
 
             working_path.rename(path)
@@ -738,16 +756,15 @@ class GcsTool(object):
     a GCS client, and a prefix defining a default namespace to read/write on.
     """
 
-    _GS_URL_PREFIX = 'gs://'
+    _GS_URL_PREFIX = "gs://"
 
     def __init__(self, url):
-        if url.endswith('/'):
+        if url.endswith("/"):
             url = url[:-1]
         self.url = url
-        bucket_name, object_prefix =\
-            self._bucket_and_object_names_from_url(url)
+        bucket_name, object_prefix = self._bucket_and_object_names_from_url(url)
 
-        logger.info('Initializing GCS client ...')
+        logger.info("Initializing GCS client ...")
         self._client = get_gcs_client_without_warnings()
         self._bucket = self._client.get_bucket(bucket_name)
         self._object_prefix = object_prefix
@@ -757,7 +774,7 @@ class GcsTool(object):
         return self._bucket.blob(object_name)
 
     def url_from_object_name(self, object_name):
-        return self._GS_URL_PREFIX + self._bucket.name + '/' + object_name
+        return self._GS_URL_PREFIX + self._bucket.name + "/" + object_name
 
     def blobs_matching_url_prefix(self, url_prefix):
         obj_prefix = self._validated_object_name_from_url(url_prefix)
@@ -765,16 +782,17 @@ class GcsTool(object):
 
     def gsutil_cp(self, src_url, dst_url):
         args = [
-            'gsutil',
-            '-q',  # Don't log anything but errors.
-            '-m',  # Transfer files in paralle.
-            'cp',
-            '-r',  # Recursively sync sub-directories.
-            src_url, dst_url
+            "gsutil",
+            "-q",  # Don't log anything but errors.
+            "-m",  # Transfer files in paralle.
+            "cp",
+            "-r",  # Recursively sync sub-directories.
+            src_url,
+            dst_url,
         ]
-        logger.debug('Running command: %s' % ' '.join(args))
+        logger.debug("Running command: %s" % " ".join(args))
         subprocess.check_call(args)
-        logger.debug('Finished running gsutil')
+        logger.debug("Finished running gsutil")
 
     def _validated_object_name_from_url(self, url):
         bucket_name, object_name = self._bucket_and_object_names_from_url(url)
@@ -789,7 +807,7 @@ class GcsTool(object):
         result_path = result.path
         # urlparse always parses the url with a leading slash in path
         # but we don't want the leading slash for gcs object name
-        assert result_path.startswith('/')
+        assert result_path.startswith("/")
         return result.netloc, result_path[1:]
 
 
@@ -801,8 +819,7 @@ class InternalCacheStateError(Exception):
 
     @classmethod
     def from_failure(cls, artifact_type, location, exc):
-        return cls(
-            f"Unable to read {artifact_type} {location!r} in cache: {exc}")
+        return cls(f"Unable to read {artifact_type} {location!r} in cache: {exc}")
 
 
 class InvalidCacheStateError(Exception):
@@ -819,7 +836,7 @@ def valid_filename_from_query(query):
     spaces with hyphens. (At the time of writing, descriptors can't contain
     spaces, but in the future they will be able to.)
     """
-    return query.dnode.to_descriptor().replace(' ', '-')
+    return query.dnode.to_descriptor().replace(" ", "-")
 
 
 CACHE_SCHEMA_VERSION = 6
@@ -836,21 +853,21 @@ class ArtifactMetadataRecord(object):
 
     @classmethod
     def from_content(cls, dnode, artifact_url, provenance, metadata_url, value_hash):
-        return cls(body_dict=dict(
-            descriptor=dnode.to_descriptor(),
-            artifact_url=relativize_url(artifact_url, metadata_url),
-            provenance=provenance.to_dict(),
-            value_hash=value_hash
-        ))
+        return cls(
+            body_dict=dict(
+                descriptor=dnode.to_descriptor(),
+                artifact_url=relativize_url(artifact_url, metadata_url),
+                provenance=provenance.to_dict(),
+                value_hash=value_hash,
+            )
+        )
 
     @classmethod
     def from_yaml(cls, yaml_str, metadata_url):
         try:
             body_dict = yaml.load(yaml_str, Loader=YamlLoader)
         except yaml.error.YAMLError as e:
-            raise YamlRecordParsingError(
-                f"Couldn't parse {cls.__name__}"
-            ) from e
+            raise YamlRecordParsingError(f"Couldn't parse {cls.__name__}") from e
         record = cls(body_dict=body_dict)
         record.artifact_url = derelativize_url(record.artifact_url, metadata_url)
         return record
@@ -858,24 +875,22 @@ class ArtifactMetadataRecord(object):
     def __init__(self, body_dict):
         try:
             self._dict = body_dict
-            self.descriptor = self._dict['descriptor']
-            self.artifact_url = self._dict['artifact_url']
-            self.provenance = Provenance.from_dict(self._dict['provenance'])
-            self.value_hash = self._dict['value_hash']
+            self.descriptor = self._dict["descriptor"]
+            self.artifact_url = self._dict["artifact_url"]
+            self.provenance = Provenance.from_dict(self._dict["provenance"])
+            self.value_hash = self._dict["value_hash"]
         except KeyError as e:
             raise YamlRecordParsingError(
-                f"YAML for ArtifactMetadataRecord was missing field: {e}")
+                f"YAML for ArtifactMetadataRecord was missing field: {e}"
+            )
 
     def to_yaml(self):
         return yaml.dump(
-            self._dict,
-            default_flow_style=False,
-            encoding=None,
-            Dumper=YamlDumper,
+            self._dict, default_flow_style=False, encoding=None, Dumper=YamlDumper,
         )
 
     def __repr__(self):
-        return f'ArtifactMetadataRecord({self.descriptor!r})'
+        return f"ArtifactMetadataRecord({self.descriptor!r})"
 
 
 class Provenance(object):
@@ -911,11 +926,17 @@ class Provenance(object):
 
     @classmethod
     def from_computation(
-            cls, code_fingerprint, case_key, dep_provenance_digests_by_task_key,
-            treat_bytecode_as_functional, can_functionally_change_per_run,
-            flow_instance_uuid):
+        cls,
+        code_fingerprint,
+        case_key,
+        dep_provenance_digests_by_task_key,
+        treat_bytecode_as_functional,
+        can_functionally_change_per_run,
+        flow_instance_uuid,
+    ):
         dep_task_key_provenance_digest_pairs = sorted(
-            dep_provenance_digests_by_task_key.items())
+            dep_provenance_digests_by_task_key.items()
+        )
 
         functional_code_dict = dict(
             orig_flow_name=code_fingerprint.orig_flow_name,
@@ -930,15 +951,15 @@ class Provenance(object):
 
         bytecode_hash = code_fingerprint.bytecode_hash
         if treat_bytecode_as_functional:
-            functional_code_dict['bytecode_hash'] = bytecode_hash
+            functional_code_dict["bytecode_hash"] = bytecode_hash
         else:
-            nonfunctional_code_dict['bytecode_hash'] = bytecode_hash
+            nonfunctional_code_dict["bytecode_hash"] = bytecode_hash
 
         # The function's output changes with each run; to reflect that,
         # we add the flow uuid to the hash so that it will be different
         # each time.
         if can_functionally_change_per_run:
-            functional_code_dict['flow_instance_uuid'] = flow_instance_uuid
+            functional_code_dict["flow_instance_uuid"] = flow_instance_uuid
 
         full_code_dict = dict(
             functional=functional_code_dict,
@@ -961,23 +982,23 @@ class Provenance(object):
         ]
 
         exact_deps_hash = hash_simple_obj_to_hex(exact_deps_list)
-        functional_hash = hash_simple_obj_to_hex(dict(
-            code=functional_code_dict,
-            deps=functional_deps_list,
-        ))
-        exact_hash = hash_simple_obj_to_hex(dict(
-            code=full_code_dict,
-            deps=exact_deps_list,
-        ))
+        functional_hash = hash_simple_obj_to_hex(
+            dict(code=functional_code_dict, deps=functional_deps_list,)
+        )
+        exact_hash = hash_simple_obj_to_hex(
+            dict(code=full_code_dict, deps=exact_deps_list,)
+        )
 
-        return cls(body_dict=dict(
-            case_key=dict(case_key),
-            code=full_code_dict,
-            functional_deps=functional_deps_list,
-            functional_hash=functional_hash,
-            exact_hash=exact_hash,
-            exact_deps_hash=exact_deps_hash,
-        ))
+        return cls(
+            body_dict=dict(
+                case_key=dict(case_key),
+                code=full_code_dict,
+                functional_deps=functional_deps_list,
+                functional_hash=functional_hash,
+                exact_hash=exact_hash,
+                exact_deps_hash=exact_deps_hash,
+            )
+        )
 
     @classmethod
     def from_dict(cls, body_dict):
@@ -988,13 +1009,12 @@ class Provenance(object):
 
         d = self._dict
 
-        self.functional_hash = d['functional_hash']
-        self.exact_hash = d['exact_hash']
-        self.exact_deps_hash = d['exact_deps_hash']
-        self.code_version_major = d['code']['functional']['code_version_major']
-        self.code_version_minor =\
-            d['code']['nonfunctional']['code_version_minor']
-        self.bytecode_hash = d['code']['bytecode_hash']
+        self.functional_hash = d["functional_hash"]
+        self.exact_hash = d["exact_hash"]
+        self.exact_deps_hash = d["exact_deps_hash"]
+        self.code_version_major = d["code"]["functional"]["code_version_major"]
+        self.code_version_minor = d["code"]["nonfunctional"]["code_version_minor"]
+        self.bytecode_hash = d["code"]["bytecode_hash"]
 
     def to_dict(self):
         return self._dict
@@ -1004,7 +1024,7 @@ class Provenance(object):
         v_maj = self.code_version_major
         v_min = self.code_version_minor
         hash_ex = self.exact_hash[:8]
-        return f'Provenance[{hash_fn}/{v_maj}.{v_min}/{hash_ex}]'
+        return f"Provenance[{hash_fn}/{v_maj}.{v_min}/{hash_ex}]"
 
     def exactly_matches(self, prov):
         return self.exact_hash == prov.exact_hash
@@ -1014,8 +1034,8 @@ class Provenance(object):
 
 
 # Helpers for managing files.
-FILE_SCHEME = 'file'
-GCS_SCHEME = 'gs'
+FILE_SCHEME = "file"
+GCS_SCHEME = "gs"
 SUPPORTED_SCHEMES = [FILE_SCHEME, GCS_SCHEME]
 
 
@@ -1034,8 +1054,7 @@ def is_absolute_url(url):
     if not result.scheme:
         return False
     if result.scheme not in SUPPORTED_SCHEMES:
-        raise ValueError(
-            f'Found a URL with unsupported scheme {result.scheme!r}.')
+        raise ValueError(f"Found a URL with unsupported scheme {result.scheme!r}.")
     return True
 
 
@@ -1074,22 +1093,22 @@ def hash_simple_obj_to_hex(obj):
 
 def update_hash(hash_, obj):
     if obj is None:
-        hash_.update(b'N')
+        hash_.update(b"N")
     elif isinstance(obj, str):
-        hash_.update(b'S')
-        hash_.update(obj.encode('utf8'))
+        hash_.update(b"S")
+        hash_.update(obj.encode("utf8"))
     elif isinstance(obj, bytes):
-        hash_.update(b'B')
-        hash_.update(obj.encode('utf8'))
+        hash_.update(b"B")
+        hash_.update(obj.encode("utf8"))
     elif isinstance(obj, int):
-        hash_.update(b'I')
-        hash_.update(str(obj).encode('utf8'))
+        hash_.update(b"I")
+        hash_.update(str(obj).encode("utf8"))
     elif isinstance(obj, list):
-        hash_.update(b'L')
+        hash_.update(b"L")
         for item in obj:
             update_hash(hash_, item)
     elif isinstance(obj, dict):
-        hash_.update(b'D')
+        hash_.update(b"D")
         for key, value in obj.items():
             update_hash(hash_, key)
             update_hash(hash_, value)

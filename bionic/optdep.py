@@ -4,22 +4,20 @@ import importlib
 from .extras import extras_require as package_desc_lists_by_extra
 
 
-ILLEGAL_NAME_CHAR = re.compile('[^a-zA-Z0-9\\-._\\[\\]]')
+ILLEGAL_NAME_CHAR = re.compile("[^a-zA-Z0-9\\-._\\[\\]]")
 
 
 # This really belongs in util.py, but that module depends on this one, so
 # we define it here and then import it there.
 def oneline(string):
-    '''
+    """
     Shorten a multiline string into a single line, by replacing all newlines
     (and their surrounding whitespace) into single spaces. Convenient for
     rendering error messages, which are most easily written as multiline
     string literals but more readable as single-line strings.
-    '''
-    return ' '.join(
-        substring.strip()
-        for substring in string.split('\n')
-        if substring.split()
+    """
+    return " ".join(
+        substring.strip() for substring in string.split("\n") if substring.split()
     )
 
 
@@ -28,20 +26,24 @@ def first_token_from_package_desc(desc):
     if first_mismatch is None:
         return desc
 
-    if desc[first_mismatch.start()] not in ' <>=':
-        raise AssertionError(oneline(f'''
+    if desc[first_mismatch.start()] not in " <>=":
+        raise AssertionError(
+            oneline(
+                f"""
             Package descriptor {desc!r} contained
-            unexpected character {desc[first_mismatch.start()]!r}'''))
+            unexpected character {desc[first_mismatch.start()]!r}"""
+            )
+        )
 
-    return desc[:first_mismatch.start()]
+    return desc[: first_mismatch.start()]
 
 
 # For packages that we don't import by the exact package name, these are
 # aliases we use.
 alias_lists_by_package = {
-    'google-cloud-storage': ['google.cloud.storage'],
-    'Pillow': ['PIL.Image'],
-    'dask[dataframe]': ['dask.dataframe']
+    "google-cloud-storage": ["google.cloud.storage"],
+    "Pillow": ["PIL.Image"],
+    "dask[dataframe]": ["dask.dataframe"],
 }
 
 # Now we contruct a new data structure to allow us to give helpful error
@@ -66,8 +68,8 @@ for extra, package_descs in package_desc_lists_by_extra.items():
                     extras_by_importable_name[importable_name] = extra
 
 # This is a fake entry for testing, since it's annoying to mock this.
-TEST_EXTRA_NAME = '_FAKE_TEST_EXTRA_'
-TEST_PACKAGE_NAME = '_FAKE_TEST_PACKAGE_'
+TEST_EXTRA_NAME = "_FAKE_TEST_EXTRA_"
+TEST_PACKAGE_NAME = "_FAKE_TEST_PACKAGE_"
 extras_by_importable_name[TEST_PACKAGE_NAME] = TEST_EXTRA_NAME
 
 
@@ -82,9 +84,13 @@ def import_optional_dependency(name, purpose=None, raise_on_missing=True):
     """
 
     if name not in extras_by_importable_name:
-        raise AssertionError(oneline(f'''
+        raise AssertionError(
+            oneline(
+                f"""
             Attempted to import {name!r},
-            which is not registered as a dependency'''))
+            which is not registered as a dependency"""
+            )
+        )
 
     # TODO Once we have specific version requirements for our optional
     # packages, we should check that the version is correct.
@@ -96,14 +102,18 @@ def import_optional_dependency(name, purpose=None, raise_on_missing=True):
             extra_name = extras_by_importable_name[name]
 
             if purpose is None:
-                description = 'required'
+                description = "required"
             else:
-                description = 'required for ' + purpose
+                description = "required for " + purpose
 
-            raise ImportError(oneline(f'''
+            raise ImportError(
+                oneline(
+                    f"""
                 Unable to import package {name!r}, which is {description};
                 you can use ``pip install 'bionic[{extra_name}]'``
-                to resolve this'''))
+                to resolve this"""
+                )
+            )
 
         else:
             return None
