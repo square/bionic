@@ -81,7 +81,7 @@ def persist(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return provider_wrapper(AttrUpdateProvider, 'should_persist', enabled)
+    return provider_wrapper(AttrUpdateProvider, '_can_persist', enabled)
 
 
 def memoize(enabled):
@@ -92,7 +92,7 @@ def memoize(enabled):
     ----------
 
     enabled: Boolean
-        Whether this entity's values should be memoized
+        Whether this entity's values should be memoized.
 
     Returns
     -------
@@ -103,7 +103,89 @@ def memoize(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return provider_wrapper(AttrUpdateProvider, 'should_memoize', enabled)
+    return provider_wrapper(AttrUpdateProvider, '_can_memoize', enabled)
+
+
+def changes_per_run(enabled=None):
+    """
+    Indicates whether this function is non-deterministic: i.e., if it’s called multiple
+    times with the same inputs, can it return different outputs?
+
+    When ``enabled`` is true, Bionic will recompute this function's value (and
+    potentially the values of anything depending on it) each time this flow is
+    instantiated, rather than reusing a value cached on disk. For example, if the
+    function queries data from an external database, the results may be different each
+    time even if the query stays the same.
+
+    However, for practical reasons, Bionic won't compute a new value more than once
+    within a single run. That is, once it's been computed for a particular Flow
+    instance, that value will be saved in memory and reused. This is a compromise:
+    logically it makes sense to recompute it every time, but it's much simpler to have
+    a single fixed value for each entity within a given flow instance. For this reason,
+    when this decorator is enabled, memoization must not be disabled for this entity.
+
+    Note that ``@changes_per_run`` is not the same as ``@persist(False)``. For example,
+    the following code will not necessarily query the database each time:
+
+    .. code-block:: python
+
+        @builder
+        @bn.persist(False)
+        @builder
+        def current_data():
+            return download_data()
+
+        @builder
+        def summary(current_data):
+            return summarize(current_data)
+
+    This fails because if we call ``flow.get('summary')`` and Bionic finds a cached
+    value, it will return the cached value because it doesn't know that current_data
+    ought to be recomputed. On the other hand, if we replace ``persist(False)`` with
+    ``changes_per_run`` -- as in the example below -- then ``current_data`` will be
+    recomputed each time (and ``summary`` will be recomputed if ``current_data``
+    changes).
+
+    Parameters
+    ----------
+
+    enabled: Boolean, optional (default ``True``)
+        Whether this function's output changes per run.
+
+    Returns
+    -------
+    Function:
+        A decorator which can be applied to an entity function.
+
+
+    Example usage:
+
+    .. code-block:: python
+
+        @builder
+        @bn.changes_per_run
+        @builder
+        def current_data():
+            return download_data()
+
+        @builder
+        def summary(current_data):
+            return summarize(current_data)
+    """
+
+    DEFAULT_VALUE = True
+    if callable(enabled):
+        func_or_provider = enabled
+        wrapper = provider_wrapper(AttrUpdateProvider, 'changes_per_run', DEFAULT_VALUE)
+        return wrapper(func_or_provider)
+
+    if enabled is None:
+        enabled = DEFAULT_VALUE
+
+    if not isinstance(enabled, bool):
+        raise ValueError(f"Argument must be a boolean; got {enabled!r}")
+
+    return provider_wrapper(AttrUpdateProvider, 'changes_per_run', enabled)
 
 
 def output(name):

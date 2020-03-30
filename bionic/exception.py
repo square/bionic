@@ -33,3 +33,7 @@ class EntitySerializationError(Exception):
 
 class EntityComputationError(Exception):
     pass
+
+
+class AttributeValidationError(Exception):
+    pass

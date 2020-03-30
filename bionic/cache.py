@@ -899,7 +899,8 @@ class Provenance(object):
     @classmethod
     def from_computation(
             cls, code_fingerprint, case_key, dep_provenance_digests_by_task_key,
-            treat_bytecode_as_functional):
+            treat_bytecode_as_functional, can_functionally_change_per_run,
+            flow_instance_uuid):
         dep_task_key_provenance_digest_pairs = sorted(
             dep_provenance_digests_by_task_key.items())
 
@@ -919,6 +920,12 @@ class Provenance(object):
             functional_code_dict['bytecode_hash'] = bytecode_hash
         else:
             nonfunctional_code_dict['bytecode_hash'] = bytecode_hash
+
+        # The function's output changes with each run; to reflect that,
+        # we add the flow uuid to the hash so that it will be different
+        # each time.
+        if can_functionally_change_per_run:
+            functional_code_dict['flow_instance_uuid'] = flow_instance_uuid
 
         full_code_dict = dict(
             functional=functional_code_dict,

@@ -9,6 +9,7 @@ import warnings
 from pathlib import Path, PosixPath
 from importlib import reload
 from textwrap import dedent
+from uuid import uuid4
 
 import pyrsistent as pyrs
 import pandas as pd
@@ -725,14 +726,16 @@ class FlowBuilder(object):
         if provider.attrs.docs is None:
             docs = [None] * len(provider.attrs.names)
             provider = decorators.docs(*docs)(provider)
-        if provider.attrs.should_persist is None:
+        if provider.attrs._can_persist is None:
             provider = decorators.persist(True)(provider)
-        if provider.attrs.should_memoize is None:
+        if provider.attrs._can_memoize is None:
             provider = decorators.memoize(True)(provider)
+        if provider.attrs.changes_per_run is None:
+            provider = decorators.changes_per_run(False)(provider)
 
         if not (
-                provider.attrs.should_persist or
-                provider.attrs.should_memoize):
+                provider.attrs.should_persist() or
+                provider.attrs.should_memoize()):
             raise ValueError(oneline(f'''
                 Attempted to set both persist and memoize to False.
                 At least one form of storage must be enabled for entities:
@@ -1292,8 +1295,9 @@ class Flow(object):
                 "Don't construct this class directly; "
                 "use one of the classmethod constructors")
 
+        self._uuid = str(uuid4())
         self._state = state
-        self._deriver = EntityDeriver(state)
+        self._deriver = EntityDeriver(state, self._uuid)
 
         # We replace the `get` and `setting` methods with wrapper classes
         # that have an attribute for each entity.  This allows a convenient,
