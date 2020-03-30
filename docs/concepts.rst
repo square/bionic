@@ -258,6 +258,8 @@ time we change this function, we just increment the version number.
 .. [#f1] Bionic detects changes by hashing all of the fixed entity values, and
   storing each computed value alongside a hash of all its inputs.
 
+.. _automatic-versioning:
+
 Automatic Versioning
 ....................
 
@@ -380,7 +382,7 @@ cases, we can disable in-memory caching:
 Non-Deterministic Computation
 .............................
 
-.. versionadded:: 0.6.5
+.. versionadded:: 0.7.0
 
 The basic assumption behind Bionic's caching behavior is that entity functions
 are *deterministic*: if you call them multiple times with the same input, they
@@ -401,10 +403,10 @@ You can tell Bionic that a function is non-deterministic by applying the
     def current_data():
         return download_data()
 
-This causes Bionic to recompute the value instead of loading a cached value
-from disk. (However, this recomputation will only happen once for any given
-``Flow`` instance; after that, the value will be cached in memory and reused
-[#f3]_.)
+This causes Bionic to recompute the entity's value instead of loading a
+cached value from disk. (However, this recomputation will only happen once
+for any given ``Flow`` instance; after that, the value will be cached in
+memory and reused [#f3]_.)
 
 .. [#f3] I.e., the value is computed once per "run".  This is a compromise:
   although it makes logical sense to recompute the value every single time,
@@ -417,7 +419,7 @@ from disk. (However, this recomputation will only happen once for any given
 Note that ``@changes_per_run`` has a different effect from ``@persist(False)``.
 If an entity is decorated with ``@persist(False)``, Bionic will never cache its
 value to disk, but it will still assume that its output is deterministic. The
-difference can be see when we add a downstream entity:
+difference can be seen when we add a downstream entity:
 
 .. code-block:: python
 

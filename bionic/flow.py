@@ -1221,7 +1221,8 @@ class Flow(object):
 
     def render_dag(self, include_core=False, vertical=False, curvy_lines=False):
         """
-        Returns a FlowImage with a visualization of this flow's DAG.
+        Returns a ``FlowImage`` with a visualization of this flow's DAG. This
+        object behaves similarly to a Pillow ``Image`` object.
 
         Will fail if Graphviz is not installed on the system.
         """
