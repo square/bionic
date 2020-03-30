@@ -17,7 +17,8 @@ import pandas as pd
 
 from .datatypes import (
     Task, TaskKey, CaseKey, CaseKeySpace, CodeFingerprint, CodeVersion)
-from .exception import (AttributeValidationError, EntityComputationError)
+from .exception import AttributeValidationError, EntityComputationError
+from .descriptors import DescriptorNode
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
 from .optdep import import_optional_dependency
@@ -83,13 +84,13 @@ class BaseProvider(object):
             bytecode_hash=bytecode_hash,
         )
 
-    def get_dependency_names(self):
+    def get_dependency_dnodes(self):
         return []
 
-    def get_key_space(self, dep_key_spaces_by_name):
+    def get_key_space(self, dep_key_spaces_by_dnode):
         raise NotImplementedError()
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         raise NotImplementedError()
 
     def get_source_func(self):
@@ -133,15 +134,15 @@ class WrappingProvider(BaseProvider):
         super(WrappingProvider, self).__init__(wrapped_provider.attrs)
         self.wrapped_provider = wrapped_provider
 
-    def get_dependency_names(self):
-        return self.wrapped_provider.get_dependency_names()
+    def get_dependency_dnodes(self):
+        return self.wrapped_provider.get_dependency_dnodes()
 
-    def get_key_space(self, dep_key_spaces_by_name):
-        return self.wrapped_provider.get_key_space(dep_key_spaces_by_name)
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        return self.wrapped_provider.get_key_space(dep_key_spaces_by_dnode)
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         return self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_name, dep_task_key_lists_by_name)
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode)
 
     def get_source_func(self):
         return self.wrapped_provider.get_source_func()
@@ -200,7 +201,7 @@ class RenamingProvider(WrappingProvider):
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = [name]
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         name, = self.attrs.names
 
         def wrap_task(task):
@@ -208,7 +209,7 @@ class RenamingProvider(WrappingProvider):
             return Task(
                 keys=[
                     TaskKey(
-                        entity_name=name,
+                        dnode=DescriptorNode.from_descriptor(name),
                         case_key=task_key.case_key
                     )
                 ],
@@ -217,7 +218,7 @@ class RenamingProvider(WrappingProvider):
             )
 
         inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_name, dep_task_key_lists_by_name)
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode)
         return [wrap_task(task) for task in inner_tasks]
 
 
@@ -238,9 +239,9 @@ class NameSplittingProvider(WrappingProvider):
             protocol, = self.attrs.protocols
             self.attrs.protocols = [protocol for name in names]
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_name, dep_task_key_lists_by_name)
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode)
 
         def wrap_task(task):
             assert len(task.keys) == 1
@@ -262,7 +263,7 @@ class NameSplittingProvider(WrappingProvider):
             return Task(
                 keys=[
                     TaskKey(
-                        entity_name=name,
+                        dnode=DescriptorNode.from_descriptor(name),
                         case_key=task_key.case_key,
                     )
                     for name in self.attrs.names
@@ -289,6 +290,7 @@ class ValueProvider(BaseProvider):
         )
 
         self.name = name
+        self.dnode = DescriptorNode.from_descriptor(name)
         self.protocol = protocol
         self.doc = doc
 
@@ -355,17 +357,17 @@ class ValueProvider(BaseProvider):
     def get_source_func(self):
         return None
 
-    def get_key_space(self, dep_key_spaces_by_name):
-        assert not dep_key_spaces_by_name
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        assert not dep_key_spaces_by_dnode
         return self.key_space
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
-        assert not dep_key_spaces_by_name
-        assert not dep_task_key_lists_by_name
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        assert not dep_key_spaces_by_dnode
+        assert not dep_task_key_lists_by_dnode
 
         return [
             Task(
-                keys=[TaskKey(self.name, case_key)],
+                keys=[TaskKey(self.dnode, case_key)],
                 dep_keys=[],
                 compute_func=functools.partial(
                     self._compute,
@@ -390,6 +392,7 @@ class FunctionProvider(BaseProvider):
 
         self._func = func
         self.name = name
+        self.dnode = DescriptorNode.from_descriptor(name)
 
         argspec = inspect.getfullargspec(func)
 
@@ -398,35 +401,39 @@ class FunctionProvider(BaseProvider):
         if argspec.varkw:
             raise ValueError('Functions with keyword args are not supported')
         self._dep_names = list(argspec.args)
+        self._dep_dnodes = [
+            DescriptorNode.from_descriptor(dep_name)
+            for dep_name in self._dep_names
+        ]
 
-    def get_dependency_names(self):
-        return self._dep_names
+    def get_dependency_dnodes(self):
+        return self._dep_dnodes
 
     def get_source_func(self):
         return self._func
 
-    def get_key_space(self, dep_key_spaces_by_name):
-        return CaseKeySpace.union_all(list(dep_key_spaces_by_name.values()))
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        return CaseKeySpace.union_all(list(dep_key_spaces_by_dnode.values()))
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         dep_case_key_lists = [
             [
                 task_key.case_key
-                for task_key in dep_task_key_lists_by_name[name]
+                for task_key in dep_task_key_lists_by_dnode[dep_dnode]
             ]
-            for name in self._dep_names
+            for dep_dnode in self._dep_dnodes
         ]
         out_case_keys = merge_case_key_lists(dep_case_key_lists)
 
         return [
             Task(
-                keys=[TaskKey(self.name, case_key)],
+                keys=[TaskKey(self.dnode, case_key)],
                 dep_keys=[
                     TaskKey(
-                        dep_name,
-                        case_key.project(dep_key_spaces_by_name[dep_name]),
+                        dep_dnode,
+                        case_key.project(dep_key_spaces_by_dnode[dep_dnode]),
                     )
-                    for dep_name in self._dep_names
+                    for dep_dnode in self._dep_dnodes
                 ],
                 compute_func=self._apply,
             )
@@ -477,52 +484,65 @@ class GatherProvider(WrappingProvider):
 
         super(GatherProvider, self).__init__(wrapped_provider)
 
-        self._primary_names = primary_names
-        self._secondary_names = secondary_names
-        self._inner_gathered_dep_name = gathered_dep_name
+        self._primary_dnodes = [
+            DescriptorNode.from_descriptor(name)
+            for name in primary_names
+        ]
+        self._secondary_dnodes = [
+            DescriptorNode.from_descriptor(name)
+            for name in secondary_names
+        ]
+        self._inner_gathered_dep_dnode = DescriptorNode.from_descriptor(
+            gathered_dep_name)
 
-        self._inner_dep_names = self.wrapped_provider.get_dependency_names()
+        self._inner_dep_dnodes = self.wrapped_provider.get_dependency_dnodes()
 
-        self._gather_names = (
-            list(self._primary_names) + list(self._secondary_names))
+        self._gather_dnodes = (
+            list(self._primary_dnodes) + list(self._secondary_dnodes))
 
-        inner_gathered_dep_ix = self._inner_dep_names.index(
-            self._inner_gathered_dep_name)
+        inner_gathered_dep_ix = self._inner_dep_dnodes.index(
+            self._inner_gathered_dep_dnode)
         if inner_gathered_dep_ix < 0:
+            inner_gathered_dep_descriptor =\
+                self._inner_gathered_dep_dnode.to_descriptor()
+            inner_dep_descriptors = [
+                dnode.to_descriptor() for dnode in self._inner_dep_dnodes
+            ]
             raise ValueError(oneline(f'''
                 Expected wrapped {self.wrapped_provider!r}
-                to have dependency name {self._inner_gathered_dep_name!r},
-                but only found names {self._inner_dep_names!r}'''))
+                to have dependency name {inner_gathered_dep_descriptor!r},
+                but only found names {inner_dep_descriptors!r}'''))
 
-        self._passthrough_dep_names = list(self._inner_dep_names)
-        self._passthrough_dep_names.pop(inner_gathered_dep_ix)
-        assert self._inner_gathered_dep_name not in self._passthrough_dep_names
+        self._passthrough_dep_dnodes = list(self._inner_dep_dnodes)
+        self._passthrough_dep_dnodes.pop(inner_gathered_dep_ix)
+        assert (
+            self._inner_gathered_dep_dnode not in self._passthrough_dep_dnodes)
 
-        extra_dep_names = [
-            name for name in self._gather_names
-            if name not in self._passthrough_dep_names
+        extra_dep_dnodes = [
+            dnode for dnode in self._gather_dnodes
+            if dnode not in self._passthrough_dep_dnodes
         ]
-        self._outer_dep_names = extra_dep_names + self._passthrough_dep_names
+        self._outer_dep_dnodes = extra_dep_dnodes + self._passthrough_dep_dnodes
 
-    def get_dependency_names(self):
-        return self._outer_dep_names
+    def get_dependency_dnodes(self):
+        return self._outer_dep_dnodes
 
-    def get_key_space(self, dep_key_spaces_by_name):
-        return self._compute_key_spaces(dep_key_spaces_by_name).outer
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        return self._compute_key_spaces(dep_key_spaces_by_dnode).outer
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         # These are the key spaces and task keys that the outside world sees.
-        outer_key_spaces_by_name = dep_key_spaces_by_name
-        outer_dtkls = dep_task_key_lists_by_name
+        outer_key_spaces_by_dnode = dep_key_spaces_by_dnode
+        outer_dtkls_by_dnode = dep_task_key_lists_by_dnode
 
         # We'll need to derive some useful key spaces.
-        key_spaces = self._compute_key_spaces(dep_key_spaces_by_name)
+        key_spaces = self._compute_key_spaces(dep_key_spaces_by_dnode)
 
         # Identify the full case keys that will be partitioned into
         # gathered frames.
         gather_case_key_lists = [
-            [task_key.case_key for task_key in outer_dtkls[dep_name]]
-            for dep_name in self._gather_names
+            [task_key.case_key for task_key in outer_dtkls_by_dnode[dnode]]
+            for dnode in self._gather_dnodes
         ]
         gather_case_keys = merge_case_key_lists(gather_case_key_lists)
 
@@ -539,7 +559,7 @@ class GatherProvider(WrappingProvider):
         inner_gathered_key_space = key_spaces.delta
         inner_gathered_dep_task_keys = [
             TaskKey(
-                entity_name=self._inner_gathered_dep_name,
+                dnode=self._inner_gathered_dep_dnode,
                 case_key=case_key,
             )
             for case_key in delta_case_keys
@@ -547,20 +567,21 @@ class GatherProvider(WrappingProvider):
 
         # Now we can construct the dicts of key spaces and task keys that the
         # wrapper provider will see.
-        inner_key_spaces_by_name = {
-            name: (
+        inner_key_spaces_by_dnode = {
+            dnode: (
                 inner_gathered_key_space
-                if name == self._inner_gathered_dep_name else
-                outer_key_spaces_by_name[name]
-            ) for name in self._inner_dep_names
+                if dnode == self._inner_gathered_dep_dnode else
+                outer_key_spaces_by_dnode[dnode]
+            ) for dnode in self._inner_dep_dnodes
+
         }
 
-        inner_dtkls = {
-            name: (
+        inner_dtkls_by_dnode = {
+            dnode: (
                 inner_gathered_dep_task_keys
-                if name == self._inner_gathered_dep_name else
-                outer_dtkls[name]
-            ) for name in self._inner_dep_names
+                if dnode == self._inner_gathered_dep_dnode else
+                outer_dtkls_by_dnode[dnode]
+            ) for dnode in self._inner_dep_dnodes
         }
 
         # Define how we'll convert an inner task to an outer task.
@@ -571,7 +592,7 @@ class GatherProvider(WrappingProvider):
             gather_task_key_ix, = [
                 ix
                 for ix, dep_key in enumerate(inner_dep_keys)
-                if dep_key.entity_name == self._inner_gathered_dep_name
+                if dep_key.dnode == self._inner_gathered_dep_dnode
             ]
 
             # Remove the key for the aggregated value, and remember its case
@@ -583,14 +604,14 @@ class GatherProvider(WrappingProvider):
 
             # Find the task keys that need to be gathered together.
             unique_gather_task_keys = set()
-            for dep_name in self._gather_names:
-                dep_key_space = dep_key_spaces_by_name[dep_name]
+            for dep_dnode in self._gather_dnodes:
+                dep_key_space = dep_key_spaces_by_dnode[dep_dnode]
 
                 relevant_gather_case_keys =\
                     gather_case_key_lists_by_delta_case_key[delta_case_key]
                 for gather_case_key in relevant_gather_case_keys:
                     unique_gather_task_keys.add(TaskKey(
-                        entity_name=dep_name,
+                        dnode=dep_dnode,
                         case_key=gather_case_key.project(dep_key_space),
                     ))
 
@@ -623,11 +644,15 @@ class GatherProvider(WrappingProvider):
                     gather_case_key_lists_by_delta_case_key[delta_case_key]
 
                 gathered_df = pd.DataFrame()
-                for name in self._gather_names:
-                    key_space = dep_key_spaces_by_name[name]
-                    gathered_df[name] = [
+                for dnode in self._gather_dnodes:
+                    key_space = dep_key_spaces_by_dnode[dnode]
+                    descriptor = dnode.to_descriptor()
+                    gathered_df[descriptor] = [
                         values_by_task_key.get(
-                            TaskKey(name, case_key.project(key_space)), None)
+                            TaskKey(
+                                dnode,
+                                case_key.project(key_space)
+                            ), None)
                         for case_key in row_case_keys
                     ]
 
@@ -648,34 +673,34 @@ class GatherProvider(WrappingProvider):
             )
 
         orig_tasks = self.wrapped_provider.get_tasks(
-            inner_key_spaces_by_name, inner_dtkls)
+            inner_key_spaces_by_dnode, inner_dtkls_by_dnode)
         return [wrap_task(task) for task in orig_tasks]
 
-    def _compute_key_spaces(self, dep_key_spaces_by_name):
-        return self._KeySpaces(self, dep_key_spaces_by_name)
+    def _compute_key_spaces(self, dep_key_spaces_by_dnode):
+        return self._KeySpaces(self, dep_key_spaces_by_dnode)
 
     class _KeySpaces(object):
-        def __init__(self, gather_provider, dep_key_spaces_by_name):
+        def __init__(self, gather_provider, dep_key_spaces_by_dnode):
             # The combined keyspace of all the non-gathered dependencies of the
             # wrapped provider.
             self.passthrough = CaseKeySpace.union_all(
-                dep_key_spaces_by_name[name]
-                for name in gather_provider._passthrough_dep_names
+                dep_key_spaces_by_dnode[dnode]
+                for dnode in gather_provider._passthrough_dep_dnodes
             )
 
             # The combined keyspace of the all the primary gathered
             # dependencies.  This corresponds to the index of the gathered
             # frame.
             self.primary = CaseKeySpace.union_all(
-                dep_key_spaces_by_name[name]
-                for name in gather_provider._primary_names
+                dep_key_spaces_by_dnode[dnode]
+                for dnode in gather_provider._primary_dnodes
             )
 
             # The combined keyspace of the all the secondary gathered
             # dependencies.
             self.secondary = CaseKeySpace.union_all(
-                dep_key_spaces_by_name[name]
-                for name in gather_provider._secondary_names
+                dep_key_spaces_by_dnode[dnode]
+                for dnode in gather_provider._secondary_dnodes
             )
 
             # The difference between the secondary and primary key spaces.
@@ -703,7 +728,7 @@ class PyplotProvider(WrappingProvider):
         self._Image = import_optional_dependency(
             'PIL.Image', purpose='the @pyplot decorator')
 
-        self._pyplot_name = name
+        self._pyplot_dnode = DescriptorNode.from_descriptor(name)
 
         self._savefig_kwargs = {
             'format': 'png',
@@ -712,38 +737,40 @@ class PyplotProvider(WrappingProvider):
         if savefig_kwargs is not None:
             self._savefig_kwargs.update(savefig_kwargs)
 
-        inner_dep_names = wrapped_provider.get_dependency_names()
-        if self._pyplot_name not in inner_dep_names:
+        inner_dep_dnodes = wrapped_provider.get_dependency_dnodes()
+        if self._pyplot_dnode not in inner_dep_dnodes:
+            inner_dep_descriptors = [
+                dnode.to_descriptor() for dnode in inner_dep_dnodes
+            ]
             raise ValueError(oneline(f'''
                 When using {self.__class__.__name__},
                 expected wrapped {wrapped_provider} to have a dependency
-                named {self._pyplot_name!r}; only found {inner_dep_names!r}'''))
+                named {name!r}; only found {inner_dep_descriptors!r}'''))
+        self._outer_dep_dnodes = list(inner_dep_dnodes)
+        self._outer_dep_dnodes.remove(self._pyplot_dnode)
 
-        self._outer_dep_names = list(inner_dep_names)
-        self._outer_dep_names.remove(self._pyplot_name)
+    def get_dependency_dnodes(self):
+        return self._outer_dep_dnodes
 
-    def get_dependency_names(self):
-        return self._outer_dep_names
-
-    def get_key_space(self, dep_key_spaces_by_name):
-        outer_dkss = dep_key_spaces_by_name
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        outer_dkss = dep_key_spaces_by_dnode
         inner_dkss = outer_dkss.copy()
-        inner_dkss[self._pyplot_name] = CaseKey([])
+        inner_dkss[self._pyplot_dnode] = CaseKey([])
 
         return self.wrapped_provider.get_key_space(inner_dkss)
 
-    def get_tasks(self, dep_key_spaces_by_name, dep_task_key_lists_by_name):
-        outer_dkss = dep_key_spaces_by_name
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        outer_dkss = dep_key_spaces_by_dnode
 
         inner_dkss = outer_dkss.copy()
-        inner_dkss[self._pyplot_name] = CaseKey([])
+        inner_dkss[self._pyplot_dnode] = CaseKey([])
 
-        outer_dtkls = dep_task_key_lists_by_name
+        outer_dtkls = dep_task_key_lists_by_dnode
 
         inner_dtkls = outer_dtkls.copy()
-        inner_dtkls[self._pyplot_name] = [
+        inner_dtkls[self._pyplot_dnode] = [
             TaskKey(
-                entity_name=self._pyplot_name,
+                dnode=self._pyplot_dnode,
                 case_key=CaseKey([]),
             )
         ]
@@ -755,7 +782,7 @@ class PyplotProvider(WrappingProvider):
             pyplot_dep_ix, = [
                 ix
                 for ix, dep_key in enumerate(inner_dep_keys)
-                if dep_key.entity_name == self._pyplot_name
+                if dep_key.dnode == self._pyplot_dnode
             ]
 
             outer_dep_keys = list(inner_dep_keys)
@@ -891,7 +918,7 @@ def multi_index_from_case_keys(case_keys, ordered_key_names):
 # -- Helpers for working with providers.
 
 PROVIDER_METHODS = [
-    'get_code_fingerprint', 'get_dependency_names', 'get_tasks',
+    'get_code_fingerprint', 'get_dependency_dnodes', 'get_tasks',
     'get_source_func',
 ]
 

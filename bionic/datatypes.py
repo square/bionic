@@ -8,20 +8,20 @@ from .util import ImmutableSequence, ImmutableMapping
 
 
 # TODO Consider using the attr library here?
-class TaskKey(namedtuple('TaskKey', 'entity_name case_key')):
+class TaskKey(namedtuple('TaskKey', 'dnode case_key')):
     '''
     A unique identifier for a Task.
     '''
-    def __new__(cls, entity_name, case_key):
-        return super(TaskKey, cls).__new__(cls, entity_name, case_key)
+    def __new__(cls, dnode, case_key):
+        return super(TaskKey, cls).__new__(cls, dnode, case_key)
 
     def __repr__(self):
-        return f'TaskKey({self.entity_name!r}, {self.case_key!r})'
+        return f'TaskKey({self.dnode!r}, {self.case_key!r})'
 
     def __str__(self):
         args_str = ', '.join(
             f'{name}={value}' for name, value in self.case_key.items())
-        return f'{self.entity_name}({args_str})'
+        return f'{self.dnode.to_entity_name()}({args_str})'
 
 
 class Task(object):
@@ -39,7 +39,7 @@ class Task(object):
         matching_keys = [
             task_key
             for task_key in self.keys
-            if task_key.entity_name == name
+            if task_key.dnode.to_entity_name() == name
         ]
         key, = matching_keys
         return key
@@ -54,7 +54,7 @@ class Query(object):
     '''
     def __init__(self, task_key, protocol, provenance):
         self.task_key = task_key
-        self.entity_name = task_key.entity_name
+        self.dnode = task_key.dnode
         self.case_key = task_key.case_key
         self.protocol = protocol
         self.provenance = provenance

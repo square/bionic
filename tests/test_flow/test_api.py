@@ -395,8 +395,7 @@ def test_get_modes_persisted(preset_flow, tmp_path):
 
     for mode in [Path, 'path']:
         y_fxn_path = flow.get(name, mode=mode)
-        assert isinstance(y_fxn_path, Path)
-        assert y_fxn_path.is_file()
+        assert pickle.loads(y_fxn_path.read_bytes()) == 1
 
     flow.get(name, mode='FileCopier').copy(destination=tmp_path)
     serialized_fname = name + '.pkl'
@@ -424,6 +423,25 @@ def test_get_modes_not_persisted(preset_builder, name):
         with raises(ValueError) as e:
             flow.get(name, mode=mode)
             assert 'persisted file is expected by mode' in e.value
+
+
+def test_export(preset_flow, tmp_path, recwarn):
+    flow = preset_flow
+
+    value_path = flow.export('y_fxn')
+    assert value_path.name == 'y_fxn.pkl'
+    assert pickle.loads(value_path.read_bytes()) == 1
+
+    flow.export('y_fxn', dir_path=tmp_path)
+    expected_path = tmp_path / 'y_fxn.pkl'
+    assert pickle.loads(expected_path.read_bytes()) == 1
+
+    explicit_path = tmp_path / 'some_filename'
+    flow.export('y_fxn', file_path=explicit_path)
+    assert pickle.loads(explicit_path.read_bytes()) == 1
+
+    warning, = recwarn
+    assert 'deprecated' in str(warning.message)
 
 
 def test_assigning(preset_flow):

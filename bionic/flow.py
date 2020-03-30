@@ -24,6 +24,7 @@ from .provider import (
     ValueProvider, multi_index_from_case_keys, as_provider,
     provider_wrapper, AttrUpdateProvider)
 from .deriver import EntityDeriver
+from .descriptors import DescriptorNode
 from . import decorators
 from .util import (
     group_pairs, check_exactly_one_present, check_at_most_one_present,
@@ -990,7 +991,9 @@ class Flow(object):
         The value of the entity, or a collection containing its values.
         """
 
-        result_group = self._deriver.derive(name)
+        dnode = DescriptorNode.from_descriptor(name)
+        result_group = self._deriver.derive(dnode)
+
         if mode is object or mode == 'object':
             values = [result.value for result in result_group]
         else:
@@ -1072,9 +1075,11 @@ class Flow(object):
         """
 
         warnings.warn(
-            "Flow#export is deprecated and the same functionality is available through Flow#get.")
+            "Flow#export is deprecated; use the mode argument to Flow#get "
+            "instead")
 
-        result_group = self._deriver.derive(name)
+        dnode = DescriptorNode.from_descriptor(name)
+        result_group = self._deriver.derive(dnode)
         if len(result_group) != 1:
             raise ValueError(oneline(f'''
                 Can only export an entity if it has a single value;

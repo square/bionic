@@ -92,7 +92,7 @@ class CacheAccessor(object):
 
     def __init__(self, parent_cache, query):
         self.query = query
-        self.value_filename_stem = self.query.entity_name + "."
+        self.value_filename_stem = valid_filename_from_query(self.query) + "."
 
         self._local = parent_cache._local_store
         self._cloud = parent_cache._cloud_store
@@ -323,7 +323,7 @@ class CacheAccessor(object):
         except Exception as e:
             raise EntitySerializationError(oneline(
                 f'''
-                Value of entity {self.query.entity_name!r}
+                Value of entity {self.query.dnode.to_entity_name()!r}
                 could not be serialized to disk
                 ''')) from e
 
@@ -501,7 +501,7 @@ class Inventory(object):
 
     def _equivalent_metadata_url_prefix_for_query(self, query):
         return (
-            self._fs.root_url + '/' + query.entity_name + '/' +
+            self._fs.root_url + '/' + valid_filename_from_query(query) + '/' +
             query.provenance.functional_hash
         )
 
@@ -537,7 +537,7 @@ class Inventory(object):
         metadata_url = self._exact_metadata_url_for_query(query)
 
         metadata_record = ArtifactMetadataRecord.from_content(
-            entity_name=query.entity_name,
+            dnode=query.dnode,
             artifact_url=artifact_url,
             provenance=query.provenance,
             metadata_url=metadata_url,
@@ -570,7 +570,9 @@ class LocalStore(object):
         while True:
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
-            path = self._artifact_root_path / query.entity_name / str(uuid4())
+            path = (
+                self._artifact_root_path / valid_filename_from_query(query) /
+                str(uuid4()))
 
             if not path.exists():
                 return path
@@ -603,7 +605,7 @@ class GcsCloudStore(object):
             # could make it more human-readable.
             url_prefix = '/'.join([
                 str(self._artifact_root_url_prefix),
-                query.entity_name,
+                valid_filename_from_query(query),
                 str(uuid4()),
             ])
 
@@ -809,7 +811,18 @@ class InvalidCacheStateError(Exception):
     """
 
 
-CACHE_SCHEMA_VERSION = 5
+def valid_filename_from_query(query):
+    """
+    Generates a filename from a query.
+
+    This just gets the descriptor string from the query and replaces any
+    spaces with hyphens. (At the time of writing, descriptors can't contain
+    spaces, but in the future they will be able to.)
+    """
+    return query.dnode.to_descriptor().replace(' ', '-')
+
+
+CACHE_SCHEMA_VERSION = 6
 
 
 class YamlRecordParsingError(Exception):
@@ -822,9 +835,9 @@ class ArtifactMetadataRecord(object):
     """
 
     @classmethod
-    def from_content(cls, entity_name, artifact_url, provenance, metadata_url, value_hash):
+    def from_content(cls, dnode, artifact_url, provenance, metadata_url, value_hash):
         return cls(body_dict=dict(
-            entity=entity_name,
+            descriptor=dnode.to_descriptor(),
             artifact_url=relativize_url(artifact_url, metadata_url),
             provenance=provenance.to_dict(),
             value_hash=value_hash
@@ -845,7 +858,7 @@ class ArtifactMetadataRecord(object):
     def __init__(self, body_dict):
         try:
             self._dict = body_dict
-            self.entity_name = self._dict['entity']
+            self.descriptor = self._dict['descriptor']
             self.artifact_url = self._dict['artifact_url']
             self.provenance = Provenance.from_dict(self._dict['provenance'])
             self.value_hash = self._dict['value_hash']
@@ -862,7 +875,7 @@ class ArtifactMetadataRecord(object):
         )
 
     def __repr__(self):
-        return f'ArtifactMetadataRecord({self.entity_name})'
+        return f'ArtifactMetadataRecord({self.descriptor!r})'
 
 
 class Provenance(object):
@@ -883,17 +896,17 @@ class Provenance(object):
 
     2. Nominal match: as above, plus the function that computes this value has
     a matching minor version.  If two provenances don't nominally match, then
-    they have different versions, which means this particular entity doesn't
+    they have different versions, which means this particular descriptor doesn't
     have a versioning error (although its dependencies might or might not).
 
     3. "Samecode" match: as above, plus the function that computes this value
     has matching bytecode.  If two provenances are a nominal match but not
     a samecode match, that suggests the user may have made a versioning error
-    in this entity.
+    in this descriptor.
 
     4. Exact match: as above, plus all dependencies exactly match.  If two
     provenances exactly match, then there is no chance of any versioning error
-    anywhere in this entity's dependency tree.
+    anywhere in this descriptor's dependency tree.
     """
 
     @classmethod
@@ -934,14 +947,14 @@ class Provenance(object):
         )
         functional_deps_list = [
             dict(
-                entity=task_key.entity_name,
+                descriptor=task_key.dnode.to_descriptor(),
                 hash=provenance_digest.functional_hash,
             )
             for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
         ]
         exact_deps_list = [
             dict(
-                entity=task_key.entity_name,
+                descriptor=task_key.dnode.to_descriptor(),
                 hash=provenance_digest.exact_hash,
             )
             for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
