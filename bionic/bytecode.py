@@ -12,7 +12,7 @@ def bytecode_from_func(func):
     return buf.getvalue()
 
 
-CODE_OBJECT_PATTERN = re.compile('<code.*>')
+CODE_OBJECT_PATTERN = re.compile("<code.*>")
 
 
 def canonicalize_bytecode(bytecode_str):
@@ -23,9 +23,9 @@ def canonicalize_bytecode(bytecode_str):
         if not line.strip():
             continue
 
-        if line.startswith('Disassembly'):
+        if line.startswith("Disassembly"):
             pass
-        elif not line.startswith('    '):
+        elif not line.startswith("    "):
             line = line.split(None, 1)[1]
         else:
             line = line.lstrip()
@@ -37,15 +37,15 @@ def canonicalize_bytecode(bytecode_str):
             if long_str in canon_strs_by_long_str:
                 canon_str = canon_strs_by_long_str[long_str]
             else:
-                canon_str = f'<code ref #{len(canon_strs_by_long_str)}>'
+                canon_str = f"<code ref #{len(canon_strs_by_long_str)}>"
                 canon_strs_by_long_str[long_str] = canon_str
 
             line = line.replace(long_str, canon_str)
 
         modified_lines.append(line)
 
-    return '\n'.join(modified_lines)
+    return "\n".join(modified_lines)
 
 
 def canonical_bytecode_bytes_from_func(func):
-    return canonicalize_bytecode(bytecode_from_func(func)).encode('utf8')
+    return canonicalize_bytecode(bytecode_from_func(func)).encode("utf8")

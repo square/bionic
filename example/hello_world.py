@@ -1,11 +1,11 @@
 import bionic as bn
 
 # Initialize the builder object we'll use to construct our flow.
-builder = bn.FlowBuilder('hello_world')
+builder = bn.FlowBuilder("hello_world")
 
 # Define new entities "greeting" and "subject" with fixed values.
-builder.assign('greeting', 'Hello')
-builder.assign('subject', 'world')
+builder.assign("greeting", "Hello")
+builder.assign("subject", "world")
 
 
 # Define a "message" entity, constructed by taking the values of "greeting" and
@@ -15,13 +15,13 @@ builder.assign('subject', 'world')
 # dependencies ("greeting" and "subject").
 @builder
 def message(greeting, subject):
-    return f'{greeting} {subject}!'
+    return f"{greeting} {subject}!"
 
 
 # Assemble the flow object, which is capable of computing any of the entities
 # we've defined.
 flow = builder.build()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Use our flow to compute the message "Hello world!"
-    print(flow.get('message'))
+    print(flow.get("message"))

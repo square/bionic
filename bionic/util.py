@@ -1,6 +1,6 @@
-'''
+"""
 Miscellaneous utility functions.
-'''
+"""
 
 import logging
 from collections import defaultdict
@@ -20,22 +20,26 @@ def n_present(*items):
 
 def check_exactly_one_present(**kwargs):
     if not n_present(list(kwargs.values())) == 1:
-        args_str = ', '.join(
-            f'{name}={value!r}'
-            for name, value in kwargs.items())
-        raise ValueError(oneline(f'''
+        args_str = ", ".join(f"{name}={value!r}" for name, value in kwargs.items())
+        raise ValueError(
+            oneline(
+                f"""
             Exactly one of {tuple(kwargs.keys())} should be present;
-            got {args_str}'''))
+            got {args_str}"""
+            )
+        )
 
 
 def check_at_most_one_present(**kwargs):
     if n_present(list(kwargs.values())) > 1:
-        args_str = ', '.join(
-            f'{name}={value!r}'
-            for name, value in kwargs.items())
-        raise ValueError(oneline(f'''
+        args_str = ", ".join(f"{name}={value!r}" for name, value in kwargs.items())
+        raise ValueError(
+            oneline(
+                f"""
             At most one of {tuple(kwargs.keys())} should be present;
-            got {args_str}'''))
+            got {args_str}"""
+            )
+        )
 
 
 def group_pairs(items):
@@ -46,10 +50,10 @@ def group_pairs(items):
 
 
 def groups_dict(values, keyfunc):
-    '''
+    """
     Like itertools.groupby, but doesn't require the values to be already
     sorted.
-    '''
+    """
     valuelists_by_key = defaultdict(list)
     for value in values:
         valuelists_by_key[keyfunc(value)].append(value)
@@ -60,9 +64,13 @@ def single_element(iterable):
     "Takes an iterable with a single element and returns that element."
     items = list(iterable)
     if len(items) != 1:
-        raise ValueError(oneline(f'''
+        raise ValueError(
+            oneline(
+                f"""
             Expected a sequence with exactly one item;
-            got {len(items)} items.'''))
+            got {len(items)} items."""
+            )
+        )
     return items[0]
 
     return next(iter(iterable))
@@ -71,15 +79,19 @@ def single_element(iterable):
 def hash_to_hex(bytestring, n_bytes=None):
     hash_ = sha256()
     hash_.update(bytestring)
-    hex_str = hexlify(hash_.digest()).decode('utf-8')
+    hex_str = hexlify(hash_.digest()).decode("utf-8")
 
     if n_bytes is not None:
         n_chars = n_bytes * 2
         available_chars = len(hex_str)
         if n_chars > available_chars:
-            raise ValueError(oneline(f'''
+            raise ValueError(
+                oneline(
+                    f"""
                 Can't keep {n_bytes} bytes;
-                we only have {available_chars // 2}'''))
+                we only have {available_chars // 2}"""
+                )
+            )
         hex_str = hex_str[:n_chars]
 
     return hex_str
@@ -95,12 +107,10 @@ def get_gcs_client_without_warnings(cache_value=True):
     if cache_value:
         global _cached_gcs_client
         if _cached_gcs_client is None:
-            _cached_gcs_client =\
-                get_gcs_client_without_warnings(cache_value=False)
+            _cached_gcs_client = get_gcs_client_without_warnings(cache_value=False)
         return _cached_gcs_client
 
-    gcs = import_optional_dependency(
-        'google.cloud.storage', purpose='caching to GCS')
+    gcs = import_optional_dependency("google.cloud.storage", purpose="caching to GCS")
 
     with warnings.catch_warnings():
         # Google's SDK warns if you use end user credentials instead of a
@@ -110,8 +120,7 @@ def get_gcs_client_without_warnings(cache_value=True):
         # individuals, so using end user credentials seems appropriate.
         # Hence, we'll suppress this warning.
         warnings.filterwarnings(
-            'ignore',
-            'Your application has authenticated using end user credentials'
+            "ignore", "Your application has authenticated using end user credentials"
         )
         return gcs.Client()
 
@@ -119,9 +128,9 @@ def get_gcs_client_without_warnings(cache_value=True):
 def copy_to_gcs(src, dst):
     """ Copy a local file at src to GCS at dst
     """
-    bucket = dst.replace('gs://', '').split('/')[0]
+    bucket = dst.replace("gs://", "").split("/")[0]
     prefix = f"gs://{bucket}"
-    path = dst[len(prefix) + 1:]
+    path = dst[len(prefix) + 1 :]
 
     client = get_gcs_client_without_warnings()
     blob = client.get_bucket(bucket).blob(path)
@@ -132,7 +141,7 @@ def num_as_bytes(n):
     """
     Encodes an integer in UTF-8 bytes.
     """
-    return str(n).encode('utf-8')
+    return str(n).encode("utf-8")
 
 
 def read_hashable_bytes_from_file_or_dir(path):
@@ -145,8 +154,7 @@ def read_hashable_bytes_from_file_or_dir(path):
     if not path.exists():
         raise ValueError(f"{path!r} doesn't exist")
     elif path.is_file():
-        return b'F' + num_as_bytes(path.stat().st_size) + b':' +\
-            path.read_bytes()
+        return b"F" + num_as_bytes(path.stat().st_size) + b":" + path.read_bytes()
     elif path.is_dir():
         # We could just concatenate all the file byte strings together, but
         # since we expect to hash this, it'd be nice to avoid returning the
@@ -156,16 +164,28 @@ def read_hashable_bytes_from_file_or_dir(path):
         # accomplish this, we prefix each type of data with a letter and the
         # length of the data.
         sub_paths = list(sorted(path.iterdir()))
-        return b'D' + num_as_bytes(len(sub_paths)) + b':' + b':'.join(
-            b'N' + num_as_bytes(len(sub_path.name)) + b':' +
-            sub_path.name.encode("UTF-8") + b':' +
-            read_hashable_bytes_from_file_or_dir(sub_path)
-            for sub_path in sub_paths
+        return (
+            b"D"
+            + num_as_bytes(len(sub_paths))
+            + b":"
+            + b":".join(
+                b"N"
+                + num_as_bytes(len(sub_path.name))
+                + b":"
+                + sub_path.name.encode("UTF-8")
+                + b":"
+                + read_hashable_bytes_from_file_or_dir(sub_path)
+                for sub_path in sub_paths
+            )
         )
     else:
-        raise ValueError(oneline(f'''
+        raise ValueError(
+            oneline(
+                f"""
             {path!r} is neither a file nor a directory;
-            not sure what to do with it!'''))
+            not sure what to do with it!"""
+            )
+        )
 
 
 def ensure_parent_dir_exists(path):
@@ -234,13 +254,12 @@ class ImmutableSequence(object):
         return self.__items.__ge__(seq.__items)
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.__items!r})'
+        return f"{self.__class__.__name__}({self.__items!r})"
 
 
 class ImmutableMapping(ImmutableSequence):
     def __init__(self, values_by_key):
-        super(ImmutableMapping, self).__init__(
-            tuple(sorted(values_by_key.items())))
+        super(ImmutableMapping, self).__init__(tuple(sorted(values_by_key.items())))
         self.__values_by_key = dict(values_by_key)
 
     def __getitem__(self, key):
@@ -287,7 +306,7 @@ class ImmutableMapping(ImmutableSequence):
         return self.__values_by_key.__ne__(seq.__values_by_key)
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.__values_by_key!r})'
+        return f"{self.__class__.__name__}({self.__values_by_key!r})"
 
 
 # TODO I'm not sure if we'll end up needing this or not.
@@ -335,8 +354,7 @@ class ExtensibleLogger(object):
         self._custom_log_if_enabled(logging.CRITICAL, msg, *args, **kwargs)
 
     def exception(self, msg, *args, **kwargs):
-        self._custom_log_if_enabled(
-            logging.ERROR, msg, *args, exc_info=True, **kwargs)
+        self._custom_log_if_enabled(logging.ERROR, msg, *args, exc_info=True, **kwargs)
 
 
 class FileCopier(object):
@@ -350,6 +368,7 @@ class FileCopier(object):
     src_file_path: Path
         A path to a file.
     """
+
     def __init__(self, src_file_path):
         self.src_file_path = src_file_path
 
@@ -369,17 +388,19 @@ class FileCopier(object):
         """
 
         #  handle gcs
-        if str(destination).startswith('gs://'):
+        if str(destination).startswith("gs://"):
             subprocess.check_call(
-                ['gsutil', '-mq', 'cp', '-R', str(self.src_file_path), str(destination)]
+                ["gsutil", "-mq", "cp", "-R", str(self.src_file_path), str(destination)]
             )
         else:
-            subprocess.check_call(['cp', '-R', str(self.src_file_path), str(destination)])
+            subprocess.check_call(
+                ["cp", "-R", str(self.src_file_path), str(destination)]
+            )
 
 
 def init_basic_logging(level=logging.INFO):
     logging.basicConfig(
         level=level,
-        format='%(asctime)s %(levelname)s %(name)16s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
+        format="%(asctime)s %(levelname)s %(name)16s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )

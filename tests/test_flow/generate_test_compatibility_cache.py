@@ -18,7 +18,9 @@ from ..helpers import count_calls
 import bionic as bn
 
 
-CACHE_TEST_DIR = os.path.join(os.path.dirname(__file__), 'test_persistence_compatibility')
+CACHE_TEST_DIR = os.path.join(
+    os.path.dirname(__file__), "test_persistence_compatibility"
+)
 
 
 class Harness:
@@ -30,12 +32,12 @@ class Harness:
     """
 
     def __init__(self, cache_dir):
-        builder = bn.FlowBuilder('test')
+        builder = bn.FlowBuilder("test")
 
-        builder.set('core__persistent_cache__flow_dir', cache_dir)
-        builder.assign('x', 2)
-        builder.assign('y', 3)
-        builder.assign('z', 4)
+        builder.set("core__persistent_cache__flow_dir", cache_dir)
+        builder.assign("x", 2)
+        builder.assign("y", 3)
+        builder.assign("z", 4)
 
         @builder
         @count_calls
@@ -62,6 +64,6 @@ if __name__ == "__main__":
     flow = Harness(CACHE_TEST_DIR).flow
 
     # call methods to write to cache
-    flow.get('xy')
-    flow.get('yz')
-    flow.get('xy_plus_yz')
+    flow.get("xy")
+    flow.get("yz")
+    flow.get("xy_plus_yz")

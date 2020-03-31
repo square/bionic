@@ -26,7 +26,7 @@ class SimpleFlowModel(object):
         self._last_called_names = []
 
     def add_entity(self, dep_names, nondeterministic=False):
-        name = f'e{len(self._entities_by_name) + 1}'
+        name = f"e{len(self._entities_by_name) + 1}"
 
         self._create_entity(name, dep_names, nondeterministic)
         self._define_entity(name)
@@ -34,8 +34,13 @@ class SimpleFlowModel(object):
         return name
 
     def update_entity(
-            self, name, make_func_change=False, make_nonfunc_change=False,
-            update_major=False, update_minor=False):
+        self,
+        name,
+        make_func_change=False,
+        make_nonfunc_change=False,
+        update_major=False,
+        update_minor=False,
+    ):
 
         entity = self._entities_by_name[name]
 
@@ -56,13 +61,11 @@ class SimpleFlowModel(object):
     def expected_entity_value(self, name):
         entity = self._entities_by_name[name]
         dep_values_total = sum(
-            self.expected_entity_value(dep_name)
-            for dep_name in entity.dep_names
+            self.expected_entity_value(dep_name) for dep_name in entity.dep_names
         )
         return entity.func_value + dep_values_total
 
-    def entity_names(
-            self, downstream_of=None, upstream_of=None, with_children=None):
+    def entity_names(self, downstream_of=None, upstream_of=None, with_children=None):
         names = set(self._entities_by_name.keys())
 
         if upstream_of is not None:
@@ -87,7 +90,8 @@ class SimpleFlowModel(object):
 
         if with_children is not None:
             names_with_children = set(
-                name for name in names
+                name
+                for name in names
                 if len(self._entities_by_name[name].child_names) > 0
             )
             if with_children:
@@ -128,7 +132,8 @@ class SimpleFlowModel(object):
 
     def _create_entity(self, name, dep_names, is_nondeterministic):
         entity = ModelEntity(
-            name=name, dep_names=dep_names, is_nondeterministic=is_nondeterministic)
+            name=name, dep_names=dep_names, is_nondeterministic=is_nondeterministic
+        )
 
         entity.all_upstream_names = {name}
         if is_nondeterministic:
@@ -137,7 +142,8 @@ class SimpleFlowModel(object):
             dep_entity = self._entities_by_name[dep_name]
             entity.all_upstream_names.update(dep_entity.all_upstream_names)
             entity.all_nondeterministic_upstream_names.update(
-                dep_entity.all_nondeterministic_upstream_names)
+                dep_entity.all_nondeterministic_upstream_names
+            )
             dep_entity.child_names.append(name)
         entity.all_downstream_names = {name}
 
@@ -150,15 +156,16 @@ class SimpleFlowModel(object):
         entity = self._entities_by_name[name]
 
         vars_dict = {
-            'bn': bn,
-            'builder': self._builder,
-            'record_call': self._last_called_names.append,
-            'noop_func': lambda x: None,
+            "bn": bn,
+            "builder": self._builder,
+            "record_call": self._last_called_names.append,
+            "noop_func": lambda x: None,
         }
 
         e = entity
         exec(
-            dedent(f'''
+            dedent(
+                f"""
             @builder
             @bn.changes_per_run({e.is_nondeterministic})
             @bn.version(major={e.major_version}, minor={e.minor_version})
@@ -166,7 +173,8 @@ class SimpleFlowModel(object):
                 noop_func({e.nonfunc_value})
                 record_call("{name}")
                 return {' + '.join([str(e.func_value)] + e.dep_names)}
-            '''),
+            """
+            ),
             vars_dict,
         )
 
@@ -200,12 +208,12 @@ class Fuzzer(object):
 
     def __init__(self, builder, random_seed=0):
         self.model = SimpleFlowModel(builder)
-        self._versioning_mode = 'manual'
+        self._versioning_mode = "manual"
         self._builder = builder
         self._random = Random(random_seed)
 
     def set_versioning_mode(self, mode):
-        self._builder.set('core__versioning_mode', mode)
+        self._builder.set("core__versioning_mode", mode)
         self._versioning_mode = mode
 
     def add_entities(self, n_entities):
@@ -220,24 +228,27 @@ class Fuzzer(object):
             new_name = self.model.add_entity(dep_names, is_nondeterministic)
 
             self.model.build_flow().get(new_name)
-            expected_called_names =\
-                self.model.nondeterministic_upstream_entity_names(new_name)
+            expected_called_names = self.model.nondeterministic_upstream_entity_names(
+                new_name
+            )
             expected_called_names.add(new_name)
-            assert (
-                sorted(self.model.called_entity_names()) ==
-                sorted(list(expected_called_names))
+            assert sorted(self.model.called_entity_names()) == sorted(
+                list(expected_called_names)
             )
 
     def run(self, n_iterations):
         for i in range(n_iterations):
             updated_name = self._random.choice(self.model.entity_names())
             affected_names = self.model.entity_names(
-                downstream_of=updated_name, with_children=False)
+                downstream_of=updated_name, with_children=False
+            )
             make_func_change = self._random_bool()
             make_nonfunc_change = not make_func_change
             update_version = self._random_bool()
 
-            is_updated_entity_nondeterministic = self.model.entity_is_nondeterministic(updated_name)
+            is_updated_entity_nondeterministic = self.model.entity_is_nondeterministic(
+                updated_name
+            )
             is_updated_entity_deterministic = not is_updated_entity_nondeterministic
 
             self.model.update_entity(
@@ -253,13 +264,12 @@ class Fuzzer(object):
                 # between the entity code and Bionic's understanding.  How this
                 # plays out will depend on the versioning mode.
 
-                if self._versioning_mode == 'manual':
+                if self._versioning_mode == "manual":
                     # Bionic doesn't know the code has changed, so this entity
                     # should still be returning the old value.
                     affected_name = self._random.choice(affected_names)
                     returned_value = self.model.build_flow().get(affected_name)
-                    expected_value = self.model.expected_entity_value(
-                        affected_name)
+                    expected_value = self.model.expected_entity_value(affected_name)
 
                     # When the change is functional and bionic doesn't recompute the
                     # entity, the expected and returned values will be different.
@@ -271,10 +281,12 @@ class Fuzzer(object):
                     # We peek at the called entity names to avoid changing the results of
                     # called_entity_names() later.
                     actual_called_names = self.model.peek_called_entity_names()
-                    expects_updated_entity_value_change =\
+                    expects_updated_entity_value_change = (
                         make_func_change and is_updated_entity_nondeterministic
+                    )
                     expected_called_names = self._expected_called_names(
-                        updated_name, affected_name, expects_updated_entity_value_change)
+                        updated_name, affected_name, expects_updated_entity_value_change
+                    )
                     assert set(actual_called_names) == expected_called_names
 
                     # Now update the version to get the flow back into a
@@ -285,7 +297,7 @@ class Fuzzer(object):
                         update_minor=make_nonfunc_change,
                     )
 
-                elif self._versioning_mode == 'assist':
+                elif self._versioning_mode == "assist":
                     affected_name = self._random.choice(affected_names)
 
                     if is_updated_entity_deterministic:
@@ -295,8 +307,9 @@ class Fuzzer(object):
                             self.model.build_flow().get(affected_name)
                     else:
                         # Version does not matter for nondeterministic entities.
-                        assert self.model.build_flow().get(affected_name) ==\
-                            self.model.expected_entity_value(affected_name)
+                        assert self.model.build_flow().get(
+                            affected_name
+                        ) == self.model.expected_entity_value(affected_name)
 
                     # Now update the version to get the flow back into a
                     # "correct" state.
@@ -306,7 +319,7 @@ class Fuzzer(object):
                         update_minor=make_nonfunc_change,
                     )
 
-                elif self._versioning_mode == 'auto':
+                elif self._versioning_mode == "auto":
                     # Even if we didn't update the version, Bionic should
                     # do it for us and the flow should already be in a correct
                     # state.
@@ -314,18 +327,18 @@ class Fuzzer(object):
 
                 else:
                     raise AssertionError(
-                        "Unexpected versioning mode: "
-                        f"{self._versioning_mode!r}")
+                        "Unexpected versioning mode: " f"{self._versioning_mode!r}"
+                    )
 
             for affected_name in affected_names:
-                assert (
-                    self.model.build_flow().get(affected_name) ==
-                    self.model.expected_entity_value(affected_name)
-                )
+                assert self.model.build_flow().get(
+                    affected_name
+                ) == self.model.expected_entity_value(affected_name)
 
             actual_called_names = self.model.called_entity_names()
             expected_called_names = self._expected_called_names(
-                updated_name, affected_names, make_func_change)
+                updated_name, affected_names, make_func_change
+            )
             assert set(actual_called_names) == expected_called_names
 
     def _random_bool(self):
@@ -336,37 +349,40 @@ class Fuzzer(object):
         return choice([True, False], p=[prob_true, 1 - prob_true])
 
     def _expected_called_names(
-            self, updated_name, affected_name_or_names, expects_updated_entity_value_change):
+        self, updated_name, affected_name_or_names, expects_updated_entity_value_change
+    ):
         if expects_updated_entity_value_change:
-            entity_names_in_between = set(self.model.entity_names(
-                downstream_of=updated_name,
-                upstream_of=affected_name_or_names,
-            ))
-            nondeterministic_ancestors =\
-                self.model.nondeterministic_upstream_entity_names(entity_names_in_between)
+            entity_names_in_between = set(
+                self.model.entity_names(
+                    downstream_of=updated_name, upstream_of=affected_name_or_names,
+                )
+            )
+            nondeterministic_ancestors = self.model.nondeterministic_upstream_entity_names(
+                entity_names_in_between
+            )
             expected_called_names = entity_names_in_between | nondeterministic_ancestors
 
         # When the updated entity value doesn't change, we don't call anything between the
         # updated and affected entities since all the entities are persisted and use their
         # parents' value (hash) which did not change.
         else:
-            expected_called_names =\
-                self.model.nondeterministic_upstream_entity_names(affected_name_or_names)
-            if self._versioning_mode == 'auto':
+            expected_called_names = self.model.nondeterministic_upstream_entity_names(
+                affected_name_or_names
+            )
+            if self._versioning_mode == "auto":
                 expected_called_names.add(updated_name)
 
         return expected_called_names
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="function")
 def fuzzer(builder, tmp_path):
-    fake_cloud_store = FakeCloudStore(str(tmp_path / 'BNTESTDATA_FAKE_CLOUD'))
-    builder.set('core__persistent_cache__cloud_store', fake_cloud_store)
+    fake_cloud_store = FakeCloudStore(str(tmp_path / "BNTESTDATA_FAKE_CLOUD"))
+    builder.set("core__persistent_cache__cloud_store", fake_cloud_store)
     return Fuzzer(builder)
 
 
-foreach_mode = pytest.mark.parametrize(
-    'versioning_mode', ['manual', 'assist', 'auto'])
+foreach_mode = pytest.mark.parametrize("versioning_mode", ["manual", "assist", "auto"])
 
 
 @foreach_mode
@@ -379,13 +395,9 @@ def test_small_fixed_flow_short_fuzz(fuzzer, versioning_mode):
     e4 = fuzzer.model.add_entity([e1, e2])
     e5 = fuzzer.model.add_entity([e3, e4])
 
-    assert (
-        fuzzer.model.build_flow().get(e5) ==
-        fuzzer.model.expected_entity_value(e5)
-    )
-    assert (
-        list(sorted(fuzzer.model.called_entity_names())) ==
-        list(sorted(fuzzer.model.entity_names()))
+    assert fuzzer.model.build_flow().get(e5) == fuzzer.model.expected_entity_value(e5)
+    assert list(sorted(fuzzer.model.called_entity_names())) == list(
+        sorted(fuzzer.model.entity_names())
     )
 
     fuzzer.run(n_iterations=30)

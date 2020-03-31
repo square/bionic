@@ -9,10 +9,11 @@ from collections import defaultdict
 from io import BytesIO, IOBase
 
 from .optdep import import_optional_dependency
-module_purpose = 'rendering the flow DAG'
-hsluv = import_optional_dependency('hsluv', purpose=module_purpose)
-pydot = import_optional_dependency('pydot', purpose=module_purpose)
-Image = import_optional_dependency('PIL.Image', purpose=module_purpose)
+
+module_purpose = "rendering the flow DAG"
+hsluv = import_optional_dependency("hsluv", purpose=module_purpose)
+pydot = import_optional_dependency("pydot", purpose=module_purpose)
+Image = import_optional_dependency("PIL.Image", purpose=module_purpose)
 
 
 class FlowImage:
@@ -34,13 +35,14 @@ class FlowImage:
             **params: additional keyword options supported by PIL
         """
         is_file_object = isinstance(fp, IOBase)
-        use_svg = (format == 'svg') or \
-            (format is None and not is_file_object and Path(fp).suffix == '.svg')
+        use_svg = (format == "svg") or (
+            format is None and not is_file_object and Path(fp).suffix == ".svg"
+        )
         if use_svg:
             if is_file_object:
                 fp.write(self._xml_text)
             else:
-                with open(fp, 'wb') as file:
+                with open(fp, "wb") as file:
                     file.write(self._xml_text)
         else:
             self._pil_image.save(fp, format, **params)
@@ -76,58 +78,59 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False):
     """
 
     dot = pydot.Dot(
-        graph_type='digraph',
-        splines='spline' if curvy_lines else 'line',
-        outputorder='edgesfirst',
-        rankdir='TB' if vertical else 'LR',
+        graph_type="digraph",
+        splines="spline" if curvy_lines else "line",
+        outputorder="edgesfirst",
+        rankdir="TB" if vertical else "LR",
     )
 
     node_lists_by_cluster = defaultdict(list)
     for node in graph.nodes():
-        entity_name = graph.nodes[node]['entity_name']
+        entity_name = graph.nodes[node]["entity_name"]
         node_lists_by_cluster[entity_name].append(node)
 
-    entity_names = list(set(
-        graph.nodes[node]['entity_name']
-        for node in graph.nodes()
-    ))
+    entity_names = list(set(graph.nodes[node]["entity_name"] for node in graph.nodes()))
     color_strs_by_entity_name = hpluv_color_dict(
-        entity_names, saturation=99, lightness=90)
+        entity_names, saturation=99, lightness=90
+    )
 
     def name_from_node(node):
-        return graph.nodes[node]['name']
+        return graph.nodes[node]["name"]
 
     def doc_from_node(node):
-        return graph.nodes[node].get('doc')
+        return graph.nodes[node].get("doc")
 
     for cluster, node_list in node_lists_by_cluster.items():
-        sorted_nodes = list(sorted(
-            node_list, key=lambda node: graph.nodes[node]['task_ix']))
+        sorted_nodes = list(
+            sorted(node_list, key=lambda node: graph.nodes[node]["task_ix"])
+        )
 
-        subdot = pydot.Cluster(cluster, style='invis')
+        subdot = pydot.Cluster(cluster, style="invis")
 
         for node in sorted_nodes:
-            entity_name = graph.nodes[node]['entity_name']
+            entity_name = graph.nodes[node]["entity_name"]
             entity_tooltip = doc_from_node(node)
             dot_node = pydot.Node(
                 name_from_node(node),
-                style='filled',
+                style="filled",
                 fillcolor=color_strs_by_entity_name[entity_name],
-                shape='box',
+                shape="box",
             )
             if entity_tooltip:
-                dot_node.set('tooltip', entity_tooltip)
+                dot_node.set("tooltip", entity_tooltip)
             subdot.add_node(dot_node)
 
         dot.add_subgraph(subdot)
 
     for pred_node in graph.nodes():
         for succ_node in graph.successors(pred_node):
-            dot.add_edge(pydot.Edge(
-                name_from_node(pred_node),
-                name_from_node(succ_node),
-                arrowhead='open',
-                tailport='s' if vertical else 'e',
-            ))
+            dot.add_edge(
+                pydot.Edge(
+                    name_from_node(pred_node),
+                    name_from_node(succ_node),
+                    arrowhead="open",
+                    tailport="s" if vertical else "e",
+                )
+            )
 
     return dot

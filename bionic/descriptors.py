@@ -21,7 +21,7 @@ import re
 import attr
 
 
-ENTITY_NAME_PATTERN = re.compile('[a-zA-Z_][a-zA-Z0-9_]*')
+ENTITY_NAME_PATTERN = re.compile("[a-zA-Z_][a-zA-Z0-9_]*")
 
 
 class DescriptorNode(ABC):
@@ -39,7 +39,7 @@ class DescriptorNode(ABC):
             return EntityNode(descriptor)
         else:
             # For now we only support the simplest kind of descriptors.
-            raise ValueError(f'Invalid entity descriptor: {descriptor!r}')
+            raise ValueError(f"Invalid entity descriptor: {descriptor!r}")
 
     @abstractmethod
     def to_descriptor(self):
@@ -53,8 +53,7 @@ class DescriptorNode(ABC):
         If this descriptor is a simple entity name, returns that name; otherwise
         throws a TypeError.
         """
-        raise TypeError(
-            f"Descriptor {self.to_descriptor()!r} is not an entity name")
+        raise TypeError(f"Descriptor {self.to_descriptor()!r} is not an entity name")
 
 
 @attr.s(frozen=True)
