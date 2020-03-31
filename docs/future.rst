@@ -26,13 +26,6 @@ Similar to the above: Bionic will eventually be able to dispatch jobs to other
 machines (such as a cloud-based compute cluster) to achieve even more
 parallelization.
 
-Flow Merging and Nesting
-........................
-
-Bionic will provide better APIs to combine multiple flows into one, or to nest
-one flow inside another with its own namespace.  This should enable the
-construction of more complex and/or more reusable flows.
-
 Direct Access to Persisted Files
 ................................
 
@@ -85,20 +78,11 @@ Smarter Cache Invalidation
 
 Although Bionic attempts to automatically figure out when cached data can be
 used and when it needs to be recomputed, the user still needs to tell it about
-code changes using :func:`@version <bionic.version>`.  This requirement
-probably can't be completely eliminated, since there are many factors that
-might affect our computation (other functions, other libraries, our operating
-system, external databases), and even if we could detect when any of them
-changed, the changes might or might not be subjectively meaningful.  For
-example, if the user performs a minor refactoring, they might not want to
-recompute their results.  However, in common cases we can at least warn the
-user when they might have forgotten to re-version their code.
-
-In particular, we can usually (but not always) detect when an entity function
-changes, and force the user to indicate whether the change is meaningful or
-not.  This might involve a concept of a "major" and a "minor" version, where
-the major version update indicates a functional change that invalidates old
-results, while a minor version update indicates a non-functional change.
+code changes using :func:`@version <bionic.version>`.  We have some experimental
+features (see :ref:`automatic-versioning`) to help with this, but they aren't
+100% accurate. We believe we can improve their accuracy to the point where
+cache invalidation can be inferred automatically, without requiring the
+``@version`` decorator at all.
 
 Automatic Regression Tests
 ..........................
