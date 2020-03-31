@@ -34,6 +34,7 @@ extras["full"] = combine(*extras.values())
 extras["dev"] = combine(
     [
         "pytest",
+        "black",
         "flake8",
         "sphinx",
         "sphinx_rtd_theme",
