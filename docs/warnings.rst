@@ -106,7 +106,8 @@ detect, and only wastes time rather than giving you incorrect results.)
 There are two main situations where this can happen:
 
 1. You've changed some of your code, but didn't use :func:`@version
-   <bionic.version>` to tell Bionic about the change.
+   <bionic.version>` to tell Bionic about the change. You can use
+   :ref:`automatic-versioning` to help avoid this.
 
 2. You're working in a notebook and accessing a flow defined in a Python module
    file, and you've changed the definition of the flow but haven't reloaded the

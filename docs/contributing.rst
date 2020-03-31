@@ -48,7 +48,8 @@ like this:
     pytest
     flake8
 
-Travis should automatically run these for you when you submit a PR.
+Our continuous integration system, `Travis <https://travis-ci.com/>`_, should
+automatically run these for you when you submit a PR.
 
 Pytest will skip the Google Cloud Storage tests unless you pass a command line
 option telling it which bucket to use:

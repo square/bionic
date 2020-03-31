@@ -359,9 +359,8 @@ class ExtensibleLogger(object):
 
 class FileCopier(object):
     """
-    A wrapper for a Path object, exposing a `copy` method that will copy the underlying
-    file to a local or cloud destination
-
+    A wrapper for a Path object, exposing a ``copy`` method that will copy
+    the underlying file to a local or cloud destination.
 
     Parameters
     ----------
