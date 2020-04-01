@@ -36,33 +36,63 @@ documents.  On OS X you can do this with Homebrew:
 
     brew install pandoc
 
-Running the Tests
------------------
+Tests
+-----
 
-Bionic uses `pytest <https://docs.pytest.org/en/latest/>`_ for tests and
-`flake8 <http://flake8.pycqa.org/en/latest/>`_ for linting.  You can run them
-like this:
+Bionic has a suite of automated tests using the
+`pytest <https://docs.pytest.org/en/latest/>`_ framework. You can run most of
+them like this:
 
 .. code-block:: bash
 
     pytest
-    flake8
 
-Our continuous integration system, `Travis <https://travis-ci.com/>`_, should
-automatically run these for you when you submit a PR.
+Our :ref:`Continuous Integration <ci>` system will also run them
+automatically when you submit a pull request.
 
-Pytest will skip the Google Cloud Storage tests unless you pass a command line
-option telling it which bucket to use:
+All functional changes to Bionic should be accompanied by new or updated tests.
+
+Extra Tests
+...........
+
+Pytest doesn't run all of our tests run by default. Some are slow, and only
+run if you specifically request them:
+
+.. code-block:: bash
+
+    pytest --slow
+
+Pytest will also skip the Google Cloud Storage tests unless you pass a
+command line option telling it which bucket to use:
 
 .. code-block:: bash
 
     pytest --bucket=gs://MYBUCKET
 
-It will also skip some other slow tests unless you specifically include them:
+Code Style
+----------
+
+Bionic follows the `PEP 8 <https://www.python.org/dev/peps/pep-0008/>`_
+standard. We use `Black <https://black.readthedocs.io/en/stable/>`_ to
+automatically format our code and `Flake8
+<https://flake8.pycqa.org/en/latest/>`_ to identify additional style errors.
+Our :ref:`Continuous Integration <ci>` system runs these tools on all pull
+requests, but your life will be easier if you run them yourself before
+submitting a pull request:
 
 .. code-block:: bash
 
-    pytest --slow
+    black .
+    flake8
+
+.. _ci :
+
+Continuous Integration
+----------------------
+
+We use `Travis <https://travis-ci.com/>`_ to run our tests and style checks
+on every branch pushed to GitHub. If you submit a pull request, you should
+see the results show up automatically in the "checks" section.
 
 Updating the Documentation
 --------------------------

@@ -11,6 +11,7 @@ before_install:
 script:
 - pytest --slow
 - flake8
+- black --check .
 deploy:
   on:
     tags: true
