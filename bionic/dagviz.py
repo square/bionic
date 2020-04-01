@@ -24,7 +24,7 @@ class FlowImage:
         Replicates the PIL APIs for save and show, for both PIL-supported and SVG formats.
         """
         self._pil_image = Image.open(BytesIO(pydot_graph.create_png()))
-        self._xml_text = pydot_graph.create_svg()
+        self._xml_bytes = pydot_graph.create_svg()
 
     def save(self, fp, format=None, **params):
         """
@@ -41,10 +41,10 @@ class FlowImage:
         )
         if use_svg:
             if is_file_object:
-                fp.write(self._xml_text)
+                fp.write(self._xml_bytes)
             else:
                 with open(fp, "wb") as file:
-                    file.write(self._xml_text)
+                    file.write(self._xml_bytes)
         else:
             self._pil_image.save(fp, format, **params)
 
@@ -54,7 +54,7 @@ class FlowImage:
 
     def _repr_svg_(self):
         """Rich display image as SVG in IPython notebook or Qt console."""
-        return str(self._xml_text)
+        return self._xml_bytes.decode("utf8")
 
 
 def hpluv_color_dict(keys, saturation, lightness):
