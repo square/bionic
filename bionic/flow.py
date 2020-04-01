@@ -1230,7 +1230,9 @@ class Flow(object):
         from . import dagviz
 
         graph = self._deriver.export_dag(include_core)
-        dot = dagviz.dot_from_graph(graph, vertical, curvy_lines)
+        dot = dagviz.dot_from_graph(
+            graph=graph, vertical=vertical, curvy_lines=curvy_lines, name=self.name,
+        )
         return dagviz.FlowImage(dot)
 
     # TODO Should we offer an in-place version of this?  It's contrary to the

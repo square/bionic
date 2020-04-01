@@ -6,6 +6,7 @@ import logging
 from collections import defaultdict
 from hashlib import sha256
 from binascii import hexlify
+import re
 import subprocess
 import warnings
 import shutil
@@ -210,6 +211,48 @@ def recursively_delete_path(path):
         path.unlink()
     else:
         shutil.rmtree(path)
+
+
+# Matches a line that looks like the start of a new paragraph.
+NEW_PARAGRAPH_PATTERN = re.compile(
+    r"$"  # An empty line.
+    r"|[\-\+\*]"  # A bullet point in an unordered list.
+    r"|(\d+[\.\)] )"  # A numbered list item.
+    r"|([a-z][\.\)] )"  # A letter list item.
+)
+
+
+def rewrap_docstring(docstring):
+    """
+    Reformats a Python docstring to read more nicely as freeform text (for example, in
+    an SVG tooltip).
+
+    Docstrings are generally written with a fixed line width, so they have
+    line breaks that look weird in contexts that expect continuous lines of
+    text. This function replaces collapses the line breaks into regular
+    spaces, except when it identifies text that looks like the start of a new
+    paragraph:
+    - An empty line.
+    - A line starting with bullet point ("-", "+", "*").
+    - A line starting with an ordered list field (a lowercase letter or
+    number followed by "." or ")").
+    """
+    docstring = docstring.strip()
+    if not docstring:
+        return ""
+
+    lines = docstring.split("\n")
+    grouped_line_lists = [[]]
+    for line in lines:
+        line = line.strip()
+        if NEW_PARAGRAPH_PATTERN.match(line):
+            grouped_line_lists.append([])
+
+        if line:
+            grouped_line_lists[-1].append(line)
+
+    paragraphs = [" ".join(line_list) for line_list in grouped_line_lists]
+    return "\n".join(paragraphs)
 
 
 class ImmutableSequence(object):

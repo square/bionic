@@ -9,6 +9,7 @@ from collections import defaultdict
 from io import BytesIO, IOBase
 
 from .optdep import import_optional_dependency
+from .util import rewrap_docstring
 
 module_purpose = "rendering the flow DAG"
 hsluv = import_optional_dependency("hsluv", purpose=module_purpose)
@@ -71,13 +72,19 @@ def hpluv_color_dict(keys, saturation, lightness):
     return dict(zip(keys, color_strs))
 
 
-def dot_from_graph(graph, vertical=False, curvy_lines=False):
+def dot_from_graph(graph, vertical=False, curvy_lines=False, name=None):
     """
     Given a NetworkX directed acyclic graph, returns a Pydot object which can
     be visualized using GraphViz.
     """
 
+    if name is None:
+        graph_name = ""
+    else:
+        graph_name = name
+
     dot = pydot.Dot(
+        graph_name=graph_name,
         graph_type="digraph",
         splines="spline" if curvy_lines else "line",
         outputorder="edgesfirst",
@@ -109,15 +116,16 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False):
 
         for node in sorted_nodes:
             entity_name = graph.nodes[node]["entity_name"]
-            entity_tooltip = doc_from_node(node)
+            entity_doc = doc_from_node(node)
             dot_node = pydot.Node(
                 name_from_node(node),
                 style="filled",
                 fillcolor=color_strs_by_entity_name[entity_name],
                 shape="box",
             )
-            if entity_tooltip:
-                dot_node.set("tooltip", entity_tooltip)
+            if entity_doc:
+                tooltip = rewrap_docstring(entity_doc)
+                dot_node.set("tooltip", tooltip)
             subdot.add_node(dot_node)
 
         dot.add_subgraph(subdot)

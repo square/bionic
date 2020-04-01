@@ -109,6 +109,127 @@ def test_oneline():
     )
 
 
+def test_clean_docstring():
+    from bionic.util import rewrap_docstring
+
+    assert rewrap_docstring("") == ""
+    assert rewrap_docstring("test") == "test"
+    assert rewrap_docstring("test one two") == "test one two"
+    assert rewrap_docstring("test\none\ntwo") == "test one two"
+    assert rewrap_docstring("test 1. 2.") == "test 1. 2."
+    assert rewrap_docstring("test\n\none\ntwo") == "test\none two"
+
+    doc = """
+    test
+    """
+    assert rewrap_docstring(doc) == "test"
+
+    doc = """
+    test one
+    two
+    """
+    assert rewrap_docstring(doc) == "test one two"
+
+    doc = """
+    test one
+        two
+    """
+    assert rewrap_docstring(doc) == "test one two"
+
+    doc = """
+    test one
+
+    two
+    """
+    assert rewrap_docstring(doc) == "test one\ntwo"
+
+    doc = """
+    test
+    - one
+    - two
+    """
+    assert rewrap_docstring(doc) == "test\n- one\n- two"
+
+    doc = """
+    test
+    + one
+    + two
+    """
+    assert rewrap_docstring(doc) == "test\n+ one\n+ two"
+
+    doc = """
+    test
+    * one
+    * two
+    """
+    assert rewrap_docstring(doc) == "test\n* one\n* two"
+
+    doc = """
+    test
+    1. one
+    2. two
+    """
+    assert rewrap_docstring(doc) == "test\n1. one\n2. two"
+
+    doc = """
+    test
+    1) one
+    2) two
+    """
+    assert rewrap_docstring(doc) == "test\n1) one\n2) two"
+
+    doc = """
+    test
+    10) one
+    20) two
+    """
+    assert rewrap_docstring(doc) == "test\n10) one\n20) two"
+
+    doc = """
+    test
+    a) one
+    b) two
+    """
+    assert rewrap_docstring(doc) == "test\na) one\nb) two"
+
+    doc = """
+    test
+    1.0
+    """
+    assert rewrap_docstring(doc) == "test 1.0"
+
+    doc = """
+    test (one
+    two)
+    """
+    assert rewrap_docstring(doc) == "test (one two)"
+
+    doc = """
+    test
+    - one
+    - two
+
+    - three
+    - four
+    """
+    assert rewrap_docstring(doc) == "test\n- one\n- two\n\n- three\n- four"
+
+    doc = """
+    test
+    - one
+    two
+    """
+    assert rewrap_docstring(doc) == "test\n- one two"
+
+    doc = """
+    test
+    - one
+
+    two
+    """
+    assert rewrap_docstring(doc) == "test\n- one\ntwo"
+
+
 # These functions are not in util.py but it's convenient to test them here too.
 def test_longest_regex_prefix():
     from .helpers import longest_regex_prefix_match
