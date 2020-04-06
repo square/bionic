@@ -30,7 +30,7 @@ from .provider import (
     provider_wrapper,
     AttrUpdateProvider,
 )
-from .deriver import EntityDeriver
+from .deriver import FlowDeriver
 from .descriptors import DescriptorNode
 from . import decorators
 from .util import (
@@ -552,7 +552,7 @@ class FlowBuilder(object):
         # Check that the flows don't have the same name.
         # TODO The mechanics of this check really suck, since this builder's
         # name is stored like any other entity, but we have to figure it out
-        # without using an EntityDeriver.  Since this is a best-effort check, I
+        # without using an FlowDeriver.  Since this is a best-effort check, I
         # guess it's not a huge deal.  But overall, the way we store a flow's
         # name might deserve to be revisited later.
         if not allow_name_match:
@@ -1362,7 +1362,7 @@ class Flow(object):
 
         self._uuid = str(uuid4())
         self._state = state
-        self._deriver = EntityDeriver(state, self._uuid)
+        self._deriver = FlowDeriver(state, self._uuid)
 
         # We replace the `get` and `setting` methods with wrapper classes
         # that have an attribute for each entity.  This allows a convenient,

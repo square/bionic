@@ -20,40 +20,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class EntityDeriver(object):
+class FlowDeriver:
     """
-    Derives the values of Entities.
+    Derives the values of descriptors in a flow.
 
-    This is the class that constructs the entity graph and computes the value
-    or values of each entity.
+    This is the class that constructs the descriptor graph and computes the value
+    or values of each descriptor.
     """
 
     # --- Public API.
 
     def __init__(self, flow_state, flow_instance_uuid):
-        self._flow_state = flow_state
         self._flow_instance_uuid = flow_instance_uuid
-
-        # This state is needed to do any resolution at all.  Once it's
-        # initialized, we can use it to bootstrap the requirements for "full"
-        # resolution below.
-        self._is_ready_for_bootstrap_resolution = False
-        self._key_spaces_by_dnode = None
-        self._task_lists_by_dnode = None
-        self._task_states_by_key = None
-        self._docs_by_entity_name = {}
-
-        # This state allows us to do full resolution for external callers.
-        self._is_ready_for_full_resolution = False
-        self._persistent_cache = None
-        self._versioning_policy = None
+        self._flow_state = flow_state
+        self._plan = FlowPlan(flow_state)
+        self._bootstrap = None
 
     def get_ready(self):
         """
         Make sure this Deriver is ready to derive().  Calling this is not
         necessary but allows errors to surface earlier.
         """
-        self._get_ready_for_full_resolution()
+        self._initialize_bootstrap()
 
     def derive(self, dnode):
         """
@@ -61,7 +49,7 @@ class EntityDeriver(object):
         all values for that descriptor.
         """
         self.get_ready()
-        return self._compute_result_group_for_dnode(dnode)
+        return self._create_execution().derive_result_group_for_dnode(dnode)
 
     def export_dag(self, include_core=False):
         """
@@ -86,10 +74,14 @@ class EntityDeriver(object):
 
         graph = nx.DiGraph()
 
-        for dnode, tasks in self._task_lists_by_dnode.items():
+        for dnode in self._plan.all_dnodes():
+            tasks = self._plan.tasks_for_dnode(dnode)
             entity_name = dnode.to_descriptor()
             if not should_include_entity_name(entity_name):
                 continue
+
+            provider = self._flow_state.get_provider(entity_name)
+            doc = provider.doc_for_name(entity_name)
 
             if len(tasks) == 1:
                 name_template = "{entity_name}"
@@ -100,7 +92,7 @@ class EntityDeriver(object):
                 sorted(tasks, key=lambda task: task.keys[0].case_key)
             ):
                 task_key = task.key_for_entity_name(entity_name)
-                state = self._task_states_by_key[task_key]
+                task_plan = self._plan.task_plan_for_key(task_key)
 
                 node_name = name_template.format(
                     entity_name=entity_name, task_ix=task_ix
@@ -112,11 +104,11 @@ class EntityDeriver(object):
                     entity_name=entity_name,
                     case_key=task_key.case_key,
                     task_ix=task_ix,
-                    doc=self._docs_by_entity_name.get(entity_name),
+                    doc=doc,
                 )
 
-                for dep_state in state.dep_states:
-                    for dep_task_key in dep_state.task.keys:
+                for dep_plan in task_plan.dep_plans:
+                    for dep_task_key in dep_plan.task.keys:
                         graph.add_edge(dep_task_key, task_key)
 
         return graph
@@ -126,24 +118,76 @@ class EntityDeriver(object):
 
     # --- Private helpers.
 
-    def _get_ready_for_full_resolution(self):
-        if self._is_ready_for_full_resolution:
+    def _create_execution(self):
+        return FlowExecution(
+            plan=self._plan,
+            flow_instance_uuid=self._flow_instance_uuid,
+            bootstrap=self._bootstrap,
+        )
+
+    def _initialize_bootstrap(self):
+        if self._bootstrap is not None:
             return
 
-        self._get_ready_for_bootstrap_resolution()
+        self._plan.set_up_all_descriptor_state()
 
-        self._persistent_cache = self._bootstrap_singleton_entity(
-            "core__persistent_cache"
+        self._bootstrap = Bootstrap(
+            persistent_cache=self._bootstrap_singleton_entity(
+                "core__persistent_cache"
+            ),
+            versioning_policy=self._bootstrap_singleton_entity(
+                "core__versioning_policy"
+            ),
         )
 
-        self._versioning_policy = self._bootstrap_singleton_entity(
-            "core__versioning_policy"
-        )
+    def _bootstrap_singleton_entity(self, entity_name):
+        assert self._bootstrap is None
 
-        self._is_ready_for_full_resolution = True
+        dnode = DescriptorNode.from_descriptor(entity_name)
+        result_group = self._create_execution().derive_result_group_for_dnode(dnode)
+        if len(result_group) == 0:
+            raise ValueError(
+                oneline(
+                    f"""
+                No values were defined for internal bootstrap entity
+                {entity_name!r}"""
+                )
+            )
+        if len(result_group) > 1:
+            values = [result.value for result in result_group]
+            raise ValueError(
+                oneline(
+                    f"""
+                Bootstrap entity {entity_name!r} must have exactly one
+                value; got {len(values)} ({values!r})"""
+                )
+            )
+        return result_group[0].value
 
-    def _get_ready_for_bootstrap_resolution(self):
-        if self._is_ready_for_bootstrap_resolution:
+
+class FlowPlan(object):
+    """
+    Represents a plan for how to compute descriptor values in a flow. This includes
+    a mapping from descriptor nodes to data about their dependencies, provenance, cached
+    values, etc. This data all stays valid throughout the lifetime of a flow.
+    """
+
+    # --- Public API.
+
+    def __init__(self, flow_state):
+        self._flow_state = flow_state
+
+        # This state is needed to do any resolution at all.  Once it's
+        # initialized, we can use it to bootstrap the requirements for "full"
+        # resolution below.
+        self._key_spaces_by_dnode = None
+        self._task_lists_by_dnode = None
+        self._task_plans_by_key = None
+        self._docs_by_entity_name = {}
+        self._descriptor_state_is_set_up = False
+
+    def set_up_all_descriptor_state(self):
+        if self._descriptor_state_is_set_up:
             return
 
         # Generate the static key spaces and tasks for each descriptor.
@@ -160,20 +204,34 @@ class EntityDeriver(object):
                 for task_key in task.keys:
                     self._tasks_by_key[task_key] = task
 
-        # Create a state object for each task.
-        self._task_states_by_key = {}
+        # Create a plan object for each task.
+        self._task_plans_by_key = {}
         for task_key in self._tasks_by_key.keys():
-            self._get_or_create_task_state_for_key(task_key)
+            self._get_or_create_task_plan_for_key(task_key)
 
-        self._is_ready_for_bootstrap_resolution = True
+        self._descriptor_state_is_set_up = True
 
-    def _get_or_create_task_state_for_key(self, task_key):
-        if task_key in self._task_states_by_key:
-            return self._task_states_by_key[task_key]
+    def tasks_for_dnode(self, dnode):
+        return self._task_lists_by_dnode[dnode]
+
+    def task_plan_for_key(self, task_key):
+        return self._task_plans_by_key[task_key]
+
+    def key_space_for_dnode(self, dnode):
+        return self._key_spaces_by_dnode[dnode]
+
+    def all_dnodes(self):
+        return self._task_lists_by_dnode.keys()
+
+    # --- Private helpers.
+
+    def _get_or_create_task_plan_for_key(self, task_key):
+        if task_key in self._task_plans_by_key:
+            return self._task_plans_by_key[task_key]
 
         task = self._tasks_by_key[task_key]
-        dep_states = [
-            self._get_or_create_task_state_for_key(dep_key) for dep_key in task.dep_keys
+        dep_plans = [
+            self._get_or_create_task_plan_for_key(dep_key) for dep_key in task.dep_keys
         ]
         # All keys in this task should point to the same provider, so the set below
         # should have exactly one element.
@@ -184,13 +242,13 @@ class EntityDeriver(object):
         # And all the task keys should have the same case key.
         (case_key,) = set(task_key.case_key for task_key in task.keys)
 
-        task_state = TaskState(
-            task=task, dep_states=dep_states, provider=provider, case_key=case_key,
+        task_plan = TaskPlan(
+            task=task, dep_plans=dep_plans, provider=provider, case_key=case_key,
         )
 
         for task_key in task.keys:
-            self._task_states_by_key[task_key] = task_state
-        return task_state
+            self._task_plans_by_key[task_key] = task_plan
+        return task_plan
 
     def _populate_dnode_info(self, dnode):
         if dnode in self._task_lists_by_dnode:
@@ -224,186 +282,86 @@ class EntityDeriver(object):
 
         self._docs_by_entity_name[entity_name] = provider.doc_for_name(entity_name)
 
-    def _bootstrap_singleton_entity(self, entity_name):
-        dnode = DescriptorNode.from_descriptor(entity_name)
-        result_group = self._compute_result_group_for_dnode(dnode)
-        if len(result_group) == 0:
-            raise ValueError(
-                oneline(
-                    f"""
-                No values were defined for internal bootstrap entity
-                {entity_name!r}"""
-                )
-            )
-        if len(result_group) > 1:
-            values = [result.value for result in result_group]
-            raise ValueError(
-                oneline(
-                    f"""
-                Bootstrap entity {entity_name!r} must have exactly one
-                value; got {len(values)} ({values!r})"""
-                )
-            )
-        return result_group[0].value
 
-    def _compute_result_group_for_dnode(self, dnode):
+class Bootstrap:
+    def __init__(self, persistent_cache, versioning_policy):
+        self.persistent_cache = persistent_cache
+        self.versioning_policy = versioning_policy
+
+
+class FlowExecution:
+    """
+    FIXME
+    """
+
+    def __init__(self, plan, flow_instance_uuid, bootstrap):
+        self._plan = plan
+        self._flow_instance_uuid = flow_instance_uuid
+        self._bootstrap = bootstrap
+
+        log_level = logging.INFO if self._bootstrap is not None else logging.DEBUG
+        self._task_key_logger = TaskKeyLogger(log_level)
+
+    def derive_result_group_for_dnode(self, dnode):
         entity_name = dnode.to_entity_name()
-        tasks = self._task_lists_by_dnode.get(dnode)
-        if tasks is None:
+        try:
+            tasks = self._plan.tasks_for_dnode(dnode)
+        except KeyError:
             raise UndefinedEntityError.for_name(entity_name)
-        requested_task_states = [
-            self._task_states_by_key[task.keys[0]] for task in tasks
+        requested_task_plans = [
+            self._plan.task_plan_for_key(task.keys[0]) for task in tasks
         ]
 
-        ready_task_states = list(requested_task_states)
+        ready_task_plans = list(requested_task_plans)
 
         blockage_tracker = TaskBlockageTracker()
 
-        log_level = (
-            logging.INFO if self._is_ready_for_full_resolution else logging.DEBUG
-        )
-        task_key_logger = TaskKeyLogger(log_level)
-
-        while ready_task_states:
-            state = ready_task_states.pop()
+        while ready_task_plans:
+            task_plan = ready_task_plans.pop()
 
             # If this task is already complete, we don't need to do any work.
             # But if this is the first time we've seen this task, we should
             # should log a message.
-            if state.is_complete:
-                for task_key in state.task.keys:
-                    task_key_logger.log_accessed_from_memory(task_key)
+            if task_plan.is_complete:
+                for task_key in task_plan.task.keys:
+                    self._task_key_logger.log_accessed_from_memory(task_key)
                 continue
 
             # If blocked, let's mark it and try to derive its dependencies.
-            incomplete_dep_states = state.incomplete_dep_states()
-            if incomplete_dep_states:
+            incomplete_dep_plans = task_plan.incomplete_dep_plans()
+            if incomplete_dep_plans:
                 blockage_tracker.add_blockage(
-                    blocked_state=state, blocking_states=incomplete_dep_states,
+                    blocked_plan=task_plan, blocking_plans=incomplete_dep_plans,
                 )
-                ready_task_states.extend(incomplete_dep_states)
+                ready_task_plans.extend(incomplete_dep_plans)
                 continue
 
             # If the task isn't complete or blocked, we can complete the task.
-            self._complete_task_state(state, task_key_logger)
+            self._complete_task_plan(task_plan)
 
-            # See if we can unblock any other states now that we've completed this one.
-            unblocked_states = blockage_tracker.get_unblocked_by(state)
-            ready_task_states.extend(unblocked_states)
+            # See if we can unblock any other plans now that we've completed this one.
+            unblocked_plans = blockage_tracker.get_unblocked_by(task_plan)
+            ready_task_plans.extend(unblocked_plans)
 
-        blocked_states = blockage_tracker.get_all_blocked_states()
-        assert not blocked_states, blocked_states
+        blocked_plans = blockage_tracker.get_all_blocked_plans()
+        assert not blocked_plans, blocked_plans
 
-        for state in requested_task_states:
-            assert state.is_complete, state
+        for task_plan in requested_task_plans:
+            assert task_plan.is_complete, task_plan
 
         return ResultGroup(
             results=[
-                self._get_results_for_complete_task_state(state, task_key_logger)[
+                self._get_results_for_complete_task_plan(task_plan)[
                     entity_name
                 ]
-                for state in requested_task_states
+                for task_plan in requested_task_plans
             ],
-            key_space=self._key_spaces_by_dnode[dnode],
+            key_space=self._plan.key_space_for_dnode(dnode),
         )
 
-    def _complete_task_state(self, task_state, task_key_logger):
-        assert not task_state.is_blocked
-        assert not task_state.is_complete
-
-        # First, set up provenance.
-        if not self._is_ready_for_full_resolution:
-            # If we're still in the bootstrap resolution phase, we don't have
-            # any versioning policy, so we don't attempt anything fancy.
-            treat_bytecode_as_functional = False
-        else:
-            treat_bytecode_as_functional = (
-                self._versioning_policy.treat_bytecode_as_functional
-            )
-
-        dep_provenance_digests_by_task_key = {}
-        for dep_key, dep_state in zip(task_state.task.dep_keys, task_state.dep_states):
-            # Use value hash of persistable values.
-            if dep_state.provider.attrs.should_persist():
-                value_hash = dep_state.result_value_hashes_by_name[
-                    dep_key.dnode.to_entity_name()
-                ]
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_value_hash(value_hash)
-            # Otherwise, use the provenance.
-            else:
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_provenance(dep_state.provenance)
-
-        task_state.provenance = Provenance.from_computation(
-            code_fingerprint=task_state.provider.get_code_fingerprint(
-                task_state.case_key
-            ),
-            case_key=task_state.case_key,
-            dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
-            treat_bytecode_as_functional=treat_bytecode_as_functional,
-            can_functionally_change_per_run=task_state.provider.attrs.changes_per_run,
-            flow_instance_uuid=self._flow_instance_uuid,
-        )
-
-        # Then set up queries.
-        task_state.queries = [
-            Query(
-                task_key=task_key,
-                protocol=task_state.provider.protocol_for_name(
-                    task_key.dnode.to_entity_name()
-                ),
-                provenance=task_state.provenance,
-            )
-            for task_key in task_state.task.keys
-        ]
-
-        # Lastly, set up cache accessors.
-        if task_state.provider.attrs.should_persist():
-            if not self._is_ready_for_full_resolution:
-                name = task_state.task.keys[0].entity_name
-                raise AssertionError(
-                    oneline(
-                        f"""
-                    Attempting to load cached state for entity {name!r},
-                    but the cache is not available yet because core bootstrap
-                    entities depend on this one;
-                    you should decorate entity {name!r} with `@persist(False)`
-                    or `@immediate` to indicate that it can't be cached."""
-                    )
-                )
-
-            task_state.cache_accessors = [
-                self._persistent_cache.get_accessor(query)
-                for query in task_state.queries
-            ]
-
-            if self._versioning_policy.check_for_bytecode_errors:
-                self._check_accessors_for_version_problems(task_state)
-
-        # See if we can load it from the cache.
-        if task_state.provider.attrs.should_persist() and all(
-            axr.can_load() for axr in task_state.cache_accessors
-        ):
-            # We only load the hashed result while completing task state
-            # and lazily load the entire result when needed later.
-            value_hashes_by_name = {}
-            for accessor in task_state.cache_accessors:
-                value_hash = accessor.load_result_value_hash()
-                value_hashes_by_name[accessor.query.dnode.to_entity_name()] = value_hash
-
-            task_state.result_value_hashes_by_name = value_hashes_by_name
-        # If we cannot load it from cache, we compute the task state.
-        else:
-            self._compute_task_state(task_state, task_key_logger)
-
-        task_state.is_complete = True
-
-    def _check_accessors_for_version_problems(self, task_state):
+    def _check_accessors_for_version_problems(self, task_plan):
         accessors_needing_saving = []
-        for accessor in task_state.cache_accessors:
+        for accessor in task_plan.cache_accessors:
             old_prov = accessor.load_provenance()
 
             if old_prov is None:
@@ -438,66 +396,136 @@ class EntityDeriver(object):
         for accessor in accessors_needing_saving:
             accessor.update_provenance()
 
-    def _get_results_for_complete_task_state(self, task_state, task_key_logger):
-        assert task_state.is_complete
+    def _complete_task_plan(self, task_plan):
+        assert not task_plan.is_blocked
+        assert not task_plan.is_complete
 
-        if task_state._results_by_name:
-            for task_key in task_state.task.keys:
-                task_key_logger.log_accessed_from_memory(task_key)
-            return task_state._results_by_name
+        # First, set up provenance.
+        if self._bootstrap is None:
+            # If we're still in the bootstrap resolution phase, we don't have
+            # any versioning policy, so we don't attempt anything fancy.
+            treat_bytecode_as_functional = False
+        else:
+            treat_bytecode_as_functional = (
+                self._bootstrap.versioning_policy.treat_bytecode_as_functional
+            )
 
-        results_by_name = dict()
-        for accessor in task_state.cache_accessors:
-            result = accessor.load_result()
-            task_key_logger.log_loaded_from_disk(result.query.task_key)
+        dep_provenance_digests_by_task_key = {}
+        for dep_key, dep_plan in zip(task_plan.task.dep_keys, task_plan.dep_plans):
+            # Use value hash of persistable values.
+            if dep_plan.provider.attrs.should_persist():
+                value_hash = dep_plan.result_value_hashes_by_name[
+                    dep_key.dnode.to_entity_name()
+                ]
+                dep_provenance_digests_by_task_key[
+                    dep_key
+                ] = ProvenanceDigest.from_value_hash(value_hash)
+            # Otherwise, use the provenance.
+            else:
+                dep_provenance_digests_by_task_key[
+                    dep_key
+                ] = ProvenanceDigest.from_provenance(dep_plan.provenance)
 
-            # Make sure the result is saved in all caches under this exact
-            # query.
-            accessor.save_result(result)
+        task_plan.provenance = Provenance.from_computation(
+            code_fingerprint=task_plan.provider.get_code_fingerprint(
+                task_plan.case_key
+            ),
+            case_key=task_plan.case_key,
+            dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
+            treat_bytecode_as_functional=treat_bytecode_as_functional,
+            can_functionally_change_per_run=task_plan.provider.attrs.changes_per_run,
+            flow_instance_uuid=self._flow_instance_uuid,
+        )
 
-            results_by_name[result.query.dnode.to_entity_name()] = result
+        # Then set up queries.
+        task_plan.queries = [
+            Query(
+                task_key=task_key,
+                protocol=task_plan.provider.protocol_for_name(
+                    task_key.dnode.to_entity_name()
+                ),
+                provenance=task_plan.provenance,
+            )
+            for task_key in task_plan.task.keys
+        ]
 
-        if task_state.provider.attrs.should_memoize():
-            task_state._results_by_name = results_by_name
+        # Lastly, set up cache accessors.
+        if task_plan.provider.attrs.should_persist():
+            if self._bootstrap is None:
+                name = task_plan.task.keys[0].entity_name
+                raise AssertionError(
+                    oneline(
+                        f"""
+                    Attempting to load cached state for entity {name!r},
+                    but the cache is not available yet because core bootstrap
+                    entities depend on this one;
+                    you should decorate entity {name!r} with `@persist(False)`
+                    or `@immediate` to indicate that it can't be cached."""
+                    )
+                )
 
-        return results_by_name
+            task_plan.cache_accessors = [
+                self._bootstrap.persistent_cache.get_accessor(query)
+                for query in task_plan.queries
+            ]
 
-    def _compute_task_state(self, task_state, task_key_logger):
-        task = task_state.task
+            if self._bootstrap.versioning_policy.check_for_bytecode_errors:
+                self._check_accessors_for_version_problems(task_plan)
+
+        # See if we can load it from the cache.
+        if task_plan.provider.attrs.should_persist() and all(
+            axr.can_load() for axr in task_plan.cache_accessors
+        ):
+            # We only load the hashed result while completing task plan
+            # and lazily load the entire result when needed later.
+            value_hashes_by_name = {}
+            for accessor in task_plan.cache_accessors:
+                value_hash = accessor.load_result_value_hash()
+                value_hashes_by_name[accessor.query.dnode.to_entity_name()] = value_hash
+
+            task_plan.result_value_hashes_by_name = value_hashes_by_name
+        # If we cannot load it from cache, we compute the task plan.
+        else:
+            self._compute_task_plan(task_plan)
+
+        task_plan.is_complete = True
+
+    def _compute_task_plan(self, task_plan):
+        task = task_plan.task
         dep_keys = task.dep_keys
         dep_results = [
-            self._get_results_for_complete_task_state(
-                self._task_states_by_key[dep_key], task_key_logger
+            self._get_results_for_complete_task_plan(
+                self._plan.task_plan_for_key(dep_key)
             )[dep_key.dnode.to_entity_name()]
             for dep_key in dep_keys
         ]
 
-        provider = task_state.provider
+        provider = task_plan.provider
 
         if not task.is_simple_lookup:
             for task_key in task.keys:
-                task_key_logger.log_computing(task_key)
+                self._task_key_logger.log_computing(task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
 
-        values = task_state.task.compute(dep_values)
+        values = task_plan.task.compute(dep_values)
         assert len(values) == len(provider.attrs.names)
 
-        for query in task_state.queries:
+        for query in task_plan.queries:
             if task.is_simple_lookup:
-                task_key_logger.log_accessed_from_definition(query.task_key)
+                self._task_key_logger.log_accessed_from_definition(query.task_key)
             else:
-                task_key_logger.log_computed(query.task_key)
+                self._task_key_logger.log_computed(query.task_key)
 
         results_by_name = {}
         result_value_hashes_by_name = {}
-        for ix, (query, value) in enumerate(zip(task_state.queries, values)):
+        for ix, (query, value) in enumerate(zip(task_plan.queries, values)):
             query.protocol.validate(value)
 
             result = Result(query=query, value=value,)
 
             if provider.attrs.should_persist():
-                accessor = task_state.cache_accessors[ix]
+                accessor = task_plan.cache_accessors[ix]
                 accessor.save_result(result)
 
                 value_hash = accessor.load_result_value_hash()
@@ -510,17 +538,41 @@ class EntityDeriver(object):
         # value is not exactly the same as the original, we still
         # always return the same value.
         if provider.attrs.should_memoize() and not provider.attrs.should_persist():
-            task_state._results_by_name = results_by_name
+            task_plan._results_by_name = results_by_name
 
         # But we cache the hashed values eagerly since they are cheap to load.
         if provider.attrs.should_persist():
-            task_state.result_value_hashes_by_name = result_value_hashes_by_name
+            task_plan.result_value_hashes_by_name = result_value_hashes_by_name
+
+    def _get_results_for_complete_task_plan(self, task_plan):
+        assert task_plan.is_complete
+
+        if task_plan._results_by_name:
+            for task_key in task_plan.task.keys:
+                self._task_key_logger.log_accessed_from_memory(task_key)
+            return task_plan._results_by_name
+
+        results_by_name = dict()
+        for accessor in task_plan.cache_accessors:
+            result = accessor.load_result()
+            self._task_key_logger.log_loaded_from_disk(result.query.task_key)
+
+            # Make sure the result is saved in all caches under this exact
+            # query.
+            accessor.save_result(result)
+
+            results_by_name[result.query.dnode.to_entity_name()] = result
+
+        if task_plan.provider.attrs.should_memoize():
+            task_plan._results_by_name = results_by_name
+
+        return results_by_name
 
 
 class TaskKeyLogger:
     """
     Logs how we derived each task key. The purpose of this class is to make sure that
-    each task key used in a derivation (i.e., a call to `Flow.get()`) is logged exactly
+    each task key used in an execution (i.e., a call to `Flow.get()`) is logged exactly
     once. (One exception: a task key can be logged twice to indicate the start and end
     of a computation.)
     """
@@ -552,21 +604,20 @@ class TaskKeyLogger:
         self._log("Computed   %s", task_key)
 
 
-class TaskState(object):
+class TaskPlan(object):
     """
-    Represents the state of a task computation.  Keeps track of its position in
-    the task graph, whether its values have been computed yet, and additional
-    intermediate state.
+    Represents a plan for computing a task; mostly a holder for extra helper data needed
+    to compute the task's value.
     """
 
-    def __init__(self, task, dep_states, case_key, provider):
+    def __init__(self, task, dep_plans, case_key, provider):
         self.task = task
-        self.dep_states = dep_states
+        self.dep_plans = dep_plans
         self.case_key = case_key
         self.provider = provider
 
-        # These are set by EntityDeriver._complete_task_state(), just
-        # before the task state becomes eligible for cache lookup / computation.
+        # These are set by FlowExecution._complete_task_plan(), just
+        # before the task plan becomes eligible for cache lookup / computation.
         #
         # They will be present if and only if is_complete is True.
         self.provenance = None
@@ -574,42 +625,42 @@ class TaskState(object):
         self.cache_accessors = None
 
         # This can be set by
-        # EntityDeriver._complete_task_state() or
-        # EntityDeriver._compute_task_state().
+        # FlowExecution._complete_task_plan() or
+        # FlowExecution._compute_task_plan().
         #
         # This will be present if and only if both is_complete and
         # provider.attrs.should_persist() are True.
         self.result_value_hashes_by_name = None
 
         # This can be set by
-        # EntityDeriver._get_results_for_complete_task_state() or
-        # EntityDeriver._compute_task_state().
+        # FlowExecution._get_results_for_complete_task_plan() or
+        # FlowExecution._compute_task_plan().
         #
-        # This should never be accessed directly, instead use
-        # EntityDeriver._get_results_for_complete_task_state().
+        # This should never be accessed directly; instead, use
+        # FlowExecution._get_results_for_complete_task_plan().
         self._results_by_name = None
 
         self.is_complete = False
 
-    def incomplete_dep_states(self):
-        return [dep_state for dep_state in self.dep_states if not dep_state.is_complete]
+    def incomplete_dep_plans(self):
+        return [dep_plan for dep_plan in self.dep_plans if not dep_plan.is_complete]
 
     @property
     def is_blocked(self):
-        return len(self.incomplete_dep_states()) > 0
+        return len(self.incomplete_dep_plans()) > 0
 
     def __repr__(self):
-        return f"TaskState({self.task!r})"
+        return f"TaskPlan({self.task!r})"
 
 
 class TaskBlockage:
     """
-    Represents a blocking relationship between a task state and a collection of
+    Represents a blocking relationship between a task plan and a collection of
     not-yet-completed task keys it depends on.
     """
 
-    def __init__(self, blocked_state, blocking_tks):
-        self.blocked_state = blocked_state
+    def __init__(self, blocked_plan, blocking_tks):
+        self.blocked_plan = blocked_plan
         self._blocking_tks = set(blocking_tks)
 
     def mark_task_key_complete(self, blocking_tk):
@@ -619,45 +670,46 @@ class TaskBlockage:
         return not self._blocking_tks
 
 
+# FIXME Move this into TaskExecution class?
 class TaskBlockageTracker:
     """
-    A helper class that keeps track of which task states are blocked by others.
+    A helper class that keeps track of which task plans are blocked by others.
 
-    A task state X is "blocked" by another task state Y if X depends on Y and Y is
+    A task plan X is "blocked" by another task plan Y if X depends on Y and Y is
     not complete.
     """
 
     def __init__(self):
         self._blockage_lists_by_blocking_tk = defaultdict(list)
 
-    def add_blockage(self, blocked_state, blocking_states):
-        """Records the fact that one task state is blocked by certain others."""
+    def add_blockage(self, blocked_plan, blocking_plans):
+        """Records the fact that one task plan is blocked by certain others."""
 
         blocking_tks = [
             blocking_tk
-            for blocking_state in blocking_states
-            for blocking_tk in blocking_state.task.keys
+            for blocking_plan in blocking_plans
+            for blocking_tk in blocking_plan.task.keys
         ]
-        blockage = TaskBlockage(blocked_state, blocking_tks)
+        blockage = TaskBlockage(blocked_plan, blocking_tks)
         for blocking_tk in blocking_tks:
             self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
 
-    def get_unblocked_by(self, completed_state):
+    def get_unblocked_by(self, completed_plan):
         """
-        Records the fact that a task state is complete, and yields all task states
+        Records the fact that a task plan is complete, and yields all task plans
         that are newly unblocked.
         """
 
-        for completed_tk in completed_state.task.keys:
+        for completed_tk in completed_plan.task.keys:
             affected_blockages = self._blockage_lists_by_blocking_tk[completed_tk]
             for blockage in affected_blockages:
                 blockage.mark_task_key_complete(completed_tk)
                 if blockage.is_resolved():
-                    yield blockage.blocked_state
+                    yield blockage.blocked_plan
 
-    def get_all_blocked_states(self):
+    def get_all_blocked_plans(self):
         return {
-            blockage.blocked_state
+            blockage.blocked_plan
             for blockages in self._blockage_lists_by_blocking_tk.values()
             for blockage in blockages
             if not blockage.is_resolved()
