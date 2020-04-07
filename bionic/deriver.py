@@ -264,7 +264,10 @@ class EntityDeriver(object):
 
         blocked_task_key_tuples = set()
 
-        logged_task_keys = set()
+        log_level = (
+            logging.INFO if self._is_ready_for_full_resolution else logging.DEBUG
+        )
+        task_key_logger = TaskKeyLogger(log_level)
 
         while ready_task_states:
             state = ready_task_states.pop()
@@ -274,9 +277,7 @@ class EntityDeriver(object):
             # should should log a message .
             if state.is_complete:
                 for task_key in state.task.keys:
-                    if task_key not in logged_task_keys:
-                        self._log("Accessed    %s from in-memory cache", task_key)
-                        logged_task_keys.add(task_key)
+                    task_key_logger.log_accessed_from_memory(task_key)
                 continue
 
             # If blocked, let's mark it and try to derive its parents.
@@ -286,9 +287,7 @@ class EntityDeriver(object):
                 continue
 
             # If the task isn't complete or blocked, we can complete the task.
-            self._complete_task_state(state)
-            for task_key in state.task.keys:
-                logged_task_keys.add(task_key)
+            self._complete_task_state(state, task_key_logger)
 
             # See if we can unblock its children after completing task state.
             for child_state in state.children:
@@ -305,13 +304,15 @@ class EntityDeriver(object):
 
         return ResultGroup(
             results=[
-                self._get_results_for_complete_task_state(state)[entity_name]
+                self._get_results_for_complete_task_state(state, task_key_logger)[
+                    entity_name
+                ]
                 for state in requested_task_states
             ],
             key_space=self._key_spaces_by_dnode[dnode],
         )
 
-    def _complete_task_state(self, task_state):
+    def _complete_task_state(self, task_state, task_key_logger):
         assert not task_state.is_blocked()
         assert not task_state.is_complete
 
@@ -401,7 +402,7 @@ class EntityDeriver(object):
             task_state.result_value_hashes_by_name = value_hashes_by_name
         # If we cannot load it from cache, we compute the task state.
         else:
-            self._compute_task_state(task_state)
+            self._compute_task_state(task_state, task_key_logger)
 
         task_state.is_complete = True
 
@@ -442,16 +443,18 @@ class EntityDeriver(object):
         for accessor in accessors_needing_saving:
             accessor.update_provenance()
 
-    def _get_results_for_complete_task_state(self, task_state):
+    def _get_results_for_complete_task_state(self, task_state, task_key_logger):
         assert task_state.is_complete
 
         if task_state._results_by_name:
+            for task_key in task_state.task.keys:
+                task_key_logger.log_accessed_from_memory(task_key)
             return task_state._results_by_name
 
         results_by_name = dict()
         for accessor in task_state.cache_accessors:
             result = accessor.load_result()
-            self._log("Loaded      %s from disk cache", result.query.task_key)
+            task_key_logger.log_loaded_from_disk(result.query.task_key)
 
             # Make sure the result is saved in all caches under this exact
             # query.
@@ -464,12 +467,12 @@ class EntityDeriver(object):
 
         return results_by_name
 
-    def _compute_task_state(self, task_state):
+    def _compute_task_state(self, task_state, task_key_logger):
         task = task_state.task
         dep_keys = task.dep_keys
         dep_results = [
             self._get_results_for_complete_task_state(
-                self._task_states_by_key[dep_key]
+                self._task_states_by_key[dep_key], task_key_logger
             )[dep_key.dnode.to_entity_name()]
             for dep_key in dep_keys
         ]
@@ -478,7 +481,7 @@ class EntityDeriver(object):
 
         if not task.is_simple_lookup:
             for task_key in task.keys:
-                self._log("Computing   %s ...", task_key)
+                task_key_logger.log_computing(task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
 
@@ -487,9 +490,9 @@ class EntityDeriver(object):
 
         for query in task_state.queries:
             if task.is_simple_lookup:
-                self._log("Accessed    %s from definition", query.task_key)
+                task_key_logger.log_accessed_from_definition(query.task_key)
             else:
-                self._log("Computed    %s", query.task_key)
+                task_key_logger.log_computed(query.task_key)
 
         results_by_name = {}
         result_value_hashes_by_name = {}
@@ -518,12 +521,40 @@ class EntityDeriver(object):
         if provider.attrs.should_persist():
             task_state.result_value_hashes_by_name = result_value_hashes_by_name
 
-    def _log(self, message, *args):
-        if self._is_ready_for_full_resolution:
-            log_level = logging.INFO
-        else:
-            log_level = logging.DEBUG
-        logger.log(log_level, message, *args)
+
+class TaskKeyLogger:
+    """
+    Logs how we derived each task key. The purpose of this class is to make sure that
+    each task key used in a derivation (i.e., a call to `Flow.get()`) is logged exactly
+    once. (One exception: a task key can be logged twice to indicate the start and end
+    of a computation.)
+    """
+
+    def __init__(self, level):
+        self._level = level
+        self._already_logged_task_keys = set()
+
+    def _log(self, template, task_key, is_resolved=True):
+        if task_key in self._already_logged_task_keys:
+            return
+        logger.log(self._level, template, task_key)
+        if is_resolved:
+            self._already_logged_task_keys.add(task_key)
+
+    def log_accessed_from_memory(self, task_key):
+        self._log("Accessed   %s from in-memory cache", task_key)
+
+    def log_accessed_from_definition(self, task_key):
+        self._log("Accessed   %s from definition", task_key)
+
+    def log_loaded_from_disk(self, task_key):
+        self._log("Loaded     %s from disk cache", task_key)
+
+    def log_computing(self, task_key):
+        self._log("Computing  %s ...", task_key, is_resolved=False)
+
+    def log_computed(self, task_key):
+        self._log("Computed   %s", task_key)
 
 
 class TaskState(object):
