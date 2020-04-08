@@ -2,6 +2,8 @@
 Contains the core logic for resolving Entities by executing Tasks.
 """
 
+from collections import defaultdict
+
 from .datatypes import ProvenanceDigest, Query, Result, ResultGroup
 from .cache import Provenance
 from .descriptors import DescriptorNode
@@ -113,15 +115,9 @@ class EntityDeriver(object):
                     doc=self._docs_by_entity_name.get(entity_name),
                 )
 
-                for child_state in state.children:
-                    for child_task_key in child_state.task.keys:
-                        if not should_include_entity_name(
-                            child_task_key.dnode.to_entity_name()
-                        ):
-                            continue
-                        if task_key not in child_state.task.dep_keys:
-                            continue
-                        graph.add_edge(task_key, child_task_key)
+                for dep_state in state.dep_states:
+                    for dep_task_key in dep_state.task.keys:
+                        graph.add_edge(dep_task_key, task_key)
 
         return graph
 
@@ -150,52 +146,51 @@ class EntityDeriver(object):
         if self._is_ready_for_bootstrap_resolution:
             return
 
-        # Generate the static key spaces and tasks for each entity.
+        # Generate the static key spaces and tasks for each descriptor.
         self._key_spaces_by_dnode = {}
         self._task_lists_by_dnode = {}
         for name in self._flow_state.providers_by_name.keys():
             dnode = DescriptorNode.from_descriptor(name)
             self._populate_dnode_info(dnode)
 
+        # Create a lookup table for all tasks.
+        self._tasks_by_key = {}
+        for tasks in self._task_lists_by_dnode.values():
+            for task in tasks:
+                for task_key in task.keys:
+                    self._tasks_by_key[task_key] = task
+
         # Create a state object for each task.
         self._task_states_by_key = {}
-        for tasks in self._task_lists_by_dnode.values():
-            for task in tasks:
-                task_state = TaskState(task)
-                for key in task.keys:
-                    self._task_states_by_key[key] = task_state
-
-        # Initialize each of the task states.
-        for tasks in self._task_lists_by_dnode.values():
-            for task in tasks:
-                task_state = self._task_states_by_key[task.keys[0]]
-                self._initialize_task_state(task_state)
+        for task_key in self._tasks_by_key.keys():
+            self._get_or_create_task_state_for_key(task_key)
 
         self._is_ready_for_bootstrap_resolution = True
 
-    def _initialize_task_state(self, task_state):
-        if task_state.is_initialized:
-            return
+    def _get_or_create_task_state_for_key(self, task_key):
+        if task_key in self._task_states_by_key:
+            return self._task_states_by_key[task_key]
 
-        task = task_state.task
-
-        dep_states = [self._task_states_by_key[dep_key] for dep_key in task.dep_keys]
-
-        for dep_state in dep_states:
-            self._initialize_task_state(dep_state)
-
-            task_state.parents.append(dep_state)
-            dep_state.children.append(task_state)
-
-        # All names in this task should point to the same provider.
-        (task_state.provider,) = set(
+        task = self._tasks_by_key[task_key]
+        dep_states = [
+            self._get_or_create_task_state_for_key(dep_key) for dep_key in task.dep_keys
+        ]
+        # All keys in this task should point to the same provider, so the set below
+        # should have exactly one element.
+        (provider,) = set(
             self._flow_state.get_provider(task_key.dnode.to_entity_name())
             for task_key in task.keys
         )
         # And all the task keys should have the same case key.
-        (task_state.case_key,) = set(task_key.case_key for task_key in task.keys)
+        (case_key,) = set(task_key.case_key for task_key in task.keys)
 
-        task_state.is_initialized = True
+        task_state = TaskState(
+            task=task, dep_states=dep_states, provider=provider, case_key=case_key,
+        )
+
+        for task_key in task.keys:
+            self._task_states_by_key[task_key] = task_state
+        return task_state
 
     def _populate_dnode_info(self, dnode):
         if dnode in self._task_lists_by_dnode:
@@ -262,7 +257,7 @@ class EntityDeriver(object):
 
         ready_task_states = list(requested_task_states)
 
-        blocked_task_key_tuples = set()
+        blockage_tracker = TaskBlockageTracker()
 
         log_level = (
             logging.INFO if self._is_ready_for_full_resolution else logging.DEBUG
@@ -273,32 +268,32 @@ class EntityDeriver(object):
             state = ready_task_states.pop()
 
             # If this task is already complete, we don't need to do any work.
-            # But if this is this is the first time we've seen this task, we
-            # should should log a message .
+            # But if this is the first time we've seen this task, we should
+            # should log a message.
             if state.is_complete:
                 for task_key in state.task.keys:
                     task_key_logger.log_accessed_from_memory(task_key)
                 continue
 
-            # If blocked, let's mark it and try to derive its parents.
-            if state.is_blocked():
-                ready_task_states.extend(state.parents)
-                blocked_task_key_tuples.add(state.task.keys)
+            # If blocked, let's mark it and try to derive its dependencies.
+            incomplete_dep_states = state.incomplete_dep_states()
+            if incomplete_dep_states:
+                blockage_tracker.add_blockage(
+                    blocked_state=state, blocking_states=incomplete_dep_states,
+                )
+                ready_task_states.extend(incomplete_dep_states)
                 continue
 
             # If the task isn't complete or blocked, we can complete the task.
             self._complete_task_state(state, task_key_logger)
 
-            # See if we can unblock its children after completing task state.
-            for child_state in state.children:
-                if (
-                    child_state.task.keys in blocked_task_key_tuples
-                    and not child_state.is_blocked()
-                ):
-                    ready_task_states.append(child_state)
-                    blocked_task_key_tuples.remove(child_state.task.keys)
+            # See if we can unblock any other states now that we've completed this one.
+            unblocked_states = blockage_tracker.get_unblocked_by(state)
+            ready_task_states.extend(unblocked_states)
 
-        assert len(blocked_task_key_tuples) == 0, blocked_task_key_tuples
+        blocked_states = blockage_tracker.get_all_blocked_states()
+        assert not blocked_states, blocked_states
+
         for state in requested_task_states:
             assert state.is_complete, state
 
@@ -313,7 +308,7 @@ class EntityDeriver(object):
         )
 
     def _complete_task_state(self, task_state, task_key_logger):
-        assert not task_state.is_blocked()
+        assert not task_state.is_blocked
         assert not task_state.is_complete
 
         # First, set up provenance.
@@ -327,7 +322,7 @@ class EntityDeriver(object):
             )
 
         dep_provenance_digests_by_task_key = {}
-        for dep_key, dep_state in zip(task_state.task.dep_keys, task_state.parents):
+        for dep_key, dep_state in zip(task_state.task.dep_keys, task_state.dep_states):
             # Use value hash of persistable values.
             if dep_state.provider.attrs.should_persist():
                 value_hash = dep_state.result_value_hashes_by_name[
@@ -564,16 +559,11 @@ class TaskState(object):
     intermediate state.
     """
 
-    def __init__(self, task):
+    def __init__(self, task, dep_states, case_key, provider):
         self.task = task
-
-        # These are set together by EntityDeriver._initialize_task_state().
-        # All task states are initialized together.
-        self.is_initialized = False
-        self.parents = []
-        self.children = []
-        self.case_key = None
-        self.provider = None
+        self.dep_states = dep_states
+        self.case_key = case_key
+        self.provider = provider
 
         # These are set by EntityDeriver._complete_task_state(), just
         # before the task state becomes eligible for cache lookup / computation.
@@ -601,8 +591,74 @@ class TaskState(object):
 
         self.is_complete = False
 
+    def incomplete_dep_states(self):
+        return [dep_state for dep_state in self.dep_states if not dep_state.is_complete]
+
+    @property
     def is_blocked(self):
-        return not all(parent.is_complete for parent in self.parents)
+        return len(self.incomplete_dep_states()) > 0
 
     def __repr__(self):
         return f"TaskState({self.task!r})"
+
+
+class TaskBlockage:
+    """
+    Represents a blocking relationship between a task state and a collection of
+    not-yet-completed task keys it depends on.
+    """
+
+    def __init__(self, blocked_state, blocking_tks):
+        self.blocked_state = blocked_state
+        self._blocking_tks = set(blocking_tks)
+
+    def mark_task_key_complete(self, blocking_tk):
+        self._blocking_tks.discard(blocking_tk)
+
+    def is_resolved(self):
+        return not self._blocking_tks
+
+
+class TaskBlockageTracker:
+    """
+    A helper class that keeps track of which task states are blocked by others.
+
+    A task state X is "blocked" by another task state Y if X depends on Y and Y is
+    not complete.
+    """
+
+    def __init__(self):
+        self._blockage_lists_by_blocking_tk = defaultdict(list)
+
+    def add_blockage(self, blocked_state, blocking_states):
+        """Records the fact that one task state is blocked by certain others."""
+
+        blocking_tks = [
+            blocking_tk
+            for blocking_state in blocking_states
+            for blocking_tk in blocking_state.task.keys
+        ]
+        blockage = TaskBlockage(blocked_state, blocking_tks)
+        for blocking_tk in blocking_tks:
+            self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
+
+    def get_unblocked_by(self, completed_state):
+        """
+        Records the fact that a task state is complete, and yields all task states
+        that are newly unblocked.
+        """
+
+        for completed_tk in completed_state.task.keys:
+            affected_blockages = self._blockage_lists_by_blocking_tk[completed_tk]
+            for blockage in affected_blockages:
+                blockage.mark_task_key_complete(completed_tk)
+                if blockage.is_resolved():
+                    yield blockage.blocked_state
+
+    def get_all_blocked_states(self):
+        return {
+            blockage.blocked_state
+            for blockages in self._blockage_lists_by_blocking_tk.values()
+            for blockage in blockages
+            if not blockage.is_resolved()
+        }
