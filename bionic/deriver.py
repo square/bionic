@@ -301,6 +301,55 @@ class FlowPlan(object):
         self._docs_by_entity_name[entity_name] = provider.doc_for_name(entity_name)
 
 
+class TaskPlan(object):
+    """
+    Represents a plan for computing a task; mostly a holder for extra helper data needed
+    to compute the task's value.
+    """
+
+    def __init__(self, task, dep_plans, case_key, provider):
+        self.task = task
+        self.dep_plans = dep_plans
+        self.case_key = case_key
+        self.provider = provider
+
+        # These are set by FlowExecution._complete_task_excn(), just
+        # before the task plan becomes eligible for cache lookup / computation.
+        #
+        # They will be present if and only if is_complete is True.
+        self.provenance = None
+        self.queries = None
+        self.cache_accessors = None
+
+        # This can be set by
+        # FlowExecution._complete_task_excn() or
+        # FlowExecution._compute_task_plan().
+        #
+        # This will be present if and only if both is_complete and
+        # provider.attrs.should_persist() are True.
+        self.result_value_hashes_by_name = None
+
+        # This can be set by
+        # FlowExecution.get_results_assuming_plan_complete() or
+        # FlowExecution._compute_task_plan().
+        #
+        # This should never be accessed directly; instead, use
+        # FlowExecution.get_results_assuming_plan_complete().
+        self._results_by_name = None
+
+        self.is_complete = False
+
+    def incomplete_dep_plans(self):
+        return [dep_plan for dep_plan in self.dep_plans if not dep_plan.is_complete]
+
+    @property
+    def is_blocked(self):
+        return len(self.incomplete_dep_plans()) > 0
+
+    def __repr__(self):
+        return f"TaskPlan({self.task!r})"
+
+
 class Bootstrap:
     def __init__(self, persistent_cache, versioning_policy):
         self.persistent_cache = persistent_cache
@@ -376,6 +425,8 @@ class FlowExecution:
     def _task_excn_for_plan(self, task_plan):
         task_keys = tuple(task_plan.task.keys)
         if task_keys not in self._task_excns_by_tk_tuple:
+            # FIXME It's lame that we need to generate executions for the entire
+            # ancestry here.
             dep_excns = [
                 self._task_excn_for_plan(dep_plan)
                 for dep_plan in task_plan.dep_plans
@@ -426,55 +477,6 @@ class TaskKeyLogger:
 
     def log_computed(self, task_key):
         self._log("Computed   %s", task_key)
-
-
-class TaskPlan(object):
-    """
-    Represents a plan for computing a task; mostly a holder for extra helper data needed
-    to compute the task's value.
-    """
-
-    def __init__(self, task, dep_plans, case_key, provider):
-        self.task = task
-        self.dep_plans = dep_plans
-        self.case_key = case_key
-        self.provider = provider
-
-        # These are set by FlowExecution._complete_task_excn(), just
-        # before the task plan becomes eligible for cache lookup / computation.
-        #
-        # They will be present if and only if is_complete is True.
-        self.provenance = None
-        self.queries = None
-        self.cache_accessors = None
-
-        # This can be set by
-        # FlowExecution._complete_task_excn() or
-        # FlowExecution._compute_task_plan().
-        #
-        # This will be present if and only if both is_complete and
-        # provider.attrs.should_persist() are True.
-        self.result_value_hashes_by_name = None
-
-        # This can be set by
-        # FlowExecution.get_results_assuming_plan_complete() or
-        # FlowExecution._compute_task_plan().
-        #
-        # This should never be accessed directly; instead, use
-        # FlowExecution.get_results_assuming_plan_complete().
-        self._results_by_name = None
-
-        self.is_complete = False
-
-    def incomplete_dep_plans(self):
-        return [dep_plan for dep_plan in self.dep_plans if not dep_plan.is_complete]
-
-    @property
-    def is_blocked(self):
-        return len(self.incomplete_dep_plans()) > 0
-
-    def __repr__(self):
-        return f"TaskPlan({self.task!r})"
 
 
 class ExecutionContext:
