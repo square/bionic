@@ -315,12 +315,12 @@ class FlowExecution:
     def __init__(self, plan, flow_instance_uuid, bootstrap):
         self._plan = plan
         self._flow_instance_uuid = flow_instance_uuid
-        self._bootstrap = bootstrap
 
         self._task_excns_by_tk_tuple = {}
 
-        log_level = logging.INFO if self._bootstrap is not None else logging.DEBUG
-        self._task_key_logger = TaskKeyLogger(log_level)
+        log_level = logging.INFO if bootstrap is not None else logging.DEBUG
+        task_key_logger = TaskKeyLogger(log_level)
+        self._context = ExecutionContext(bootstrap, task_key_logger)
 
         self._ready_task_excns = []
 
@@ -351,7 +351,7 @@ class FlowExecution:
                 continue
 
             # If the task isn't complete or blocked, we can complete the task.
-            self._complete_task_plan(task_excn.plan)
+            self._complete_task_plan(task_excn.plan, self._context)
 
             # See if we can unblock any other plans now that we've completed this one.
             for blocked_excn in list(task_excn.blocked_excns):
@@ -363,14 +363,15 @@ class FlowExecution:
             assert task_plan.is_complete, task_plan
 
         return [
-            self._get_results_for_complete_task_plan(task_plan)
+            self._get_results_for_complete_task_plan(task_plan, self._context)
             for task_plan in task_plans
         ]
 
     def _task_excn_for_plan(self, task_plan):
         task_keys = tuple(task_plan.task.keys)
         if task_keys not in self._task_excns_by_tk_tuple:
-            self._task_excns_by_tk_tuple[task_keys] = TaskExecution(task_plan)
+            self._task_excns_by_tk_tuple[task_keys] = TaskExecution(
+                self._context, task_plan)
         return self._task_excns_by_tk_tuple[task_keys]
 
     def _add_blockage(self, blocked_excn, blocking_excn):
@@ -420,18 +421,18 @@ class FlowExecution:
         for accessor in accessors_needing_saving:
             accessor.update_provenance()
 
-    def _complete_task_plan(self, task_plan):
+    def _complete_task_plan(self, task_plan, context):
         assert not task_plan.is_blocked
         assert not task_plan.is_complete
 
         # First, set up provenance.
-        if self._bootstrap is None:
+        if context.bootstrap is None:
             # If we're still in the bootstrap resolution phase, we don't have
             # any versioning policy, so we don't attempt anything fancy.
             treat_bytecode_as_functional = False
         else:
             treat_bytecode_as_functional = (
-                self._bootstrap.versioning_policy.treat_bytecode_as_functional
+                context.bootstrap.versioning_policy.treat_bytecode_as_functional
             )
 
         dep_provenance_digests_by_task_key = {}
@@ -475,7 +476,7 @@ class FlowExecution:
 
         # Lastly, set up cache accessors.
         if task_plan.provider.attrs.should_persist():
-            if self._bootstrap is None:
+            if context.bootstrap is None:
                 name = task_plan.task.keys[0].entity_name
                 raise AssertionError(
                     oneline(
@@ -489,11 +490,11 @@ class FlowExecution:
                 )
 
             task_plan.cache_accessors = [
-                self._bootstrap.persistent_cache.get_accessor(query)
+                context.bootstrap.persistent_cache.get_accessor(query)
                 for query in task_plan.queries
             ]
 
-            if self._bootstrap.versioning_policy.check_for_bytecode_errors:
+            if context.bootstrap.versioning_policy.check_for_bytecode_errors:
                 self._check_accessors_for_version_problems(task_plan)
 
         # See if we can load it from the cache.
@@ -510,16 +511,17 @@ class FlowExecution:
             task_plan.result_value_hashes_by_name = value_hashes_by_name
         # If we cannot load it from cache, we compute the task plan.
         else:
-            self._compute_task_plan(task_plan)
+            self._compute_task_plan(task_plan, context)
 
         task_plan.is_complete = True
 
-    def _compute_task_plan(self, task_plan):
+    def _compute_task_plan(self, task_plan, context):
         task = task_plan.task
         dep_keys = task.dep_keys
         dep_results = [
             self._get_results_for_complete_task_plan(
-                self._plan.task_plan_for_key(dep_key)
+                self._plan.task_plan_for_key(dep_key),
+                self._context,
             )[dep_key.dnode.to_entity_name()]
             for dep_key in dep_keys
         ]
@@ -528,7 +530,7 @@ class FlowExecution:
 
         if not task.is_simple_lookup:
             for task_key in task.keys:
-                self._task_key_logger.log_computing(task_key)
+                context.task_key_logger.log_computing(task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
 
@@ -537,9 +539,9 @@ class FlowExecution:
 
         for query in task_plan.queries:
             if task.is_simple_lookup:
-                self._task_key_logger.log_accessed_from_definition(query.task_key)
+                context.task_key_logger.log_accessed_from_definition(query.task_key)
             else:
-                self._task_key_logger.log_computed(query.task_key)
+                context.task_key_logger.log_computed(query.task_key)
 
         results_by_name = {}
         result_value_hashes_by_name = {}
@@ -568,18 +570,18 @@ class FlowExecution:
         if provider.attrs.should_persist():
             task_plan.result_value_hashes_by_name = result_value_hashes_by_name
 
-    def _get_results_for_complete_task_plan(self, task_plan):
+    def _get_results_for_complete_task_plan(self, task_plan, context):
         assert task_plan.is_complete
 
         if task_plan._results_by_name:
             for task_key in task_plan.task.keys:
-                self._task_key_logger.log_accessed_from_memory(task_key)
+                context.task_key_logger.log_accessed_from_memory(task_key)
             return task_plan._results_by_name
 
         results_by_name = dict()
         for accessor in task_plan.cache_accessors:
             result = accessor.load_result()
-            self._task_key_logger.log_loaded_from_disk(result.query.task_key)
+            context.task_key_logger.log_loaded_from_disk(result.query.task_key)
 
             # Make sure the result is saved in all caches under this exact
             # query.
@@ -678,8 +680,15 @@ class TaskPlan(object):
 
 
 class TaskExecution:
-    def __init__(self, task_plan):
+    def __init__(self, context, task_plan):
+        self.context = context
         self.plan = task_plan
 
         self.blocked_excns = set()
         self.blocking_excns = set()
+
+
+class ExecutionContext:
+    def __init__(self, bootstrap, task_key_logger):
+        self.bootstrap = bootstrap
+        self.task_key_logger = task_key_logger
