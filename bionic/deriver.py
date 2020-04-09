@@ -299,9 +299,12 @@ class FlowExecution:
         self._flow_instance_uuid = flow_instance_uuid
         self._bootstrap = bootstrap
 
+        self._task_excns_by_tk_tuple = {}
+
         log_level = logging.INFO if self._bootstrap is not None else logging.DEBUG
         self._task_key_logger = TaskKeyLogger(log_level)
-        self._blockage_tracker = TaskBlockageTracker()
+
+        self._ready_task_excns = []
 
     def derive_result_group_for_dnode(self, dnode):
         entity_name = dnode.to_entity_name()
@@ -313,50 +316,35 @@ class FlowExecution:
             self._plan.task_plan_for_key(task.keys[0]) for task in tasks
         ]
 
-        ready_task_excns = [
-            TaskExecution(task_plan)
+        self._ready_task_excns.extend(
+            self._task_excn_for_plan(task_plan)
             for task_plan in requested_task_plans
-        ]
+        )
 
-        while ready_task_excns:
-            task_excn = ready_task_excns.pop()
+        while self._ready_task_excns:
+            task_excn = self._ready_task_excns.pop()
 
             # If this task is already complete, we don't need to do any work.
-            # But if this is the first time we've seen this task, we should
-            # should log a message.
-            # FIXME Since we have logging in _get_results_for_..., do we need to log
-            # here too?
             if task_excn.plan.is_complete:
-                for task_key in task_excn.plan.task.keys:
-                    self._task_key_logger.log_accessed_from_memory(task_key)
                 continue
 
             # If blocked, let's mark it and try to derive its dependencies.
             incomplete_dep_plans = task_excn.plan.incomplete_dep_plans()
             if incomplete_dep_plans:
-                self._blockage_tracker.add_blockage(
-                    blocked_plan=task_excn.plan, blocking_plans=incomplete_dep_plans,
-                )
-                incomplete_dep_excns = [
-                    TaskExecution(dep_plan)
-                    for dep_plan in incomplete_dep_plans
-                ]
-                ready_task_excns.extend(incomplete_dep_excns)
+                for dep_plan in incomplete_dep_plans:
+                    dep_excn = self._task_excn_for_plan(dep_plan)
+                    self._add_blockage(task_excn, dep_excn)
+                    self._ready_task_excns.append(dep_excn)
                 continue
 
             # If the task isn't complete or blocked, we can complete the task.
             self._complete_task_plan(task_excn.plan)
 
             # See if we can unblock any other plans now that we've completed this one.
-            unblocked_plans = self._blockage_tracker.get_unblocked_by(task_excn.plan)
-            unblocked_excns = [
-                TaskExecution(task_plan)
-                for task_plan in unblocked_plans
-            ]
-            ready_task_excns.extend(unblocked_excns)
-
-        blocked_plans = self._blockage_tracker.get_all_blocked_plans()
-        assert not blocked_plans, blocked_plans
+            for blocked_excn in list(task_excn.blocked_excns):
+                self._remove_blockage(blocked_excn, task_excn)
+                if not blocked_excn.blocking_excns:
+                    self._ready_task_excns.append(blocked_excn)
 
         for task_plan in requested_task_plans:
             assert task_plan.is_complete, task_plan
@@ -371,11 +359,17 @@ class FlowExecution:
             key_space=self._plan.key_space_for_dnode(dnode),
         )
 
-    def add_blockage(self, blocked_excn, blocking_excn):
+    def _task_excn_for_plan(self, task_plan):
+        task_keys = tuple(task_plan.task.keys)
+        if task_keys not in self._task_excns_by_tk_tuple:
+            self._task_excns_by_tk_tuple[task_keys] = TaskExecution(task_plan)
+        return self._task_excns_by_tk_tuple[task_keys]
+
+    def _add_blockage(self, blocked_excn, blocking_excn):
         blocked_excn.blocking_excns.add(blocking_excn)
         blocking_excn.blocked_excns.add(blocked_excn)
 
-    def remove_blockage(self, blocked_excn, blocking_excn):
+    def _remove_blockage(self, blocked_excn, blocking_excn):
         blocked_excn.blocking_excns.remove(blocking_excn)
         blocking_excn.blocked_excns.remove(blocked_excn)
 
@@ -681,66 +675,3 @@ class TaskExecution:
 
         self.blocked_excns = set()
         self.blocking_excns = set()
-
-
-# FIXME Move this into TaskExecution class?
-class TaskBlockage:
-    """
-    Represents a blocking relationship between a task plan and a collection of
-    not-yet-completed task keys it depends on.
-    """
-
-    def __init__(self, blocked_plan, blocking_tks):
-        self.blocked_plan = blocked_plan
-        self._blocking_tks = set(blocking_tks)
-
-    def mark_task_key_complete(self, blocking_tk):
-        self._blocking_tks.discard(blocking_tk)
-
-    def is_resolved(self):
-        return not self._blocking_tks
-
-
-class TaskBlockageTracker:
-    """
-    A helper class that keeps track of which task plans are blocked by others.
-
-    A task plan X is "blocked" by another task plan Y if X depends on Y and Y is
-    not complete.
-    """
-
-    def __init__(self):
-        self._blockage_lists_by_blocking_tk = defaultdict(list)
-
-    def add_blockage(self, blocked_plan, blocking_plans):
-        """Records the fact that one task plan is blocked by certain others."""
-
-        blocking_tks = [
-            blocking_tk
-            for blocking_plan in blocking_plans
-            for blocking_tk in blocking_plan.task.keys
-        ]
-        blockage = TaskBlockage(blocked_plan, blocking_tks)
-        for blocking_tk in blocking_tks:
-            self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
-
-    def get_unblocked_by(self, completed_plan):
-        """
-        Records the fact that a task plan is complete, and yields all task plans
-        that are newly unblocked.
-        """
-
-        for completed_tk in completed_plan.task.keys:
-            affected_blockages = self._blockage_lists_by_blocking_tk[completed_tk]
-            for blockage in affected_blockages:
-                blockage.mark_task_key_complete(completed_tk)
-                if blockage.is_resolved():
-                    yield blockage.blocked_plan
-
-    def get_all_blocked_plans(self):
-        return {
-            blockage.blocked_plan
-            for blockages in self._blockage_lists_by_blocking_tk.values()
-            for blockage in blockages
-            if not blockage.is_resolved()
-        }
