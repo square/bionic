@@ -301,6 +301,7 @@ class FlowExecution:
 
         log_level = logging.INFO if self._bootstrap is not None else logging.DEBUG
         self._task_key_logger = TaskKeyLogger(log_level)
+        self._blockage_tracker = TaskBlockageTracker()
 
     def derive_result_group_for_dnode(self, dnode):
         entity_name = dnode.to_entity_name()
@@ -312,38 +313,49 @@ class FlowExecution:
             self._plan.task_plan_for_key(task.keys[0]) for task in tasks
         ]
 
-        ready_task_plans = list(requested_task_plans)
+        ready_task_excns = [
+            TaskExecution(task_plan)
+            for task_plan in requested_task_plans
+        ]
 
-        blockage_tracker = TaskBlockageTracker()
-
-        while ready_task_plans:
-            task_plan = ready_task_plans.pop()
+        while ready_task_excns:
+            task_excn = ready_task_excns.pop()
 
             # If this task is already complete, we don't need to do any work.
             # But if this is the first time we've seen this task, we should
             # should log a message.
-            if task_plan.is_complete:
-                for task_key in task_plan.task.keys:
+            # FIXME Since we have logging in _get_results_for_..., do we need to log
+            # here too?
+            if task_excn.plan.is_complete:
+                for task_key in task_excn.plan.task.keys:
                     self._task_key_logger.log_accessed_from_memory(task_key)
                 continue
 
             # If blocked, let's mark it and try to derive its dependencies.
-            incomplete_dep_plans = task_plan.incomplete_dep_plans()
+            incomplete_dep_plans = task_excn.plan.incomplete_dep_plans()
             if incomplete_dep_plans:
-                blockage_tracker.add_blockage(
-                    blocked_plan=task_plan, blocking_plans=incomplete_dep_plans,
+                self._blockage_tracker.add_blockage(
+                    blocked_plan=task_excn.plan, blocking_plans=incomplete_dep_plans,
                 )
-                ready_task_plans.extend(incomplete_dep_plans)
+                incomplete_dep_excns = [
+                    TaskExecution(dep_plan)
+                    for dep_plan in incomplete_dep_plans
+                ]
+                ready_task_excns.extend(incomplete_dep_excns)
                 continue
 
             # If the task isn't complete or blocked, we can complete the task.
-            self._complete_task_plan(task_plan)
+            self._complete_task_plan(task_excn.plan)
 
             # See if we can unblock any other plans now that we've completed this one.
-            unblocked_plans = blockage_tracker.get_unblocked_by(task_plan)
-            ready_task_plans.extend(unblocked_plans)
+            unblocked_plans = self._blockage_tracker.get_unblocked_by(task_excn.plan)
+            unblocked_excns = [
+                TaskExecution(task_plan)
+                for task_plan in unblocked_plans
+            ]
+            ready_task_excns.extend(unblocked_excns)
 
-        blocked_plans = blockage_tracker.get_all_blocked_plans()
+        blocked_plans = self._blockage_tracker.get_all_blocked_plans()
         assert not blocked_plans, blocked_plans
 
         for task_plan in requested_task_plans:
@@ -358,6 +370,16 @@ class FlowExecution:
             ],
             key_space=self._plan.key_space_for_dnode(dnode),
         )
+
+    def add_blockage(self, blocked_excn, blocking_excn):
+        blocked_excn.blocking_excns.add(blocking_excn)
+        blocking_excn.blocked_excns.add(blocked_excn)
+
+    def remove_blockage(self, blocked_excn, blocking_excn):
+        blocked_excn.blocking_excns.remove(blocking_excn)
+        blocking_excn.blocked_excns.remove(blocked_excn)
+
+    # -- Private per-task operations.
 
     def _check_accessors_for_version_problems(self, task_plan):
         accessors_needing_saving = []
@@ -653,6 +675,15 @@ class TaskPlan(object):
         return f"TaskPlan({self.task!r})"
 
 
+class TaskExecution:
+    def __init__(self, task_plan):
+        self.plan = task_plan
+
+        self.blocked_excns = set()
+        self.blocking_excns = set()
+
+
+# FIXME Move this into TaskExecution class?
 class TaskBlockage:
     """
     Represents a blocking relationship between a task plan and a collection of
@@ -670,7 +701,6 @@ class TaskBlockage:
         return not self._blocking_tks
 
 
-# FIXME Move this into TaskExecution class?
 class TaskBlockageTracker:
     """
     A helper class that keeps track of which task plans are blocked by others.
