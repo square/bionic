@@ -314,14 +314,16 @@ class FlowExecution:
 
     def __init__(self, plan, flow_instance_uuid, bootstrap):
         self._plan = plan
-        self._flow_instance_uuid = flow_instance_uuid
-
-        self._task_excns_by_tk_tuple = {}
 
         log_level = logging.INFO if bootstrap is not None else logging.DEBUG
         task_key_logger = TaskKeyLogger(log_level)
-        self._context = ExecutionContext(bootstrap, task_key_logger)
+        self._context = ExecutionContext(
+            flow_instance_uuid,
+            bootstrap,
+            task_key_logger,
+        )
 
+        self._task_excns_by_tk_tuple = {}
         self._ready_task_excns = []
 
     def compute_result_maps_for_task_plans(self, task_plans):
@@ -329,12 +331,14 @@ class FlowExecution:
         FIXME
         """
 
-        self._ready_task_excns.extend(
+        requested_task_excns = [
             self._task_excn_for_plan(task_plan)
             for task_plan in task_plans
-        )
+        ]
 
+        self._ready_task_excns = list(requested_task_excns)
         while self._ready_task_excns:
+            print(self._ready_task_excns)
             task_excn = self._ready_task_excns.pop()
 
             # If this task is already complete, we don't need to do any work.
@@ -351,7 +355,7 @@ class FlowExecution:
                 continue
 
             # If the task isn't complete or blocked, we can complete the task.
-            self._complete_task_plan(task_excn.plan, self._context)
+            task_excn.complete()
 
             # See if we can unblock any other plans now that we've completed this one.
             for blocked_excn in list(task_excn.blocked_excns):
@@ -359,19 +363,25 @@ class FlowExecution:
                 if not blocked_excn.blocking_excns:
                     self._ready_task_excns.append(blocked_excn)
 
-        for task_plan in task_plans:
-            assert task_plan.is_complete, task_plan
+        for task_excn in requested_task_excns:
+            assert task_excn.plan.is_complete, task_excn.plan
 
         return [
-            self._get_results_for_complete_task_plan(task_plan, self._context)
-            for task_plan in task_plans
+            task_excn.get_results_assuming_plan_complete()
+            for task_excn in requested_task_excns
         ]
+
+    # -- Private helpers.
 
     def _task_excn_for_plan(self, task_plan):
         task_keys = tuple(task_plan.task.keys)
         if task_keys not in self._task_excns_by_tk_tuple:
+            dep_excns = [
+                self._task_excn_for_plan(dep_plan)
+                for dep_plan in task_plan.dep_plans
+            ]
             self._task_excns_by_tk_tuple[task_keys] = TaskExecution(
-                self._context, task_plan)
+                self._context, task_plan, dep_excns)
         return self._task_excns_by_tk_tuple[task_keys]
 
     def _add_blockage(self, blocked_excn, blocking_excn):
@@ -381,218 +391,6 @@ class FlowExecution:
     def _remove_blockage(self, blocked_excn, blocking_excn):
         blocked_excn.blocking_excns.remove(blocking_excn)
         blocking_excn.blocked_excns.remove(blocked_excn)
-
-    # -- Private per-task operations.
-
-    def _check_accessors_for_version_problems(self, task_plan):
-        accessors_needing_saving = []
-        for accessor in task_plan.cache_accessors:
-            old_prov = accessor.load_provenance()
-
-            if old_prov is None:
-                continue
-
-            new_prov = accessor.query.provenance
-
-            if old_prov.exactly_matches(new_prov):
-                continue
-            accessors_needing_saving.append(accessor)
-
-            if old_prov.code_version_minor == new_prov.code_version_minor:
-                if old_prov.bytecode_hash != new_prov.bytecode_hash:
-                    raise CodeVersioningError(
-                        oneline(
-                            f"""
-                        Found a cached artifact with the same
-                        descriptor ({accessor.query.dnode.to_descriptor()!r}) and
-                        version (major={old_prov.code_version_major!r},
-                        minor={old_prov.code_version_minor!r}),
-                        But created by different code
-                        (old hash {old_prov.bytecode_hash!r},
-                        new hash {new_prov.bytecode_hash!r}).
-                        Did you change your code but not update the
-                        version number?
-                        Change @version(major=) to indicate that your
-                        function's behavior has changed, or @version(minor=)
-                        to indicate that it has *not* changed."""
-                        )
-                    )
-
-        for accessor in accessors_needing_saving:
-            accessor.update_provenance()
-
-    def _complete_task_plan(self, task_plan, context):
-        assert not task_plan.is_blocked
-        assert not task_plan.is_complete
-
-        # First, set up provenance.
-        if context.bootstrap is None:
-            # If we're still in the bootstrap resolution phase, we don't have
-            # any versioning policy, so we don't attempt anything fancy.
-            treat_bytecode_as_functional = False
-        else:
-            treat_bytecode_as_functional = (
-                context.bootstrap.versioning_policy.treat_bytecode_as_functional
-            )
-
-        dep_provenance_digests_by_task_key = {}
-        for dep_key, dep_plan in zip(task_plan.task.dep_keys, task_plan.dep_plans):
-            # Use value hash of persistable values.
-            if dep_plan.provider.attrs.should_persist():
-                value_hash = dep_plan.result_value_hashes_by_name[
-                    dep_key.dnode.to_entity_name()
-                ]
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_value_hash(value_hash)
-            # Otherwise, use the provenance.
-            else:
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_provenance(dep_plan.provenance)
-
-        task_plan.provenance = Provenance.from_computation(
-            code_fingerprint=task_plan.provider.get_code_fingerprint(
-                task_plan.case_key
-            ),
-            case_key=task_plan.case_key,
-            dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
-            treat_bytecode_as_functional=treat_bytecode_as_functional,
-            can_functionally_change_per_run=task_plan.provider.attrs.changes_per_run,
-            flow_instance_uuid=self._flow_instance_uuid,
-        )
-
-        # Then set up queries.
-        task_plan.queries = [
-            Query(
-                task_key=task_key,
-                protocol=task_plan.provider.protocol_for_name(
-                    task_key.dnode.to_entity_name()
-                ),
-                provenance=task_plan.provenance,
-            )
-            for task_key in task_plan.task.keys
-        ]
-
-        # Lastly, set up cache accessors.
-        if task_plan.provider.attrs.should_persist():
-            if context.bootstrap is None:
-                name = task_plan.task.keys[0].entity_name
-                raise AssertionError(
-                    oneline(
-                        f"""
-                    Attempting to load cached state for entity {name!r},
-                    but the cache is not available yet because core bootstrap
-                    entities depend on this one;
-                    you should decorate entity {name!r} with `@persist(False)`
-                    or `@immediate` to indicate that it can't be cached."""
-                    )
-                )
-
-            task_plan.cache_accessors = [
-                context.bootstrap.persistent_cache.get_accessor(query)
-                for query in task_plan.queries
-            ]
-
-            if context.bootstrap.versioning_policy.check_for_bytecode_errors:
-                self._check_accessors_for_version_problems(task_plan)
-
-        # See if we can load it from the cache.
-        if task_plan.provider.attrs.should_persist() and all(
-            axr.can_load() for axr in task_plan.cache_accessors
-        ):
-            # We only load the hashed result while completing task plan
-            # and lazily load the entire result when needed later.
-            value_hashes_by_name = {}
-            for accessor in task_plan.cache_accessors:
-                value_hash = accessor.load_result_value_hash()
-                value_hashes_by_name[accessor.query.dnode.to_entity_name()] = value_hash
-
-            task_plan.result_value_hashes_by_name = value_hashes_by_name
-        # If we cannot load it from cache, we compute the task plan.
-        else:
-            self._compute_task_plan(task_plan, context)
-
-        task_plan.is_complete = True
-
-    def _compute_task_plan(self, task_plan, context):
-        task = task_plan.task
-        dep_keys = task.dep_keys
-        dep_results = [
-            self._get_results_for_complete_task_plan(
-                self._plan.task_plan_for_key(dep_key),
-                self._context,
-            )[dep_key.dnode.to_entity_name()]
-            for dep_key in dep_keys
-        ]
-
-        provider = task_plan.provider
-
-        if not task.is_simple_lookup:
-            for task_key in task.keys:
-                context.task_key_logger.log_computing(task_key)
-
-        dep_values = [dep_result.value for dep_result in dep_results]
-
-        values = task_plan.task.compute(dep_values)
-        assert len(values) == len(provider.attrs.names)
-
-        for query in task_plan.queries:
-            if task.is_simple_lookup:
-                context.task_key_logger.log_accessed_from_definition(query.task_key)
-            else:
-                context.task_key_logger.log_computed(query.task_key)
-
-        results_by_name = {}
-        result_value_hashes_by_name = {}
-        for ix, (query, value) in enumerate(zip(task_plan.queries, values)):
-            query.protocol.validate(value)
-
-            result = Result(query=query, value=value,)
-
-            if provider.attrs.should_persist():
-                accessor = task_plan.cache_accessors[ix]
-                accessor.save_result(result)
-
-                value_hash = accessor.load_result_value_hash()
-                result_value_hashes_by_name[query.dnode.to_entity_name()] = value_hash
-
-            results_by_name[query.dnode.to_entity_name()] = result
-
-        # Memoize results at this point only if results should not persist.
-        # Otherwise, load it lazily later so that if the serialized/deserialized
-        # value is not exactly the same as the original, we still
-        # always return the same value.
-        if provider.attrs.should_memoize() and not provider.attrs.should_persist():
-            task_plan._results_by_name = results_by_name
-
-        # But we cache the hashed values eagerly since they are cheap to load.
-        if provider.attrs.should_persist():
-            task_plan.result_value_hashes_by_name = result_value_hashes_by_name
-
-    def _get_results_for_complete_task_plan(self, task_plan, context):
-        assert task_plan.is_complete
-
-        if task_plan._results_by_name:
-            for task_key in task_plan.task.keys:
-                context.task_key_logger.log_accessed_from_memory(task_key)
-            return task_plan._results_by_name
-
-        results_by_name = dict()
-        for accessor in task_plan.cache_accessors:
-            result = accessor.load_result()
-            context.task_key_logger.log_loaded_from_disk(result.query.task_key)
-
-            # Make sure the result is saved in all caches under this exact
-            # query.
-            accessor.save_result(result)
-
-            results_by_name[result.query.dnode.to_entity_name()] = result
-
-        if task_plan.provider.attrs.should_memoize():
-            task_plan._results_by_name = results_by_name
-
-        return results_by_name
 
 
 class TaskKeyLogger:
@@ -642,7 +440,7 @@ class TaskPlan(object):
         self.case_key = case_key
         self.provider = provider
 
-        # These are set by FlowExecution._complete_task_plan(), just
+        # These are set by FlowExecution._complete_task_excn(), just
         # before the task plan becomes eligible for cache lookup / computation.
         #
         # They will be present if and only if is_complete is True.
@@ -651,7 +449,7 @@ class TaskPlan(object):
         self.cache_accessors = None
 
         # This can be set by
-        # FlowExecution._complete_task_plan() or
+        # FlowExecution._complete_task_excn() or
         # FlowExecution._compute_task_plan().
         #
         # This will be present if and only if both is_complete and
@@ -659,11 +457,11 @@ class TaskPlan(object):
         self.result_value_hashes_by_name = None
 
         # This can be set by
-        # FlowExecution._get_results_for_complete_task_plan() or
+        # FlowExecution.get_results_assuming_plan_complete() or
         # FlowExecution._compute_task_plan().
         #
         # This should never be accessed directly; instead, use
-        # FlowExecution._get_results_for_complete_task_plan().
+        # FlowExecution.get_results_assuming_plan_complete().
         self._results_by_name = None
 
         self.is_complete = False
@@ -679,16 +477,228 @@ class TaskPlan(object):
         return f"TaskPlan({self.task!r})"
 
 
+class ExecutionContext:
+    def __init__(self, flow_instance_uuid, bootstrap, task_key_logger):
+        self.flow_instance_uuid = flow_instance_uuid
+        self.bootstrap = bootstrap
+        self.task_key_logger = task_key_logger
+
+
 class TaskExecution:
-    def __init__(self, context, task_plan):
+    def __init__(self, context, task_plan, dep_excns):
         self.context = context
         self.plan = task_plan
+        self.dep_excns = dep_excns
 
         self.blocked_excns = set()
         self.blocking_excns = set()
 
+    def check_accessors_for_version_problems(self):
+        accessors_needing_saving = []
+        for accessor in self.plan.cache_accessors:
+            old_prov = accessor.load_provenance()
 
-class ExecutionContext:
-    def __init__(self, bootstrap, task_key_logger):
-        self.bootstrap = bootstrap
-        self.task_key_logger = task_key_logger
+            if old_prov is None:
+                continue
+
+            new_prov = accessor.query.provenance
+
+            if old_prov.exactly_matches(new_prov):
+                continue
+            accessors_needing_saving.append(accessor)
+
+            if old_prov.code_version_minor == new_prov.code_version_minor:
+                if old_prov.bytecode_hash != new_prov.bytecode_hash:
+                    raise CodeVersioningError(
+                        oneline(
+                            f"""
+                        Found a cached artifact with the same
+                        descriptor ({accessor.query.dnode.to_descriptor()!r}) and
+                        version (major={old_prov.code_version_major!r},
+                        minor={old_prov.code_version_minor!r}),
+                        But created by different code
+                        (old hash {old_prov.bytecode_hash!r},
+                        new hash {new_prov.bytecode_hash!r}).
+                        Did you change your code but not update the
+                        version number?
+                        Change @version(major=) to indicate that your
+                        function's behavior has changed, or @version(minor=)
+                        to indicate that it has *not* changed."""
+                        )
+                    )
+
+        for accessor in accessors_needing_saving:
+            accessor.update_provenance()
+
+    def complete(self):
+        assert not self.plan.is_blocked
+        assert not self.plan.is_complete
+
+        # First, set up provenance.
+        if self.context.bootstrap is None:
+            # If we're still in the bootstrap resolution phase, we don't have
+            # any versioning policy, so we don't attempt anything fancy.
+            treat_bytecode_as_functional = False
+        else:
+            treat_bytecode_as_functional = (
+                self.context.bootstrap.versioning_policy.treat_bytecode_as_functional
+            )
+
+        dep_provenance_digests_by_task_key = {}
+        for dep_key, dep_plan in zip(self.plan.task.dep_keys, self.plan.dep_plans):
+            # Use value hash of persistable values.
+            if dep_plan.provider.attrs.should_persist():
+                value_hash = dep_plan.result_value_hashes_by_name[
+                    dep_key.dnode.to_entity_name()
+                ]
+                dep_provenance_digests_by_task_key[
+                    dep_key
+                ] = ProvenanceDigest.from_value_hash(value_hash)
+            # Otherwise, use the provenance.
+            else:
+                dep_provenance_digests_by_task_key[
+                    dep_key
+                ] = ProvenanceDigest.from_provenance(dep_plan.provenance)
+
+        self.plan.provenance = Provenance.from_computation(
+            code_fingerprint=self.plan.provider.get_code_fingerprint(
+                self.plan.case_key
+            ),
+            case_key=self.plan.case_key,
+            dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
+            treat_bytecode_as_functional=treat_bytecode_as_functional,
+            can_functionally_change_per_run=self.plan.provider.attrs.changes_per_run,
+            flow_instance_uuid=self.context.flow_instance_uuid,
+        )
+
+        # Then set up queries.
+        self.plan.queries = [
+            Query(
+                task_key=task_key,
+                protocol=self.plan.provider.protocol_for_name(
+                    task_key.dnode.to_entity_name()
+                ),
+                provenance=self.plan.provenance,
+            )
+            for task_key in self.plan.task.keys
+        ]
+
+        # Lastly, set up cache accessors.
+        if self.plan.provider.attrs.should_persist():
+            if self.context.bootstrap is None:
+                name = self.plan.task.keys[0].entity_name
+                raise AssertionError(
+                    oneline(
+                        f"""
+                    Attempting to load cached state for entity {name!r},
+                    but the cache is not available yet because core bootstrap
+                    entities depend on this one;
+                    you should decorate entity {name!r} with `@persist(False)`
+                    or `@immediate` to indicate that it can't be cached."""
+                    )
+                )
+
+            self.plan.cache_accessors = [
+                self.context.bootstrap.persistent_cache.get_accessor(query)
+                for query in self.plan.queries
+            ]
+
+            if self.context.bootstrap.versioning_policy.check_for_bytecode_errors:
+                self.check_accessors_for_version_problems()
+
+        # See if we can load it from the cache.
+        if self.plan.provider.attrs.should_persist() and all(
+            axr.can_load() for axr in self.plan.cache_accessors
+        ):
+            # We only load the hashed result while completing task plan
+            # and lazily load the entire result when needed later.
+            value_hashes_by_name = {}
+            for accessor in self.plan.cache_accessors:
+                value_hash = accessor.load_result_value_hash()
+                value_hashes_by_name[accessor.query.dnode.to_entity_name()] = value_hash
+
+            self.plan.result_value_hashes_by_name = value_hashes_by_name
+        # If we cannot load it from cache, we compute the task plan.
+        else:
+            self.compute()
+
+        self.plan.is_complete = True
+
+    def compute(self):
+        task = self.plan.task
+        dep_keys = task.dep_keys
+
+        dep_results = [
+            dep_excn.get_results_assuming_plan_complete()[
+                dep_key.dnode.to_entity_name()
+            ]
+            for dep_excn, dep_key in zip(self.dep_excns, dep_keys)
+        ]
+
+        provider = self.plan.provider
+
+        if not task.is_simple_lookup:
+            for task_key in task.keys:
+                self.context.task_key_logger.log_computing(task_key)
+
+        dep_values = [dep_result.value for dep_result in dep_results]
+
+        values = self.plan.task.compute(dep_values)
+        assert len(values) == len(provider.attrs.names)
+
+        for query in self.plan.queries:
+            if task.is_simple_lookup:
+                self.context.task_key_logger.log_accessed_from_definition(query.task_key)
+            else:
+                self.context.task_key_logger.log_computed(query.task_key)
+
+        results_by_name = {}
+        result_value_hashes_by_name = {}
+        for ix, (query, value) in enumerate(zip(self.plan.queries, values)):
+            query.protocol.validate(value)
+
+            result = Result(query=query, value=value,)
+
+            if provider.attrs.should_persist():
+                accessor = self.plan.cache_accessors[ix]
+                accessor.save_result(result)
+
+                value_hash = accessor.load_result_value_hash()
+                result_value_hashes_by_name[query.dnode.to_entity_name()] = value_hash
+
+            results_by_name[query.dnode.to_entity_name()] = result
+
+        # Memoize results at this point only if results should not persist.
+        # Otherwise, load it lazily later so that if the serialized/deserialized
+        # value is not exactly the same as the original, we still
+        # always return the same value.
+        if provider.attrs.should_memoize() and not provider.attrs.should_persist():
+            self.plan._results_by_name = results_by_name
+
+        # But we cache the hashed values eagerly since they are cheap to load.
+        if provider.attrs.should_persist():
+            self.plan.result_value_hashes_by_name = result_value_hashes_by_name
+
+    def get_results_assuming_plan_complete(self):
+        assert self.plan.is_complete
+
+        if self.plan._results_by_name:
+            for task_key in self.plan.task.keys:
+                self.context.task_key_logger.log_accessed_from_memory(task_key)
+            return self.plan._results_by_name
+
+        results_by_name = dict()
+        for accessor in self.plan.cache_accessors:
+            result = accessor.load_result()
+            self.context.task_key_logger.log_loaded_from_disk(result.query.task_key)
+
+            # Make sure the result is saved in all caches under this exact
+            # query.
+            accessor.save_result(result)
+
+            results_by_name[result.query.dnode.to_entity_name()] = result
+
+        if self.plan.provider.attrs.should_memoize():
+            self.plan._results_by_name = results_by_name
+
+        return results_by_name
