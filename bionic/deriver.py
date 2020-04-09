@@ -49,7 +49,7 @@ class FlowDeriver:
         all values for that descriptor.
         """
         self.get_ready()
-        return self._create_execution().derive_result_group_for_dnode(dnode)
+        return self._derive_result_group_for_dnode(dnode)
 
     def export_dag(self, include_core=False):
         """
@@ -118,11 +118,29 @@ class FlowDeriver:
 
     # --- Private helpers.
 
-    def _create_execution(self):
-        return FlowExecution(
+    def _derive_result_group_for_dnode(self, dnode):
+        entity_name = dnode.to_entity_name()
+        try:
+            tasks = self._plan.tasks_for_dnode(dnode)
+        except KeyError:
+            raise UndefinedEntityError.for_name(entity_name)
+        task_plans = [
+            self._plan.task_plan_for_key(task.keys[0]) for task in tasks
+        ]
+
+        excn = FlowExecution(
             plan=self._plan,
             flow_instance_uuid=self._flow_instance_uuid,
             bootstrap=self._bootstrap,
+        )
+        task_result_maps = excn.compute_result_maps_for_task_plans(task_plans)
+
+        return ResultGroup(
+            results=[
+                results_by_name[entity_name]
+                for task_plan, results_by_name in zip(task_plans, task_result_maps)
+            ],
+            key_space=self._plan.key_space_for_dnode(dnode),
         )
 
     def _initialize_bootstrap(self):
@@ -144,7 +162,7 @@ class FlowDeriver:
         assert self._bootstrap is None
 
         dnode = DescriptorNode.from_descriptor(entity_name)
-        result_group = self._create_execution().derive_result_group_for_dnode(dnode)
+        result_group = self._derive_result_group_for_dnode(dnode)
         if len(result_group) == 0:
             raise ValueError(
                 oneline(
@@ -306,19 +324,14 @@ class FlowExecution:
 
         self._ready_task_excns = []
 
-    def derive_result_group_for_dnode(self, dnode):
-        entity_name = dnode.to_entity_name()
-        try:
-            tasks = self._plan.tasks_for_dnode(dnode)
-        except KeyError:
-            raise UndefinedEntityError.for_name(entity_name)
-        requested_task_plans = [
-            self._plan.task_plan_for_key(task.keys[0]) for task in tasks
-        ]
+    def compute_result_maps_for_task_plans(self, task_plans):
+        """
+        FIXME
+        """
 
         self._ready_task_excns.extend(
             self._task_excn_for_plan(task_plan)
-            for task_plan in requested_task_plans
+            for task_plan in task_plans
         )
 
         while self._ready_task_excns:
@@ -346,18 +359,13 @@ class FlowExecution:
                 if not blocked_excn.blocking_excns:
                     self._ready_task_excns.append(blocked_excn)
 
-        for task_plan in requested_task_plans:
+        for task_plan in task_plans:
             assert task_plan.is_complete, task_plan
 
-        return ResultGroup(
-            results=[
-                self._get_results_for_complete_task_plan(task_plan)[
-                    entity_name
-                ]
-                for task_plan in requested_task_plans
-            ],
-            key_space=self._plan.key_space_for_dnode(dnode),
-        )
+        return [
+            self._get_results_for_complete_task_plan(task_plan)
+            for task_plan in task_plans
+        ]
 
     def _task_excn_for_plan(self, task_plan):
         task_keys = tuple(task_plan.task.keys)
