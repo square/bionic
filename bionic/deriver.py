@@ -268,11 +268,7 @@ class EntityDeriver(object):
             state = ready_task_states.pop()
 
             # If this task is already complete, we don't need to do any work.
-            # But if this is the first time we've seen this task, we should
-            # should log a message.
             if state.is_complete:
-                for task_key in state.task.keys:
-                    task_key_logger.log_accessed_from_memory(task_key)
                 continue
 
             # If blocked, let's mark it and try to derive its dependencies.
