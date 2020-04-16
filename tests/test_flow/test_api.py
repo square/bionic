@@ -17,7 +17,7 @@ from bionic.exception import (
     UndefinedEntityError,
 )
 
-from ..helpers import count_calls, assert_re_matches
+from ..helpers import assert_re_matches, count_calls
 
 
 @pytest.fixture(scope="function")
@@ -572,39 +572,41 @@ def test_all_entity_names(preset_flow):
     }
 
 
-def test_in_memory_caching(builder):
+def test_in_memory_caching(builder, make_counter):
     builder.assign("x", 2)
     builder.assign("y", 3)
 
+    counter = make_counter()
+
     @builder
     @bn.persist(False)
-    @count_calls
+    @count_calls(counter)
     def xy(x, y):
         return x * y
 
     flow = builder.build()
 
     assert flow.get("xy") == 6
-    assert xy.times_called() == 1
+    assert counter.times_called() == 1
 
     assert flow.get("xy") == 6
-    assert xy.times_called() == 0
+    assert counter.times_called() == 0
 
     flow = builder.build()
 
     assert flow.get("xy") == 6
-    assert xy.times_called() == 1
+    assert counter.times_called() == 1
 
     new_flow = flow.setting("y", values=[4, 5])
 
     assert new_flow.get("xy", set) == {8, 10}
-    assert xy.times_called() == 2
+    assert counter.times_called() == 2
 
     assert new_flow.get("xy", set) == {8, 10}
-    assert xy.times_called() == 0
+    assert counter.times_called() == 0
 
     assert flow.get("xy") == 6
-    assert xy.times_called() == 0
+    assert counter.times_called() == 0
 
 
 def test_to_builder(builder):
@@ -643,6 +645,7 @@ def test_unhashable_index_values(builder):
     assert index_items == [[1, 2], [2, 3]]
 
 
+@pytest.mark.no_parallel
 def test_entity_serialization_exception(builder):
     @builder
     def unpicklable_value():
@@ -658,6 +661,23 @@ def test_entity_serialization_exception(builder):
         assert isinstance(e.__cause__, AttributeError)
 
 
+@pytest.mark.only_parallel
+def test_entity_serialization_exception_parallel(builder):
+    @builder
+    def unpicklable_value():
+        def f():
+            return 1
+
+        return f
+
+    try:
+        builder.build().get("unpicklable_value")
+    except EntitySerializationError as e:
+        # AttributeError is what happens when we try to pickle a function.
+        assert "\nAttributeError:" in e.__cause__.tb
+
+
+@pytest.mark.no_parallel
 def test_entity_computation_exception(builder):
     @builder
     def uncomputable_value():
@@ -667,6 +687,20 @@ def test_entity_computation_exception(builder):
         builder.build().get("uncomputable_value")
     except EntityComputationError as e:
         assert isinstance(e.__cause__, ZeroDivisionError)
+        # FIXME: Parallel processing should assert the error differently.
+        # assert "\nZeroDivisionError:" in e.__cause__.tb
+
+
+@pytest.mark.only_parallel
+def test_entity_computation_exception_parallel(builder):
+    @builder
+    def uncomputable_value():
+        return 1 / 0
+
+    try:
+        builder.build().get("uncomputable_value")
+    except EntityComputationError as e:
+        assert "\nZeroDivisionError:" in e.__cause__.tb
 
 
 def test_multiple_compute_attempts(builder):

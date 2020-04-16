@@ -19,6 +19,7 @@ def log_checker(caplog):
     return LogChecker(caplog)
 
 
+@pytest.mark.no_parallel
 def test_logging_details(builder, log_checker):
     """
     Test the details of the log messages we emit. Since these messages are currently the

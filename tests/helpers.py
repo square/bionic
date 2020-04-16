@@ -45,60 +45,60 @@ def df_from_csv_str(string):
     return pd.read_csv(BytesIO(bytestring))
 
 
-def count_calls(func):
+def count_calls(counter):
     """
     A decorator which counts the number of times the decorated function is
-    called.  The decorated function will have two methods attached:
-
-    - times_called(): returns the number of calls since the last time
-      times_called() was invoked
-    - times_called_total(): returns the total number of calls ever
+    called using the counter argument.
     """
-    container = []
 
-    def wrapper(func, *args, **kwargs):
-        wrapped_func = container[0]
-        wrapped_func._n_calls_total += 1
-        wrapped_func._n_calls_since_last_check += 1
-        return func(*args, **kwargs)
+    def call_counts_inner(func):
+        def wrapper(func, *args, **kwargs):
+            counter.mark()
+            return func(*args, **kwargs)
 
-    wrapped = decorate(func, wrapper)
-    wrapped._n_calls_since_last_check = 0
-    wrapped._n_calls_total = 0
+        wrapped = decorate(func, wrapper)
+        counter.reset()
+        return wrapped
 
-    def times_called():
-        n = wrapped._n_calls_since_last_check
-        wrapped._n_calls_since_last_check = 0
-        return n
-
-    wrapped.times_called = times_called
-
-    def total_times_called():
-        return wrapped._n_calls_total
-
-    wrapped.total_times_called = total_times_called
-
-    container.append(wrapped)
-
-    return wrapped
+    return call_counts_inner
 
 
 class ResettingCounter:
     """
     A class for manually counting the number of times something happens.
-    Used mainly in situations whre ``count_calls`` can't be used.
+    Used as an argument to ``count_calls`` and directly used in situations
+    where ``count_calls`` can't be used.
     """
 
     def __init__(self):
-        self._count = 0
+        self._n_calls_total = 0
+        self._n_calls_since_last_check = 0
 
     def mark(self):
-        self._count += 1
+        self._n_calls_total += 1
+        self._n_calls_since_last_check += 1
 
     def times_called(self):
-        count = self._count
-        self._count = 0
+        count = self._n_calls_since_last_check
+        self._n_calls_since_last_check = 0
         return count
+
+    def total_times_called(self):
+        return self._n_calls_total
+
+    def reset(self):
+        self._n_calls_total = 0
+        self._n_calls_since_last_check = 0
+
+
+def _decorate_count_calls(counter, func):
+    def wrapper(func, *args, **kwargs):
+        counter.mark()
+        return func(*args, **kwargs)
+
+    wrapped = decorate(func, wrapper)
+    counter.reset()
+    return wrapped
 
 
 class RoundingProtocol(bn.protocols.BaseProtocol):

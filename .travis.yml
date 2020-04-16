@@ -10,6 +10,7 @@ before_install:
 - pip freeze
 script:
 - pytest --slow
+- pytest --slow --parallel
 - flake8
 - black --check .
 deploy:

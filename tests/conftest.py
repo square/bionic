@@ -14,8 +14,8 @@ from bionic.optdep import import_optional_dependency
 
 
 @pytest.fixture(scope="session")
-def executor(uses_parallel_processing):
-    if not uses_parallel_processing:
+def process_executor(request):
+    if not request.config.getoption("--parallel"):
         return None
 
     loky = import_optional_dependency("loky", purpose="parallel processing")
@@ -23,8 +23,8 @@ def executor(uses_parallel_processing):
 
 
 @pytest.fixture(scope="session")
-def manager(uses_parallel_processing):
-    if not uses_parallel_processing:
+def process_manager(request):
+    if not request.config.getoption("--parallel"):
         return None
 
     class MyManager(SyncManager):
@@ -37,15 +37,10 @@ def manager(uses_parallel_processing):
     return manager
 
 
-@pytest.fixture(scope="session")
-def uses_parallel_processing(request):
-    return request.config.getoption("--parallel")
-
-
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture(scope="function")
-def builder(executor, manager, tmp_path):
+def builder(process_executor, process_manager, tmp_path):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
 
@@ -55,14 +50,36 @@ def builder(executor, manager, tmp_path):
     @builder
     @persist(False)
     def core__process_executor():
-        return executor
+        return process_executor
 
     @builder
     @persist(False)
     def core__process_manager():
-        return manager
+        return process_manager
 
     return builder
+
+
+@pytest.fixture
+def make_counter(process_manager):
+    def _make_counter():
+        if process_manager is None:
+            return ResettingCounter()
+        else:
+            return process_manager.ResettingCounter()
+
+    return _make_counter
+
+
+@pytest.fixture
+def make_list(process_manager):
+    def _make_list():
+        if process_manager is None:
+            return []
+        else:
+            return process_manager.list([])
+
+    return _make_list
 
 
 def pytest_addoption(parser):
@@ -83,6 +100,13 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: mark test as slow to run")
     config.addinivalue_line("markers", "needs_gcs: mark test as requiring GCS to run")
+    config.addinivalue_line(
+        "markers",
+        "no_parallel: mark test as not supported by parallel processing to run",
+    )
+    config.addinivalue_line(
+        "markers", "only_parallel: mark test as requiring parallel processing to run"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -97,6 +121,19 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "needs_gcs" in item.keywords:
                 item.add_marker(skip_gcs)
+
+    if config.getoption("--parallel"):
+        skip_no_parallel = pytest.mark.skip(
+            reason="only runs when --parallel is not set"
+        )
+        for item in items:
+            if "no_parallel" in item.keywords:
+                item.add_marker(skip_no_parallel)
+    else:
+        skip_only_parallel = pytest.mark.skip(reason="only runs when --parallel is set")
+        for item in items:
+            if "only_parallel" in item.keywords:
+                item.add_marker(skip_only_parallel)
 
 
 @pytest.fixture(scope="session")

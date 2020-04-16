@@ -53,10 +53,11 @@ def gcs_builder(builder, tmp_gcs_url_prefix):
 # place.
 # TODO Now that we have a workspace fixture and cached client initialization,
 # this may not be true anymore.
-def test_gcs_caching(gcs_builder):
+@pytest.mark.no_parallel
+def test_gcs_caching(gcs_builder, make_counter):
     # Setup.
 
-    call_counter = ResettingCounter()
+    call_counter = make_counter()
 
     builder = gcs_builder
 
