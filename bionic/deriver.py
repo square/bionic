@@ -344,14 +344,12 @@ class EntityDeriver:
                 state.complete(task_key_logger)
             else:
                 # NOTE 1: Logging support for multiple processes not done yet.
-                # NOTE 2: Non-persisted entities are not computed inside the executor yet.
-                # Right now the tests pass because all non-persisted entities are serializable
-                # but that won't always be the case.
-                # NOTE 3: The entire task state is passed along to the executor. This means that
-                # all the memoized results as well as the entire parent task state structure
-                # alongside their memoized results are also passed along which are unneeded.
+                # NOTE 2: The entire task state is passed along to the executor except the
+                # memoized results. This means that the entire parent task state structure
+                # is also passed along which can can be unneeded.
+                new_state_for_subprocess = state.new_state_for_completion({})
                 ex = self._bootstrap.process_executor.submit(
-                    state.complete, task_key_logger
+                    new_state_for_subprocess.complete, task_key_logger
                 )
                 ex.result()
                 state.sync_after_subprocess_completion()

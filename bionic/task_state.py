@@ -1,3 +1,5 @@
+import copy
+
 from .cache import Provenance
 from .datatypes import ProvenanceDigest, Query, Result
 from .exception import CodeVersioningError
@@ -47,8 +49,8 @@ class TaskState:
     def complete(self, task_key_logger):
         """
         Ensures that a task state reaches completion -- i.e., that its results are
-        available and can be retrieved. This can happen either by computing the task's
-        values or by confirming that cached values already exist.
+        available and can be retrieved or can be readily computed. The results can
+        be fetched from `self.get_results_assuming_complete()`.
         """
 
         assert self._is_initialized
@@ -74,9 +76,19 @@ class TaskState:
         self.is_complete = True
 
     def get_results_assuming_complete(self, task_key_logger):
-        "Returns the results of an already-completed task state."
+        """
+        Returns the results of an already-completed task state. This can happen
+        by returning the cached results if they exist, or by computing the results
+        using `self._compute()` and returning them.
+        """
 
         assert self.is_complete
+
+        # If task state should persist but results aren't cached, that's probably
+        # because the results aren't communicated between processes. Compute the
+        # results to populate in memory cache.
+        if not self.provider.attrs.should_persist() and not self._results_by_name:
+            self._compute(task_key_logger)
 
         if self._results_by_name:
             for task_key in self.task.keys:
@@ -317,3 +329,41 @@ class TaskState:
 
         for accessor in accessors_needing_saving:
             accessor.update_provenance()
+
+    # NOTE: This can be optimized further.
+    def new_state_for_completion(self, new_task_states_by_key):
+        """
+        Returns a copy of task state after keeping only the necessary data
+        required for completion. Along with keeping only necessary data for
+        completion, this also removes all the memoized results since they can
+        be expensive to serialize.
+
+        Mainly used to reduce IPC overhead when sending the state over to a
+        subprocess.
+
+        Parameters
+        ----------
+
+        new_task_states_by_key: Dict from key to new task states.
+            The cache for tracking new task states. Should be an empty dict when
+            first called.
+        """
+
+        # All task keys should point to the same task state.
+        if self.task.keys[0] in new_task_states_by_key:
+            return new_task_states_by_key[self.task.keys[0]]
+
+        # Let's make a copy of the task state.
+        # Note that this is not a deep copy so don't mutate so be careful when
+        # mutating state variables.
+        task_state = copy.copy(self)
+        task_state._results_by_name = None
+
+        new_dep_states = []
+        for dep_state in task_state.dep_states:
+            new_dep_state = dep_state.new_state_for_completion(new_task_states_by_key)
+            new_dep_states.append(new_dep_state)
+        task_state.dep_states = new_dep_states
+
+        new_task_states_by_key[task_state.task.keys[0]] = task_state
+        return task_state

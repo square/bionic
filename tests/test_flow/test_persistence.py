@@ -21,6 +21,7 @@ class ReadCountingProtocol(bn.protocols.PicklableProtocol):
 # It would be nice to move the builder setup into fixtures, but since we need
 # to access the bound functions as well (to check the number of times they were
 # called), it's easiest to just have one long test.
+@pytest.mark.no_parallel
 def test_caching_and_invalidation(builder, make_counter):
     # Set up the builder with singleton values.
 
@@ -851,6 +852,7 @@ def test_disable_memory_caching(builder):
         assert flow.get("y") == 1
 
 
+@pytest.mark.no_parallel
 def test_changes_per_run_and_not_persist(builder, make_counter):
     builder.assign("x", 5)
 
@@ -916,6 +918,7 @@ def test_changes_per_run_and_not_persist(builder, make_counter):
     assert x_plus_four_counter.times_called() == 0
 
 
+@pytest.mark.no_parallel
 def test_changes_per_run_and_persist(builder, make_counter):
     builder.assign("x", 5)
 
