@@ -27,6 +27,7 @@ extras["standard"] = combine(extras["matplotlib"], extras["viz"])
 extras["dill"] = ["dill"]
 extras["dask"] = ["dask[dataframe]"]
 extras["gcp"] = ["google-cloud-storage"]
+extras["parallel"] = ["cloudpickle", "loky"]
 
 extras["examples"] = combine(extras["standard"], ["scikit-learn"])
 extras["full"] = combine(*extras.values())

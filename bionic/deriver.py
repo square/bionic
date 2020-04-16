@@ -48,6 +48,8 @@ class EntityDeriver:
         self._bootstrap_is_complete = False
         self._persistent_cache = None
         self._versioning_policy = None
+        self._executor = None
+        self._process_manager = None
 
     def get_ready(self):
         """
@@ -147,6 +149,12 @@ class EntityDeriver:
 
         self._versioning_policy = self._bootstrap_singleton_entity(
             "core__versioning_policy"
+        )
+
+        self._executor = self._bootstrap_singleton_entity("core__process_executor")
+
+        self._process_manager = self._bootstrap_singleton_entity(
+            "core__process_manager"
         )
 
         self._bootstrap_is_complete = True

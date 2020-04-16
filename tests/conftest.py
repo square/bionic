@@ -3,17 +3,65 @@ import pytest
 import getpass
 import random
 
-from .helpers import gsutil_path_exists, gsutil_wipe_path
+from multiprocessing.managers import SyncManager
+
+from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 
 import bionic as bn
+from bionic.decorators import persist
+from bionic.deriver import TaskKeyLogger
+from bionic.optdep import import_optional_dependency
+
+
+@pytest.fixture(scope="session")
+def executor(uses_parallel_processing):
+    if not uses_parallel_processing:
+        return None
+
+    loky = import_optional_dependency("loky", purpose="parallel processing")
+    return loky.get_reusable_executor()
+
+
+@pytest.fixture(scope="session")
+def manager(uses_parallel_processing):
+    if not uses_parallel_processing:
+        return None
+
+    class MyManager(SyncManager):
+        pass
+
+    MyManager.register("ResettingCounter", ResettingCounter)
+    MyManager.register("TaskKeyLogger", TaskKeyLogger)
+    manager = MyManager()
+    manager.start()
+    return manager
+
+
+@pytest.fixture(scope="session")
+def uses_parallel_processing(request):
+    return request.config.getoption("--parallel")
 
 
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture(scope="function")
-def builder(tmp_path):
+def builder(executor, manager, tmp_path):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
+
+    # We can't use builder.set here because that uses ValueProvider which tries to
+    # tokenize the value by writing / pickling it. We go around that issue by making
+    # them use FunctionProvider.
+    @builder
+    @persist(False)
+    def core__process_executor():
+        return executor
+
+    @builder
+    @persist(False)
+    def core__process_manager():
+        return manager
+
     return builder
 
 
@@ -23,6 +71,12 @@ def pytest_addoption(parser):
     )
     parser.addoption(
         "--bucket", action="store", help="URL to GCS bucket to use for tests"
+    )
+    parser.addoption(
+        "--parallel",
+        action="store_true",
+        default=False,
+        help="uses parallel processing",
     )
 
 

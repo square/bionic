@@ -11,6 +11,8 @@ from importlib import reload
 from textwrap import dedent
 from uuid import uuid4
 
+from multiprocessing.managers import BaseManager
+
 import pyrsistent as pyrs
 import pandas as pd
 
@@ -23,6 +25,7 @@ from .exception import (
     AlreadyDefinedEntityError,
     IncompatibleEntityError,
 )
+from .optdep import import_optional_dependency
 from .provider import (
     ValueProvider,
     multi_index_from_case_keys,
@@ -30,7 +33,7 @@ from .provider import (
     provider_wrapper,
     AttrUpdateProvider,
 )
-from .deriver import EntityDeriver
+from .deriver import EntityDeriver, TaskKeyLogger
 from .descriptors import DescriptorNode
 from . import decorators
 from .util import (
@@ -1565,5 +1568,34 @@ def create_default_flow_state():
             local_store=core__persistent_cache__local_store,
             cloud_store=core__persistent_cache__cloud_store,
         )
+
+    builder.assign("core__parallel_processing__enabled", False)
+
+    @builder
+    @decorators.immediate
+    def core__process_executor(core__parallel_processing__enabled):
+        if not core__parallel_processing__enabled:
+            return None
+
+        # Loky uses cloudpickle by default. We should investigate further what would
+        # it take to make is use pickle and wrap the functions that are non-picklable
+        # using `loky.wrap_non_picklable_objects`.
+        loky = import_optional_dependency("loky", purpose="parallel processing")
+        return loky.get_reusable_executor(max_workers=1)
+
+    @builder
+    @decorators.immediate
+    def core__process_manager(core__parallel_processing__enabled):
+        if not core__parallel_processing__enabled:
+            return None
+
+        class MyManager(BaseManager):
+            pass
+
+        MyManager.register("TaskKeyLogger", TaskKeyLogger)
+
+        manager = MyManager()
+        manager.start()
+        return manager
 
     return builder._state.mark_all_providers_default()
