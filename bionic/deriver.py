@@ -7,7 +7,7 @@ from collections import defaultdict
 import attr
 
 from .datatypes import ResultGroup
-from .descriptors import DescriptorNode
+from .descriptors.parsing import entity_dnode_from_descriptor
 from .exception import AttributeValidationError, UndefinedEntityError
 from .optdep import import_optional_dependency
 from .task_state import TaskState
@@ -187,7 +187,7 @@ class EntityDeriver:
         """
 
         return [
-            DescriptorNode.from_descriptor(entity_name)
+            entity_dnode_from_descriptor(entity_name)
             for entity_name in self._flow_state.providers_by_name.keys()
         ]
 
@@ -278,7 +278,7 @@ class EntityDeriver:
         has a single value.
         """
 
-        dnode = DescriptorNode.from_descriptor(entity_name)
+        dnode = entity_dnode_from_descriptor(entity_name)
         result_group = self._compute_result_group_for_dnode(dnode)
         if len(result_group) == 0:
             raise ValueError(

@@ -24,7 +24,7 @@ from .datatypes import (
     CodeVersion,
 )
 from .exception import EntityComputationError
-from .descriptors import DescriptorNode
+from .descriptors.parsing import entity_dnode_from_descriptor
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
 from .optdep import import_optional_dependency
@@ -236,7 +236,7 @@ class RenamingProvider(WrappingProvider):
             return Task(
                 keys=[
                     TaskKey(
-                        dnode=DescriptorNode.from_descriptor(name),
+                        dnode=entity_dnode_from_descriptor(name),
                         case_key=task_key.case_key,
                     )
                 ],
@@ -300,7 +300,7 @@ class NameSplittingProvider(WrappingProvider):
             return Task(
                 keys=[
                     TaskKey(
-                        dnode=DescriptorNode.from_descriptor(name),
+                        dnode=entity_dnode_from_descriptor(name),
                         case_key=task_key.case_key,
                     )
                     for name in self.attrs.names
@@ -327,7 +327,7 @@ class ValueProvider(BaseProvider):
         )
 
         self.name = name
-        self.dnode = DescriptorNode.from_descriptor(name)
+        self.dnode = entity_dnode_from_descriptor(name)
         self.protocol = protocol
         self.doc = doc
 
@@ -432,7 +432,7 @@ class FunctionProvider(BaseProvider):
 
         self._func = func
         self.name = name
-        self.dnode = DescriptorNode.from_descriptor(name)
+        self.dnode = entity_dnode_from_descriptor(name)
 
         argspec = inspect.getfullargspec(func)
 
@@ -442,7 +442,7 @@ class FunctionProvider(BaseProvider):
             raise ValueError("Functions with keyword args are not supported")
         self._dep_names = list(argspec.args)
         self._dep_dnodes = [
-            DescriptorNode.from_descriptor(dep_name) for dep_name in self._dep_names
+            entity_dnode_from_descriptor(dep_name) for dep_name in self._dep_names
         ]
 
     def get_dependency_dnodes(self):
@@ -523,14 +523,12 @@ class GatherProvider(WrappingProvider):
         super(GatherProvider, self).__init__(wrapped_provider)
 
         self._primary_dnodes = [
-            DescriptorNode.from_descriptor(name) for name in primary_names
+            entity_dnode_from_descriptor(name) for name in primary_names
         ]
         self._secondary_dnodes = [
-            DescriptorNode.from_descriptor(name) for name in secondary_names
+            entity_dnode_from_descriptor(name) for name in secondary_names
         ]
-        self._inner_gathered_dep_dnode = DescriptorNode.from_descriptor(
-            gathered_dep_name
-        )
+        self._inner_gathered_dep_dnode = entity_dnode_from_descriptor(gathered_dep_name)
 
         self._inner_dep_dnodes = self.wrapped_provider.get_dependency_dnodes()
 
@@ -771,7 +769,7 @@ class PyplotProvider(WrappingProvider):
             "PIL.Image", purpose="the @pyplot decorator"
         )
 
-        self._pyplot_dnode = DescriptorNode.from_descriptor(name)
+        self._pyplot_dnode = entity_dnode_from_descriptor(name)
 
         self._savefig_kwargs = {
             "format": "png",
