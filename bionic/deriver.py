@@ -4,6 +4,8 @@ Contains the core logic for resolving Entities by executing Tasks.
 
 from collections import defaultdict
 
+import attr
+
 from .datatypes import ProvenanceDigest, Query, Result, ResultGroup
 from .cache import Provenance
 from .descriptors import DescriptorNode
@@ -34,17 +36,16 @@ class EntityDeriver(object):
         self._flow_state = flow_state
         self._flow_instance_uuid = flow_instance_uuid
 
-        # This state is needed to do any resolution at all.  Once it's
-        # initialized, we can use it to bootstrap the requirements for "full"
-        # resolution below.
-        self._is_ready_for_bootstrap_resolution = False
-        self._key_spaces_by_dnode = None
-        self._task_lists_by_dnode = None
-        self._task_states_by_key = None
-        self._docs_by_entity_name = {}
+        # These are used to cache DescriptorInfo and TaskState objects, respectively.
+        self._saved_dinfos_by_dnode = {}
+        self._saved_task_states_by_key = {}
 
-        # This state allows us to do full resolution for external callers.
-        self._is_ready_for_full_resolution = False
+        # Tracks whether we've pre-validated the base descriptors in this flow.
+        self._base_prevalidation_is_complete = False
+
+        # The "bootstrap state" needs to be complete before we can compute user-defined
+        # entities.
+        self._bootstrap_is_complete = False
         self._persistent_cache = None
         self._versioning_policy = None
 
@@ -53,7 +54,8 @@ class EntityDeriver(object):
         Make sure this Deriver is ready to derive().  Calling this is not
         necessary but allows errors to surface earlier.
         """
-        self._get_ready_for_full_resolution()
+        self._prevalidate_base_dnodes()
+        self._set_up_bootstrap()
 
     def derive(self, dnode):
         """
@@ -86,7 +88,9 @@ class EntityDeriver(object):
 
         graph = nx.DiGraph()
 
-        for dnode, tasks in self._task_lists_by_dnode.items():
+        for dnode in self._get_base_dnodes():
+            tasks = self._get_or_create_dinfo_for_dnode(dnode).tasks
+
             entity_name = dnode.to_descriptor()
             if not should_include_entity_name(entity_name):
                 continue
@@ -100,7 +104,7 @@ class EntityDeriver(object):
                 sorted(tasks, key=lambda task: task.keys[0].case_key)
             ):
                 task_key = task.key_for_entity_name(entity_name)
-                state = self._task_states_by_key[task_key]
+                state = self._get_or_create_task_state_for_key(task_key)
 
                 node_name = name_template.format(
                     entity_name=entity_name, task_ix=task_ix
@@ -112,7 +116,9 @@ class EntityDeriver(object):
                     entity_name=entity_name,
                     case_key=task_key.case_key,
                     task_ix=task_ix,
-                    doc=self._docs_by_entity_name.get(entity_name),
+                    doc=self._flow_state.get_provider(entity_name).doc_for_name(
+                        entity_name
+                    ),
                 )
 
                 for dep_state in state.dep_states:
@@ -122,15 +128,18 @@ class EntityDeriver(object):
         return graph
 
     def entity_is_internal(self, entity_name):
+        "Indicates if an entity is built-in to Bionic rather than user-defined."
         return entity_name.startswith("core__")
 
     # --- Private helpers.
 
-    def _get_ready_for_full_resolution(self):
-        if self._is_ready_for_full_resolution:
-            return
+    def _set_up_bootstrap(self):
+        """
+        Initializes some key objects needed to compute user-defined entities.
+        """
 
-        self._get_ready_for_bootstrap_resolution()
+        if self._bootstrap_is_complete:
+            return
 
         self._persistent_cache = self._bootstrap_singleton_entity(
             "core__persistent_cache"
@@ -140,38 +149,101 @@ class EntityDeriver(object):
             "core__versioning_policy"
         )
 
-        self._is_ready_for_full_resolution = True
+        self._bootstrap_is_complete = True
 
-    def _get_ready_for_bootstrap_resolution(self):
-        if self._is_ready_for_bootstrap_resolution:
+    def _prevalidate_base_dnodes(self):
+        """
+        Checks that all 'base' descriptors can be computed.
+
+        (This precomputes and caches all the metadata required for each of these
+        descriptors. If you don't call this, the same work will happen lazily later, so
+        the only effect of this function is to cause any errors to be surfaced earlier.)
+        """
+
+        # Avoid doing pre-validation multiple times. (It's not that expensive since all
+        # the state is cached, but it's still O(number of descriptors), so we'll avoid
+        # it on principle.)
+        if self._base_prevalidation_is_complete:
             return
 
-        # Generate the static key spaces and tasks for each descriptor.
-        self._key_spaces_by_dnode = {}
-        self._task_lists_by_dnode = {}
-        for name in self._flow_state.providers_by_name.keys():
-            dnode = DescriptorNode.from_descriptor(name)
-            self._populate_dnode_info(dnode)
+        self._prevalidate_dnodes(self._get_base_dnodes())
 
-        # Create a lookup table for all tasks.
-        self._tasks_by_key = {}
-        for tasks in self._task_lists_by_dnode.values():
-            for task in tasks:
-                for task_key in task.keys:
-                    self._tasks_by_key[task_key] = task
+        self._base_prevalidation_is_complete = True
 
-        # Create a state object for each task.
-        self._task_states_by_key = {}
-        for task_key in self._tasks_by_key.keys():
-            self._get_or_create_task_state_for_key(task_key)
+    def _prevalidate_dnodes(self, dnodes):
+        """
+        Identifies (and caches) all tasks required to compute a collection of dnodes.
+        Useful for surfacing any dependency errors ahead of time.
+        """
 
-        self._is_ready_for_bootstrap_resolution = True
+        for dnode in dnodes:
+            dinfo = self._get_or_create_dinfo_for_dnode(dnode)
+            for task_key, task in dinfo.tasks_by_key.items():
+                self._get_or_create_task_state_for_key(task_key)
+
+    def _get_base_dnodes(self):
+        """
+        Returns the list of descriptor nodes needed to compute all user-defined entities
+        and internal entities. (At the time of writing, this includes every
+        valid descriptor, but in the future there will be an infinite number
+        of valid descriptors.)
+        """
+
+        return [
+            DescriptorNode.from_descriptor(entity_name)
+            for entity_name in self._flow_state.providers_by_name.keys()
+        ]
+
+    def _get_or_create_dinfo_for_dnode(self, dnode):
+        "Computes (and memoizes) a DescriptorInfo object for a descriptor node."
+
+        if dnode in self._saved_dinfos_by_dnode:
+            return self._saved_dinfos_by_dnode[dnode]
+
+        entity_name = dnode.to_entity_name()
+        provider = self._flow_state.get_provider(entity_name)
+
+        dep_dnodes = provider.get_dependency_dnodes()
+        dep_dinfos = [
+            self._get_or_create_dinfo_for_dnode(dep_dnode) for dep_dnode in dep_dnodes
+        ]
+        dep_key_spaces_by_dnode = {
+            dep_dinfo.dnode: dep_dinfo.key_space for dep_dinfo in dep_dinfos
+        }
+        dep_task_key_lists_by_dnode = {
+            dep_dinfo.dnode: [
+                task.key_for_entity_name(dep_dinfo.dnode.to_entity_name())
+                for task in dep_dinfo.tasks
+            ]
+            for dep_dinfo in dep_dinfos
+        }
+
+        key_space = provider.get_key_space(dep_key_spaces_by_dnode)
+        tasks = provider.get_tasks(dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode)
+        tasks_by_key = {
+            task_key: task
+            for task in tasks
+            for task_key in task.keys
+            if task_key.dnode == dnode
+        }
+
+        dinfo = DescriptorInfo(
+            dnode=dnode, key_space=key_space, tasks_by_key=tasks_by_key,
+        )
+
+        self._saved_dinfos_by_dnode[dnode] = dinfo
+        return dinfo
 
     def _get_or_create_task_state_for_key(self, task_key):
-        if task_key in self._task_states_by_key:
-            return self._task_states_by_key[task_key]
+        "Computes (and memoizes) a TaskState for a task key."
 
-        task = self._tasks_by_key[task_key]
+        if task_key in self._saved_task_states_by_key:
+            return self._saved_task_states_by_key[task_key]
+
+        dnode = task_key.dnode
+        dinfo = self._get_or_create_dinfo_for_dnode(dnode)
+        task = dinfo.tasks_by_key[task_key]
+
         dep_states = [
             self._get_or_create_task_state_for_key(dep_key) for dep_key in task.dep_keys
         ]
@@ -189,42 +261,16 @@ class EntityDeriver(object):
         )
 
         for task_key in task.keys:
-            self._task_states_by_key[task_key] = task_state
+            self._saved_task_states_by_key[task_key] = task_state
         return task_state
 
-    def _populate_dnode_info(self, dnode):
-        if dnode in self._task_lists_by_dnode:
-            return
-
-        entity_name = dnode.to_entity_name()
-        provider = self._flow_state.get_provider(entity_name)
-
-        dep_dnodes = provider.get_dependency_dnodes()
-        for dep_dnode in dep_dnodes:
-            self._populate_dnode_info(dep_dnode)
-
-        dep_key_spaces_by_dnode = {
-            dep_dnode: self._key_spaces_by_dnode[dep_dnode] for dep_dnode in dep_dnodes
-        }
-
-        dep_task_key_lists_by_dnode = {
-            dep_dnode: [
-                task.key_for_entity_name(dep_dnode.to_entity_name())
-                for task in self._task_lists_by_dnode[dep_dnode]
-            ]
-            for dep_dnode in dep_dnodes
-        }
-
-        self._key_spaces_by_dnode[dnode] = provider.get_key_space(
-            dep_key_spaces_by_dnode
-        )
-        self._task_lists_by_dnode[dnode] = provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
-        )
-
-        self._docs_by_entity_name[entity_name] = provider.doc_for_name(entity_name)
-
     def _bootstrap_singleton_entity(self, entity_name):
+        """
+        Computes the value of a 'bootstrap' entity -- i.e., a fundamental
+        internal entity needed to compute user-defined entities. Assumes the entity
+        has a single value.
+        """
+
         dnode = DescriptorNode.from_descriptor(entity_name)
         result_group = self._compute_result_group_for_dnode(dnode)
         if len(result_group) == 0:
@@ -247,21 +293,21 @@ class EntityDeriver(object):
         return result_group[0].value
 
     def _compute_result_group_for_dnode(self, dnode):
-        entity_name = dnode.to_entity_name()
-        tasks = self._task_lists_by_dnode.get(dnode)
-        if tasks is None:
-            raise UndefinedEntityError.for_name(entity_name)
+        """
+        Computes all results for a descriptor node. Will recursively compute any
+        dependencies for that node as well.
+        """
+
+        dinfo = self._get_or_create_dinfo_for_dnode(dnode)
         requested_task_states = [
-            self._task_states_by_key[task.keys[0]] for task in tasks
+            self._get_or_create_task_state_for_key(task.keys[0]) for task in dinfo.tasks
         ]
 
         ready_task_states = list(requested_task_states)
 
         blockage_tracker = TaskBlockageTracker()
 
-        log_level = (
-            logging.INFO if self._is_ready_for_full_resolution else logging.DEBUG
-        )
+        log_level = logging.INFO if self._bootstrap_is_complete else logging.DEBUG
         task_key_logger = TaskKeyLogger(log_level)
 
         while ready_task_states:
@@ -293,6 +339,7 @@ class EntityDeriver(object):
         for state in requested_task_states:
             assert state.is_complete, state
 
+        entity_name = dnode.to_entity_name()
         return ResultGroup(
             results=[
                 self._get_results_for_complete_task_state(state, task_key_logger)[
@@ -300,15 +347,21 @@ class EntityDeriver(object):
                 ]
                 for state in requested_task_states
             ],
-            key_space=self._key_spaces_by_dnode[dnode],
+            key_space=dinfo.key_space,
         )
 
     def _complete_task_state(self, task_state, task_key_logger):
+        """
+        Ensures that a task state reaches completion -- i.e., that its results are
+        available and can be retrieved. This can happen either by computing the task's
+        values or by confirming that cached values already exist.
+        """
+
         assert not task_state.is_blocked
         assert not task_state.is_complete
 
         # First, set up provenance.
-        if not self._is_ready_for_full_resolution:
+        if not self._bootstrap_is_complete:
             # If we're still in the bootstrap resolution phase, we don't have
             # any versioning policy, so we don't attempt anything fancy.
             treat_bytecode_as_functional = False
@@ -358,7 +411,7 @@ class EntityDeriver(object):
 
         # Lastly, set up cache accessors.
         if task_state.provider.attrs.should_persist():
-            if not self._is_ready_for_full_resolution:
+            if not self._bootstrap_is_complete:
                 name = task_state.task.keys[0].entity_name
                 raise AssertionError(
                     oneline(
@@ -398,6 +451,11 @@ class EntityDeriver(object):
         task_state.is_complete = True
 
     def _check_accessors_for_version_problems(self, task_state):
+        """
+        Checks a task state for any versioning errors -- i.e., any cases where a task's
+        function code was updated but its version annotation was not.
+        """
+
         accessors_needing_saving = []
         for accessor in task_state.cache_accessors:
             old_prov = accessor.load_provenance()
@@ -435,6 +493,8 @@ class EntityDeriver(object):
             accessor.update_provenance()
 
     def _get_results_for_complete_task_state(self, task_state, task_key_logger):
+        "Returns the results of an already-completed task state."
+
         assert task_state.is_complete
 
         if task_state._results_by_name:
@@ -459,11 +519,16 @@ class EntityDeriver(object):
         return results_by_name
 
     def _compute_task_state(self, task_state, task_key_logger):
+        """
+        Computes the values of a task state by running its task. Requires that all
+        the task's dependencies are already complete.
+        """
+
         task = task_state.task
         dep_keys = task.dep_keys
         dep_results = [
             self._get_results_for_complete_task_state(
-                self._task_states_by_key[dep_key], task_key_logger
+                self._get_or_create_task_state_for_key(dep_key), task_key_logger
             )[dep_key.dnode.to_entity_name()]
             for dep_key in dep_keys
         ]
@@ -546,6 +611,21 @@ class TaskKeyLogger:
 
     def log_computed(self, task_key):
         self._log("Computed   %s", task_key)
+
+
+@attr.s(frozen=True)
+class DescriptorInfo:
+    """
+    Holds useful metadata about a descriptor.
+    """
+
+    dnode = attr.ib()
+    key_space = attr.ib()
+    tasks_by_key = attr.ib()
+
+    @property
+    def tasks(self):
+        return self.tasks_by_key.values()
 
 
 class TaskState(object):
