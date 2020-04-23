@@ -352,54 +352,6 @@ class ImmutableMapping(ImmutableSequence):
         return f"{self.__class__.__name__}({self.__values_by_key!r})"
 
 
-# TODO I'm not sure if we'll end up needing this or not.
-class ExtensibleLogger(object):
-    def __init__(self, logger):
-        self._logger = logger
-
-    # Subclasses should call this.
-    def base_log(self, level, msg, *args, **kwargs):
-        self._logger.log(level, msg, *args, **kwargs)
-
-    # Subclasses should override this.
-    def custom_log(self, level, msg, *args, **kwargs):
-        self.base_log(level, msg, *args, **kwargs)
-
-    # Internal methods.
-    def _custom_log_if_enabled(self, level, msg, *args, **kwargs):
-        if not self.isEnabledFor(level):
-            return
-        self.custom_log(level, msg, *args, **kwargs)
-
-    # User-facing methods.
-    def isEnabledFor(self, level):
-        return self._logger.isEnabledFor(level)
-
-    def log(self, level, msg, *args, **kwargs):
-        self._custom_log_if_enabled(level, msg, *args, **kwargs)
-
-    def debug(self, msg, *args, **kwargs):
-        self._custom_log_if_enabled(logging.DEBUG, msg, *args, **kwargs)
-
-    def info(self, msg, *args, **kwargs):
-        self._custom_log_if_enabled(logging.INFO, msg, *args, **kwargs)
-
-    def warning(self, msg, *args, **kwargs):
-        self._custom_log_if_enabled(logging.WARNING, msg, *args, **kwargs)
-
-    def warn(self, msg, *args, **kwargs):
-        self.warning(msg, *args, **kwargs)
-
-    def error(self, msg, *args, **kwargs):
-        self._custom_log_if_enabled(logging.ERROR, msg, *args, **kwargs)
-
-    def critical(self, msg, *args, **kwargs):
-        self._custom_log_if_enabled(logging.CRITICAL, msg, *args, **kwargs)
-
-    def exception(self, msg, *args, **kwargs):
-        self._custom_log_if_enabled(logging.ERROR, msg, *args, exc_info=True, **kwargs)
-
-
 class FileCopier(object):
     """
     A wrapper for a Path object, exposing a ``copy`` method that will copy
