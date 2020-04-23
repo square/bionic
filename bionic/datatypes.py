@@ -4,37 +4,39 @@ Contains various data structures used by Bionic's infrastructure.
 
 from collections import namedtuple
 
+import attr
+
 from .util import ImmutableSequence, ImmutableMapping
 
 
-# TODO Consider using the attr library here?
-class TaskKey(namedtuple("TaskKey", "dnode case_key")):
+@attr.s(frozen=True)
+class TaskKey:
     """
     A unique identifier for a Task.
     """
 
-    def __new__(cls, dnode, case_key):
-        return super(TaskKey, cls).__new__(cls, dnode, case_key)
-
-    def __repr__(self):
-        return f"TaskKey({self.dnode!r}, {self.case_key!r})"
+    dnode = attr.ib()
+    case_key = attr.ib()
 
     def __str__(self):
         args_str = ", ".join(f"{name}={value}" for name, value in self.case_key.items())
         return f"{self.dnode.to_entity_name()}({args_str})"
 
 
-class Task(object):
+@attr.s(frozen=True)
+class Task:
     """
     A unit of work.  Can have dependencies, which are referred to via their
     TaskKeys.
     """
 
-    def __init__(self, keys, dep_keys, compute_func, is_simple_lookup=False):
-        self.keys = tuple(keys)
-        self.dep_keys = tuple(dep_keys)
-        self.compute = compute_func
-        self.is_simple_lookup = is_simple_lookup
+    keys = attr.ib(converter=tuple)
+    dep_keys = attr.ib(converter=tuple)
+    compute_func = attr.ib()
+    is_simple_lookup = attr.ib(default=False)
+
+    def compute(self, dep_values):
+        return self.compute_func(dep_values)
 
     def key_for_entity_name(self, name):
         matching_keys = [
@@ -49,48 +51,53 @@ class Task(object):
         return f"Task({self.keys!r}, {self.dep_keys!r})"
 
 
-class Query(object):
+@attr.s(frozen=True)
+class Query:
     """
     Represents a request for a specific entity value.
     """
 
-    def __init__(self, task_key, protocol, provenance):
-        self.task_key = task_key
-        self.dnode = task_key.dnode
-        self.case_key = task_key.case_key
-        self.protocol = protocol
-        self.provenance = provenance
+    task_key = attr.ib()
+    protocol = attr.ib()
+    provenance = attr.ib()
+
+    @property
+    def dnode(self):
+        return self.task_key.dnode
+
+    @property
+    def case_key(self):
+        return self.task_key.case_key
 
     def __repr__(self):
         return f"Query({self.task_key}, {self.provenance!r})"
 
 
-class Result(object):
+@attr.s(frozen=True)
+class Result:
     """
     Represents one value for one entity.
     """
 
-    def __init__(self, query, value, value_hash=None, file_path=None):
-        self.query = query
-        self.value = value
-        # Only present when value should persist.
-        self.file_path = file_path
-        self.value_hash = value_hash
+    query = attr.ib()
+    value = attr.ib()
+    file_path = attr.ib(default=None)
+    value_hash = attr.ib(default=None)
 
     def __repr__(self):
         return f"Result({self.query!r}, {self.value!r})"
 
 
-class ProvenanceDigest(object):
+@attr.s(frozen=True)
+class ProvenanceDigest:
     """
     A collection of values used by Provenance for different chained hashes.
     These hashes depend on the entities and can come from either another
     provenance or the value hash of a result.
     """
 
-    def __init__(self, functional_hash, exact_hash):
-        self.functional_hash = functional_hash
-        self.exact_hash = exact_hash
+    functional_hash = attr.ib()
+    exact_hash = attr.ib()
 
     @classmethod
     def from_provenance(cls, provenance):
@@ -221,22 +228,6 @@ class ResultGroup(ImmutableSequence):
         return f"ResultGroup({list(self)!r})"
 
 
-class CodeVersion(object):
-    """
-    Contains the user-designated version of a piece of code, consisting of a
-    major and a minor version string.  The convention is that changing the
-    major version indicates a functional change, while changing the minor
-    version indicates a nonfunctional change.
-    """
-
-    def __init__(self, major, minor):
-        self.major = str_from_version_value(major)
-        self.minor = str_from_version_value(minor)
-
-    def __repr__(self):
-        return f"CodeVersion({self.major!r}, {self.minor!r})"
-
-
 def str_from_version_value(value):
     if value is None:
         return "0"
@@ -246,6 +237,19 @@ def str_from_version_value(value):
         return value
     else:
         raise ValueError(f"Version values must be str, int, or None: got {value!r}")
+
+
+@attr.s(frozen=True)
+class CodeVersion:
+    """
+    Contains the user-designated version of a piece of code, consisting of a
+    major and a minor version string.  The convention is that changing the
+    major version indicates a functional change, while changing the minor
+    version indicates a nonfunctional change.
+    """
+
+    major = attr.ib(converter=str_from_version_value)
+    minor = attr.ib(converter=str_from_version_value)
 
 
 # A collection of characteristics attempting to uniquely identify a function.
