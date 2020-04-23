@@ -104,6 +104,13 @@ class CacheAccessor:
         self._stored_local_entry = None
         self._stored_cloud_entry = None
 
+    def flush_stored_entries(self):
+        """
+        Flushes the stored local and cloud cached entries.
+        """
+        self._stored_local_entry = None
+        self._stored_cloud_entry = None
+
     def can_load(self):
         """
         Indicates whether there are any cached artifacts for this query.
@@ -204,7 +211,7 @@ class CacheAccessor:
     def _save_or_reregister_result(self, result):
         local_entry = self._get_local_entry()
         cloud_entry = self._get_cloud_entry()
-        self._clear_stored_entries()
+        self.flush_stored_entries()
 
         if result is not None:
             value_wrapper = NullableWrapper(result.value)
@@ -281,10 +288,6 @@ class CacheAccessor:
                 return None
             self._stored_cloud_entry = self._cloud.inventory.find_entry(self.query)
         return self._stored_cloud_entry
-
-    def _clear_stored_entries(self):
-        self._stored_local_entry = None
-        self._stored_cloud_entry = None
 
     def _file_from_blob(self, blob_url):
         dir_path = self._local.generate_unique_dir_path(self.query)

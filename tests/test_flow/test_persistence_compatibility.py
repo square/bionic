@@ -5,11 +5,11 @@ from .generate_test_compatibility_cache import Harness, CACHE_TEST_DIR
 
 
 @pytest.fixture
-def older_serialized_cache_harness(tmp_path):
+def older_serialized_cache_harness(make_counter, tmp_path):
     # shutil.copytree dest should not exist
     tmp_cache_path = tmp_path.joinpath("test_cache")
     shutil.copytree(CACHE_TEST_DIR, tmp_cache_path)
-    harness = Harness(tmp_cache_path)
+    harness = Harness(tmp_cache_path, make_counter)
     return harness
 
 
@@ -31,6 +31,6 @@ def test_caching_compatibility(older_serialized_cache_harness):
     assert flow.get("xy_plus_yz") == 18
 
     # assert that no methods were called
-    assert older_serialized_cache_harness.xy.times_called() == 0
-    assert older_serialized_cache_harness.yz.times_called() == 0
-    assert older_serialized_cache_harness.xy_plus_yz.times_called() == 0
+    assert older_serialized_cache_harness.xy_counter.times_called() == 0
+    assert older_serialized_cache_harness.yz_counter.times_called() == 0
+    assert older_serialized_cache_harness.xy_plus_yz_counter.times_called() == 0

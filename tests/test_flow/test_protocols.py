@@ -28,44 +28,50 @@ PICKLABLE_VALUES = [
 
 
 @pytest.mark.parametrize("value", PICKLABLE_VALUES)
-def test_picklable_value(builder, value):
+def test_picklable_value(builder, make_counter, value):
+    counter = make_counter()
+
     @builder
     @bn.protocol.picklable
-    @count_calls
+    @count_calls(counter)
     def picklable_value():
         return value
 
     assert builder.build().get("picklable_value") == value
     assert builder.build().get("picklable_value") == value
-    assert picklable_value.times_called() == 1
+    assert counter.times_called() == 1
 
 
-def test_picklable_with_parens(builder):
+def test_picklable_with_parens(builder, make_counter):
+    counter = make_counter()
+
     @builder
     @bn.protocol.picklable()
-    @count_calls
+    @count_calls(counter)
     def picklable_value():
         return 1
 
     assert builder.build().get("picklable_value") == 1
     assert builder.build().get("picklable_value") == 1
-    assert picklable_value.times_called() == 1
+    assert counter.times_called() == 1
 
 
 @pytest.mark.parametrize("value", PICKLABLE_VALUES)
-def test_picklable_value_is_also_dillable(builder, value):
+def test_picklable_value_is_also_dillable(builder, make_counter, value):
+    counter = make_counter()
+
     @builder
     @bn.protocol.dillable
-    @count_calls
+    @count_calls(counter)
     def dillable_value():
         return value
 
     assert builder.build().get("dillable_value") == value
     assert builder.build().get("dillable_value") == value
-    assert dillable_value.times_called() == 1
+    assert counter.times_called() == 1
 
 
-def test_dillable(builder):
+def test_dillable(builder, make_counter):
     # Pickle doesn't support nested functions (at least in Python 2.7), but
     # dill should.
     def make_adder(x):
@@ -76,18 +82,20 @@ def test_dillable(builder):
 
     assert make_adder(3)(2) == 5
 
+    counter = make_counter()
+
     @builder
     @bn.protocol.dillable
-    @count_calls
+    @count_calls(counter)
     def add_two():
         return make_adder(2)
 
     assert builder.build().get("add_two")(3) == 5
     assert builder.build().get("add_two")(3) == 5
-    assert add_two.times_called() == 1
+    assert counter.times_called() == 1
 
 
-def test_simple_dataframe(builder):
+def test_simple_dataframe(builder, make_counter):
     df_value = df_from_csv_str(
         """
     color,number
@@ -97,15 +105,17 @@ def test_simple_dataframe(builder):
     """
     )
 
+    counter = make_counter()
+
     @builder
     @bn.protocol.frame
-    @count_calls
+    @count_calls(counter)
     def df():
         return df_value
 
     pdt.assert_frame_equal(builder.build().get("df"), df_value)
     pdt.assert_frame_equal(builder.build().get("df"), df_value)
-    assert df.times_called() == 1
+    assert counter.times_called() == 1
 
 
 def test_typed_dataframe(builder):
@@ -212,7 +222,7 @@ def test_dataframe_with_categorical_works_with_feather(builder):
     pdt.assert_frame_equal(builder.build().get("df"), df_value)
 
 
-def test_simple_dask_dataframe(builder):
+def test_simple_dask_dataframe(builder, make_counter):
     df_value = df_from_csv_str(
         """
     color,number
@@ -223,9 +233,11 @@ def test_simple_dask_dataframe(builder):
     )
     dask_df = dd.from_pandas(df_value, npartitions=1)
 
+    counter = make_counter()
+
     @builder
     @bn.protocol.dask
-    @count_calls
+    @count_calls(counter)
     def df():
         return dask_df
 
@@ -235,10 +247,10 @@ def test_simple_dask_dataframe(builder):
     assert equal_frame_and_index_content(
         builder.build().get("df").compute(), dask_df.compute()
     )
-    assert df.times_called() == 1
+    assert counter.times_called() == 1
 
 
-def test_multiple_partitions_dask_dataframe(builder):
+def test_multiple_partitions_dask_dataframe(builder, make_counter):
     df_value = df_from_csv_str(
         """
     color,number
@@ -249,9 +261,11 @@ def test_multiple_partitions_dask_dataframe(builder):
     )
     dask_df = dd.from_pandas(df_value, npartitions=3)
 
+    counter = make_counter()
+
     @builder
     @bn.protocol.dask
-    @count_calls
+    @count_calls(counter)
     def df():
         return dask_df
 
@@ -261,7 +275,7 @@ def test_multiple_partitions_dask_dataframe(builder):
     assert equal_frame_and_index_content(
         builder.build().get("df").compute(), dask_df.compute()
     )
-    assert df.times_called() == 1
+    assert counter.times_called() == 1
 
 
 def test_typed_dask_dataframe(builder):
@@ -447,7 +461,7 @@ def test_enum_protocol(builder):
 
 
 @pytest.mark.parametrize("operation", ["move", "copy"])
-def test_path_protocol(builder, tmp_path, operation):
+def test_path_protocol(builder, make_counter, tmp_path, operation):
     # Our entities will return paths in this directory.
     working_dir_path = Path(tempfile.mkdtemp(dir=tmp_path))
     output_phrase_file_path = working_dir_path / "phrase"
@@ -456,17 +470,21 @@ def test_path_protocol(builder, tmp_path, operation):
     phrase_str = "hello world"
     colors = ["red", "blue"]
 
+    phrase_file_path_counter = make_counter()
+
     @builder
     @bn.protocol.path(operation=operation)
-    @count_calls
+    @count_calls(phrase_file_path_counter)
     def phrase_file_path():
         "A path to a file containing a phrase."
         output_phrase_file_path.write_text(phrase_str)
         return output_phrase_file_path
 
+    colors_dir_path_counter = make_counter()
+
     @builder
     @bn.protocol.path(operation=operation)
-    @count_calls
+    @count_calls(colors_dir_path_counter)
     def colors_dir_path():
         "A path to a directory containing some files named after colors."
         output_colors_dir_path.mkdir()
@@ -485,8 +503,8 @@ def test_path_protocol(builder, tmp_path, operation):
 
     check_file_contents(builder.build().get("phrase_file_path"))
     check_dir_contents(builder.build().get("colors_dir_path"))
-    assert phrase_file_path.times_called() == 1
-    assert colors_dir_path.times_called() == 1
+    assert phrase_file_path_counter.times_called() == 1
+    assert colors_dir_path_counter.times_called() == 1
 
     if operation == "copy":
         # Check that the original files are still there.
@@ -500,8 +518,8 @@ def test_path_protocol(builder, tmp_path, operation):
 
         check_file_contents(builder.build().get("phrase_file_path"))
         check_dir_contents(builder.build().get("colors_dir_path"))
-        assert phrase_file_path.times_called() == 0
-        assert colors_dir_path.times_called() == 0
+        assert phrase_file_path_counter.times_called() == 0
+        assert colors_dir_path_counter.times_called() == 0
 
     elif operation == "move":
         # Check that the original files have been removed.

@@ -6,11 +6,11 @@ from collections import defaultdict
 
 import attr
 
-from .datatypes import ProvenanceDigest, Query, Result, ResultGroup
-from .cache import Provenance
+from .datatypes import ResultGroup
 from .descriptors import DescriptorNode
-from .exception import UndefinedEntityError, CodeVersioningError
+from .exception import UndefinedEntityError
 from .optdep import import_optional_dependency
+from .task_state import TaskState
 from .util import oneline
 
 import logging
@@ -45,9 +45,7 @@ class EntityDeriver:
 
         # The "bootstrap state" needs to be complete before we can compute user-defined
         # entities.
-        self._bootstrap_is_complete = False
-        self._persistent_cache = None
-        self._versioning_policy = None
+        self._bootstrap = None
 
     def get_ready(self):
         """
@@ -138,18 +136,17 @@ class EntityDeriver:
         Initializes some key objects needed to compute user-defined entities.
         """
 
-        if self._bootstrap_is_complete:
+        if self._bootstrap is not None:
             return
 
-        self._persistent_cache = self._bootstrap_singleton_entity(
-            "core__persistent_cache"
+        self._bootstrap = Bootstrap(
+            persistent_cache=self._bootstrap_singleton_entity("core__persistent_cache"),
+            versioning_policy=self._bootstrap_singleton_entity(
+                "core__versioning_policy"
+            ),
+            process_executor=self._bootstrap_singleton_entity("core__process_executor"),
+            process_manager=self._bootstrap_singleton_entity("core__process_manager"),
         )
-
-        self._versioning_policy = self._bootstrap_singleton_entity(
-            "core__versioning_policy"
-        )
-
-        self._bootstrap_is_complete = True
 
     def _prevalidate_base_dnodes(self):
         """
@@ -307,7 +304,7 @@ class EntityDeriver:
 
         blockage_tracker = TaskBlockageTracker()
 
-        log_level = logging.INFO if self._bootstrap_is_complete else logging.DEBUG
+        log_level = logging.INFO if self._bootstrap is not None else logging.DEBUG
         task_key_logger = TaskKeyLogger(log_level)
 
         while ready_task_states:
@@ -326,8 +323,38 @@ class EntityDeriver:
                 ready_task_states.extend(incomplete_dep_states)
                 continue
 
+            # Initialize the task state before attempting to complete it.
+            state.initialize(self._bootstrap, self._flow_instance_uuid)
+
             # If the task isn't complete or blocked, we can complete the task.
-            self._complete_task_state(state, task_key_logger)
+
+            # self._bootstrap.process_executor is None when parallel processing is
+            # disabled or when entities are bootstrapped.
+            if (
+                not state.provider.attrs.should_persist()
+                or self._bootstrap.process_executor is None
+            ):
+                # NOTE 1: This makes non-persisted entities compute here as well
+                # as in executor pool. We need to keep track of what needs to be
+                # computed in main process vs subprocess when entity is not persisted.
+                # NOTE 2: Right now, non-persisted entities include simple lookup values
+                # which we should not be really sending using IPC. We should read/write
+                # a tmp file for this instead to use protocol for serialization instead of
+                # using cloudpickle.
+                state.complete(task_key_logger)
+            else:
+                # NOTE 1: Logging support for multiple processes not done yet.
+                # NOTE 2: Non-persisted entities are not computed inside the executor yet.
+                # Right now the tests pass because all non-persisted entities are serializable
+                # but that won't always be the case.
+                # NOTE 3: The entire task state is passed along to the executor. This means that
+                # all the memoized results as well as the entire parent task state structure
+                # alongside their memoized results are also passed along which are unneeded.
+                ex = self._bootstrap.process_executor.submit(
+                    state.complete, task_key_logger
+                )
+                ex.result()
+                state.sync_after_subprocess_completion()
 
             # See if we can unblock any other states now that we've completed this one.
             unblocked_states = blockage_tracker.get_unblocked_by(state)
@@ -342,240 +369,23 @@ class EntityDeriver:
         entity_name = dnode.to_entity_name()
         return ResultGroup(
             results=[
-                self._get_results_for_complete_task_state(state, task_key_logger)[
-                    entity_name
-                ]
+                state.get_results_assuming_complete(task_key_logger)[entity_name]
                 for state in requested_task_states
             ],
             key_space=dinfo.key_space,
         )
 
-    def _complete_task_state(self, task_state, task_key_logger):
-        """
-        Ensures that a task state reaches completion -- i.e., that its results are
-        available and can be retrieved. This can happen either by computing the task's
-        values or by confirming that cached values already exist.
-        """
 
-        assert not task_state.is_blocked
-        assert not task_state.is_complete
+@attr.s(frozen=True)
+class Bootstrap:
+    """
+    Set of entity values needed to compute / load other entities.
+    """
 
-        # First, set up provenance.
-        if not self._bootstrap_is_complete:
-            # If we're still in the bootstrap resolution phase, we don't have
-            # any versioning policy, so we don't attempt anything fancy.
-            treat_bytecode_as_functional = False
-        else:
-            treat_bytecode_as_functional = (
-                self._versioning_policy.treat_bytecode_as_functional
-            )
-
-        dep_provenance_digests_by_task_key = {}
-        for dep_key, dep_state in zip(task_state.task.dep_keys, task_state.dep_states):
-            # Use value hash of persistable values.
-            if dep_state.provider.attrs.should_persist():
-                value_hash = dep_state.result_value_hashes_by_name[
-                    dep_key.dnode.to_entity_name()
-                ]
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_value_hash(value_hash)
-            # Otherwise, use the provenance.
-            else:
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_provenance(dep_state.provenance)
-
-        task_state.provenance = Provenance.from_computation(
-            code_fingerprint=task_state.provider.get_code_fingerprint(
-                task_state.case_key
-            ),
-            case_key=task_state.case_key,
-            dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
-            treat_bytecode_as_functional=treat_bytecode_as_functional,
-            can_functionally_change_per_run=task_state.provider.attrs.changes_per_run,
-            flow_instance_uuid=self._flow_instance_uuid,
-        )
-
-        # Then set up queries.
-        task_state.queries = [
-            Query(
-                task_key=task_key,
-                protocol=task_state.provider.protocol_for_name(
-                    task_key.dnode.to_entity_name()
-                ),
-                provenance=task_state.provenance,
-            )
-            for task_key in task_state.task.keys
-        ]
-
-        # Lastly, set up cache accessors.
-        if task_state.provider.attrs.should_persist():
-            if not self._bootstrap_is_complete:
-                name = task_state.task.keys[0].entity_name
-                raise AssertionError(
-                    oneline(
-                        f"""
-                    Attempting to load cached state for entity {name!r},
-                    but the cache is not available yet because core bootstrap
-                    entities depend on this one;
-                    you should decorate entity {name!r} with `@persist(False)`
-                    or `@immediate` to indicate that it can't be cached."""
-                    )
-                )
-
-            task_state.cache_accessors = [
-                self._persistent_cache.get_accessor(query)
-                for query in task_state.queries
-            ]
-
-            if self._versioning_policy.check_for_bytecode_errors:
-                self._check_accessors_for_version_problems(task_state)
-
-        # See if we can load it from the cache.
-        if task_state.provider.attrs.should_persist() and all(
-            axr.can_load() for axr in task_state.cache_accessors
-        ):
-            # We only load the hashed result while completing task state
-            # and lazily load the entire result when needed later.
-            value_hashes_by_name = {}
-            for accessor in task_state.cache_accessors:
-                value_hash = accessor.load_result_value_hash()
-                value_hashes_by_name[accessor.query.dnode.to_entity_name()] = value_hash
-
-            task_state.result_value_hashes_by_name = value_hashes_by_name
-        # If we cannot load it from cache, we compute the task state.
-        else:
-            self._compute_task_state(task_state, task_key_logger)
-
-        task_state.is_complete = True
-
-    def _check_accessors_for_version_problems(self, task_state):
-        """
-        Checks a task state for any versioning errors -- i.e., any cases where a task's
-        function code was updated but its version annotation was not.
-        """
-
-        accessors_needing_saving = []
-        for accessor in task_state.cache_accessors:
-            old_prov = accessor.load_provenance()
-
-            if old_prov is None:
-                continue
-
-            new_prov = accessor.query.provenance
-
-            if old_prov.exactly_matches(new_prov):
-                continue
-            accessors_needing_saving.append(accessor)
-
-            if old_prov.code_version_minor == new_prov.code_version_minor:
-                if old_prov.bytecode_hash != new_prov.bytecode_hash:
-                    raise CodeVersioningError(
-                        oneline(
-                            f"""
-                        Found a cached artifact with the same
-                        descriptor ({accessor.query.dnode.to_descriptor()!r}) and
-                        version (major={old_prov.code_version_major!r},
-                        minor={old_prov.code_version_minor!r}),
-                        But created by different code
-                        (old hash {old_prov.bytecode_hash!r},
-                        new hash {new_prov.bytecode_hash!r}).
-                        Did you change your code but not update the
-                        version number?
-                        Change @version(major=) to indicate that your
-                        function's behavior has changed, or @version(minor=)
-                        to indicate that it has *not* changed."""
-                        )
-                    )
-
-        for accessor in accessors_needing_saving:
-            accessor.update_provenance()
-
-    def _get_results_for_complete_task_state(self, task_state, task_key_logger):
-        "Returns the results of an already-completed task state."
-
-        assert task_state.is_complete
-
-        if task_state._results_by_name:
-            for task_key in task_state.task.keys:
-                task_key_logger.log_accessed_from_memory(task_key)
-            return task_state._results_by_name
-
-        results_by_name = dict()
-        for accessor in task_state.cache_accessors:
-            result = accessor.load_result()
-            task_key_logger.log_loaded_from_disk(result.query.task_key)
-
-            # Make sure the result is saved in all caches under this exact
-            # query.
-            accessor.save_result(result)
-
-            results_by_name[result.query.dnode.to_entity_name()] = result
-
-        if task_state.provider.attrs.should_memoize():
-            task_state._results_by_name = results_by_name
-
-        return results_by_name
-
-    def _compute_task_state(self, task_state, task_key_logger):
-        """
-        Computes the values of a task state by running its task. Requires that all
-        the task's dependencies are already complete.
-        """
-
-        task = task_state.task
-        dep_keys = task.dep_keys
-        dep_results = [
-            self._get_results_for_complete_task_state(
-                self._get_or_create_task_state_for_key(dep_key), task_key_logger
-            )[dep_key.dnode.to_entity_name()]
-            for dep_key in dep_keys
-        ]
-
-        provider = task_state.provider
-
-        if not task.is_simple_lookup:
-            for task_key in task.keys:
-                task_key_logger.log_computing(task_key)
-
-        dep_values = [dep_result.value for dep_result in dep_results]
-
-        values = task_state.task.compute(dep_values)
-        assert len(values) == len(provider.attrs.names)
-
-        for query in task_state.queries:
-            if task.is_simple_lookup:
-                task_key_logger.log_accessed_from_definition(query.task_key)
-            else:
-                task_key_logger.log_computed(query.task_key)
-
-        results_by_name = {}
-        result_value_hashes_by_name = {}
-        for ix, (query, value) in enumerate(zip(task_state.queries, values)):
-            query.protocol.validate(value)
-
-            result = Result(query=query, value=value,)
-
-            if provider.attrs.should_persist():
-                accessor = task_state.cache_accessors[ix]
-                accessor.save_result(result)
-
-                value_hash = accessor.load_result_value_hash()
-                result_value_hashes_by_name[query.dnode.to_entity_name()] = value_hash
-
-            results_by_name[query.dnode.to_entity_name()] = result
-
-        # Memoize results at this point only if results should not persist.
-        # Otherwise, load it lazily later so that if the serialized/deserialized
-        # value is not exactly the same as the original, we still
-        # always return the same value.
-        if provider.attrs.should_memoize() and not provider.attrs.should_persist():
-            task_state._results_by_name = results_by_name
-
-        # But we cache the hashed values eagerly since they are cheap to load.
-        if provider.attrs.should_persist():
-            task_state.result_value_hashes_by_name = result_value_hashes_by_name
+    persistent_cache = attr.ib()
+    versioning_policy = attr.ib()
+    process_executor = attr.ib()
+    process_manager = attr.ib()
 
 
 class TaskKeyLogger:
@@ -626,56 +436,6 @@ class DescriptorInfo:
     @property
     def tasks(self):
         return self.tasks_by_key.values()
-
-
-class TaskState:
-    """
-    Represents the state of a task computation.  Keeps track of its position in
-    the task graph, whether its values have been computed yet, and additional
-    intermediate state.
-    """
-
-    def __init__(self, task, dep_states, case_key, provider):
-        self.task = task
-        self.dep_states = dep_states
-        self.case_key = case_key
-        self.provider = provider
-
-        # These are set by EntityDeriver._complete_task_state(), just
-        # before the task state becomes eligible for cache lookup / computation.
-        #
-        # They will be present if and only if is_complete is True.
-        self.provenance = None
-        self.queries = None
-        self.cache_accessors = None
-
-        # This can be set by
-        # EntityDeriver._complete_task_state() or
-        # EntityDeriver._compute_task_state().
-        #
-        # This will be present if and only if both is_complete and
-        # provider.attrs.should_persist() are True.
-        self.result_value_hashes_by_name = None
-
-        # This can be set by
-        # EntityDeriver._get_results_for_complete_task_state() or
-        # EntityDeriver._compute_task_state().
-        #
-        # This should never be accessed directly, instead use
-        # EntityDeriver._get_results_for_complete_task_state().
-        self._results_by_name = None
-
-        self.is_complete = False
-
-    def incomplete_dep_states(self):
-        return [dep_state for dep_state in self.dep_states if not dep_state.is_complete]
-
-    @property
-    def is_blocked(self):
-        return len(self.incomplete_dep_states()) > 0
-
-    def __repr__(self):
-        return f"TaskState({self.task!r})"
 
 
 class TaskBlockage:
