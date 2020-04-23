@@ -255,7 +255,7 @@ def rewrap_docstring(docstring):
     return "\n".join(paragraphs)
 
 
-class ImmutableSequence(object):
+class ImmutableSequence:
     def __init__(self, items):
         self.__items = tuple(items)
 
@@ -352,7 +352,7 @@ class ImmutableMapping(ImmutableSequence):
         return f"{self.__class__.__name__}({self.__values_by_key!r})"
 
 
-class FileCopier(object):
+class FileCopier:
     """
     A wrapper for a Path object, exposing a ``copy`` method that will copy
     the underlying file to a local or cloud destination.

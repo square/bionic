@@ -46,7 +46,7 @@ def check_is_like_protocol(obj):
             )
 
 
-class BaseProtocol(object):
+class BaseProtocol:
     def validate(self, value):
         pass
 

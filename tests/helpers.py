@@ -83,7 +83,7 @@ def count_calls(func):
     return wrapped
 
 
-class ResettingCounter(object):
+class ResettingCounter:
     """
     A class for manually counting the number of times something happens.
     Used mainly in situations whre ``count_calls`` can't be used.

@@ -45,7 +45,7 @@ except AttributeError:
     YamlLoader = yaml.Loader
 
 
-class PersistentCache(object):
+class PersistentCache:
     """
     Provides a persistent mapping between Queries (things we could compute) and
     saved Results (computed Queries).  You use it by getting a CacheAccessor
@@ -86,7 +86,7 @@ class PersistentCache(object):
         return CacheAccessor(self, query)
 
 
-class CacheAccessor(object):
+class CacheAccessor:
     """
     Provides a reference to the cache entries for a specific query.  This
     interface is convenient, and it also allows us to maintain some memoized
@@ -385,7 +385,7 @@ InventoryEntry = namedtuple(
 MetadataMatch = namedtuple("MetadataMatch", "metadata_url level")
 
 
-class Inventory(object):
+class Inventory:
     """
     Maintains a persistent mapping from Queries to artifact URLs.  An Inventory
     is backed by a "file system", which could correspond to either a local disk
@@ -554,7 +554,7 @@ class Inventory(object):
         return metadata_url
 
 
-class LocalStore(object):
+class LocalStore:
     """
     Represents the local disk cache.  Provides both an Inventory that manages
     artifact (file) URLs, and a method to generate those URLs (for creating
@@ -595,7 +595,7 @@ class LocalStore(object):
                     )
 
 
-class GcsCloudStore(object):
+class GcsCloudStore:
     """
     Represents the GCS cloud cache.  Provides both an Inventory that manages
     artifact (blob) URLs, and a method to generate those URLs (for creating
@@ -685,7 +685,7 @@ class FakeCloudStore(LocalStore):
         recursive_file_copy(src_path, dst_path)
 
 
-class LocalFilesystem(object):
+class LocalFilesystem:
     """
     Implements a generic "FileSystem" interface for reading/writing small files
     to local disk.
@@ -724,7 +724,7 @@ class LocalFilesystem(object):
         return path_from_url(url).read_bytes()
 
 
-class GcsFilesystem(object):
+class GcsFilesystem:
     """
     Implements a generic "FileSystem" interface for reading/writing small files
     to GCS.
@@ -750,7 +750,7 @@ class GcsFilesystem(object):
         return self._tool.blob_from_url(url).download_as_string()
 
 
-class GcsTool(object):
+class GcsTool:
     """
     A helper object providing utility methods for accessing a GCS.  Maintains
     a GCS client, and a prefix defining a default namespace to read/write on.
@@ -846,7 +846,7 @@ class YamlRecordParsingError(Exception):
     pass
 
 
-class ArtifactMetadataRecord(object):
+class ArtifactMetadataRecord:
     """
     Describes a persisted artifact.  Intended to be stored as a YAML file.
     """
@@ -893,7 +893,7 @@ class ArtifactMetadataRecord(object):
         return f"ArtifactMetadataRecord({self.descriptor!r})"
 
 
-class Provenance(object):
+class Provenance:
     """
     Describes the code and data used to generate (possibly-yet-to-be-computed)
     value.  Provides a set of hashes that can be used to determine if two

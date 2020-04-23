@@ -10,7 +10,7 @@ from bionic import interpret
 import bionic as bn
 
 
-class SimpleFlowModel(object):
+class SimpleFlowModel:
     """
     Manages a simple Bionic flow where every entity value is an integer
     computed from the sum of other entity values.  This wrapper class maintains
@@ -179,7 +179,7 @@ class SimpleFlowModel(object):
         )
 
 
-class ModelEntity(object):
+class ModelEntity:
     """
     Represents one entity in the SimpleFlowModel.
     """
@@ -200,7 +200,7 @@ class ModelEntity(object):
         self.all_downstream_names = set()
 
 
-class Fuzzer(object):
+class Fuzzer:
     """
     Randomly constructs and updates a SimpleModelFlow while checking that its
     behavior is as expected.

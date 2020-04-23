@@ -10,7 +10,7 @@ from bionic.exception import (
 ALL_KEEP_VALUES = ["error", "old", "new", "combine"]
 
 
-class MergeTester(object):
+class MergeTester:
     """
     A utility class for testing many variations of flow merging.  This class
     is configured by creating several flows, associated them with names using
