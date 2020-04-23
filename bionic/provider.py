@@ -34,7 +34,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class ProviderAttributes(object):
+class ProviderAttributes:
     def __init__(
         self,
         names,
@@ -74,7 +74,7 @@ class ProviderAttributes(object):
         return self._can_memoize
 
 
-class BaseProvider(object):
+class BaseProvider:
     def __init__(self, attrs, is_mutable=False):
         self.attrs = attrs
         self.is_mutable = is_mutable
@@ -731,7 +731,7 @@ class GatherProvider(WrappingProvider):
     def _compute_key_spaces(self, dep_key_spaces_by_dnode):
         return self._KeySpaces(self, dep_key_spaces_by_dnode)
 
-    class _KeySpaces(object):
+    class _KeySpaces:
         def __init__(self, gather_provider, dep_key_spaces_by_dnode):
             # The combined keyspace of all the non-gathered dependencies of the
             # wrapped provider.
@@ -932,7 +932,7 @@ def merge_case_key_lists(case_key_lists):
     return merged_case_keys
 
 
-class HashableWrapper(object):
+class HashableWrapper:
     """
     Wraps an arbitrary object along with a hashable token.
 

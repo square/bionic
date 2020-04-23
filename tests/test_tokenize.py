@@ -24,7 +24,7 @@ def test_ensure_token_length_is_capped():
     assert len(tokenize("a" * 1000)) < 50
 
 
-class Point(object):
+class Point:
     def __init__(self, x, y):
         self.x = x
         self.y = y

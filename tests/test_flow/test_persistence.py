@@ -752,7 +752,7 @@ def test_gather_cache_invalidation_with_over_vars(builder):
     assert z.times_called() == 1
 
 
-class Point(object):
+class Point:
     def __init__(self, x, y):
         self.x = x
         self.y = y

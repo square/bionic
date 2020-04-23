@@ -22,7 +22,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class EntityDeriver(object):
+class EntityDeriver:
     """
     Derives the values of Entities.
 
@@ -628,7 +628,7 @@ class DescriptorInfo:
         return self.tasks_by_key.values()
 
 
-class TaskState(object):
+class TaskState:
     """
     Represents the state of a task computation.  Keeps track of its position in
     the task graph, whether its values have been computed yet, and additional

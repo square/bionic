@@ -203,7 +203,7 @@ class FlowState(pyrs.PClass):
         return state
 
 
-class FlowBuilder(object):
+class FlowBuilder:
     """
     A mutable builder for Flows.
 
@@ -856,7 +856,7 @@ class FlowBuilder(object):
         self._set_for_case_key(last_case_key, name, value)
 
 
-class MergeConflict(object):
+class MergeConflict:
     def __init__(self, old_state, new_state, name):
         self.name = name
         self.old_provider = old_state.providers_by_name.get(name)
@@ -893,7 +893,7 @@ class MergeConflict(object):
         self.reason = reason
 
 
-class FlowCase(object):
+class FlowCase:
     """
     A specific case for which entities can have associated values.
 
@@ -910,7 +910,7 @@ class FlowCase(object):
         return self
 
 
-class Flow(object):
+class Flow:
     """
     An immutable workflow object.  You can use get() to compute any entity
     in the workflow, or setting() to create a new workflow with modifications.
@@ -1405,7 +1405,7 @@ class Flow(object):
         return Flow._from_state(builder._state)
 
 
-class ShortcutProxy(object):
+class ShortcutProxy:
     """
     Wraps a method on a Flow object to allow it to be called via an alternative
     style.
