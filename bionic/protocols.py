@@ -604,3 +604,20 @@ class EnumProtocol(PicklableProtocol):
 
     def __repr__(self):
         return f"EnumProtocol{tuple(self._allowed_values)!r}"
+
+
+class GeoPandasSerializer(bn.protocols.BaseProtocol):
+    """
+    Decorator indicating that an entity's values always have the
+    ``geopandas.geodataframe.GeoDataFrame`` type.
+
+    These values will be serialized to a .shp directory.
+    """
+    def get_fixed_file_extension(self):
+        return "shp"
+
+    def write(self, value, path):
+        value.to_file(path)
+
+    def read(self, path, extension):
+        return gpd.read_file(path)
