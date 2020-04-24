@@ -767,10 +767,29 @@ class GcsTool:
         self.url = url
         bucket_name, object_prefix = self._bucket_and_object_names_from_url(url)
 
-        logger.info("Initializing GCS client ...")
-        self._client = get_gcs_client_without_warnings()
-        self._bucket = self._client.get_bucket(bucket_name)
+        self._bucket_name = bucket_name
         self._object_prefix = object_prefix
+        self._init_client()
+
+    def __getstate__(self):
+        # Copy the object's state from self.__dict__ which contains
+        # all our instance attributes. Always use the dict.copy()
+        # method to avoid modifying the original state.
+        state = self.__dict__.copy()
+        # Remove the unpicklable entries.
+        del state["_client"]
+        del state["_bucket"]
+        return state
+
+    def __setstate__(self, state):
+        # Restore instance attributes.
+        self.__dict__.update(state)
+        # Restore the client and bucket.
+        self._init_client()
+
+    def _init_client(self):
+        self._client = get_gcs_client_without_warnings()
+        self._bucket = self._client.get_bucket(self._bucket_name)
 
     def blob_from_url(self, url):
         object_name = self._validated_object_name_from_url(url)
