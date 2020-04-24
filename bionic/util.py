@@ -13,6 +13,10 @@ import shutil
 
 from .optdep import import_optional_dependency, oneline
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def n_present(*items):
     "Returns the number of non-None arguments."
@@ -123,6 +127,7 @@ def get_gcs_client_without_warnings(cache_value=True):
         warnings.filterwarnings(
             "ignore", "Your application has authenticated using end user credentials"
         )
+        logger.info("Initializing GCS client ...")
         return gcs.Client()
 
 

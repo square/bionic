@@ -45,10 +45,6 @@ from .util import (
     oneline,
 )
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
     protos.ParquetDataFrameProtocol(),
     protos.ImageProtocol(),
