@@ -58,15 +58,24 @@ API changes may break your implementation.)
 
     class MyProtocol(BaseProtocol):
         def get_fixed_file_extension(self):
-            """Returns the extension that persisted files should end with."""
+            """
+            Returns a file extension identifying this protocol. This value will be appended
+            to the name of any file written by the protocol, and may be used to determine
+            whether a file can be read by the protocol.
+
+            This string should be unique, not shared with any other protocol. By
+            convention, it doesn't include an initial period, but may include periods in
+            the middle.  (For example, `"csv"`, and `"csv.zip"` would both be sensible
+            file extensions.)
+            """
             raise NotImplementedError()
 
         def write(self, value, path):
-            """Write the contents of ``value`` to path object ``path``."""
+            """Serializes the object ``value`` to the pathlib path ``path``."""
             raise NotImplementedError()
 
         def read(self, path):
-            """Read an object from path object ``path``, and return it."""
+            """Deserializes an object from the pathlib path ``path``, and returns it."""
             raise NotImplementedError()
 
 Built-In Protocol Decorators
