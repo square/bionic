@@ -75,6 +75,9 @@ class BaseProtocol:
     def read(self, path):
         raise NotImplementedError()
 
+    def read_with_extension(self, path, extension):
+        return self.read(path)
+
     SIMPLE_TYPES = {
         bool,
         str,
@@ -164,7 +167,7 @@ class PicklableProtocol(BaseProtocol):
         with path.open("wb") as file_:
             pickle.dump(value, file_)
 
-    def read(self, path, extension):
+    def read(self, path):
         with path.open("rb") as file_:
             return pickle.load(file_)
 
@@ -203,7 +206,7 @@ class DillableProtocol(BaseProtocol):
         with path.open("wb") as file_:
             self._get_dill_module().dump(value, file_)
 
-    def read(self, path, extension):
+    def read(self, path):
         with path.open("rb") as file_:
             return self._get_dill_module().load(file_)
 
@@ -231,7 +234,7 @@ class ParquetDataFrameProtocol(BaseProtocol):
     def validate(self, value):
         assert isinstance(value, pd.DataFrame)
 
-    def read(self, path, extension):
+    def read(self, path):
         with path.open("rb") as file_:
             return parquet.read_table(file_).to_pandas()
 
@@ -294,7 +297,7 @@ class FeatherDataFrameProtocol(BaseProtocol):
     def validate(self, value):
         assert isinstance(value, pd.DataFrame)
 
-    def read(self, path, extension):
+    def read(self, path):
         with path.open("rb") as file_:
             return pd.read_feather(file_)
 
@@ -324,7 +327,7 @@ class ImageProtocol(BaseProtocol):
         assert Image is not None
         assert isinstance(value, Image.Image)
 
-    def read(self, path, extension):
+    def read(self, path):
         with path.open("rb") as file_:
             Image = import_optional_dependency(
                 "PIL.Image", purpose="the @image decorator"
@@ -354,7 +357,7 @@ class NumPyProtocol(BaseProtocol):
     def validate(self, value):
         assert isinstance(value, np.ndarray)
 
-    def read(self, path, extension):
+    def read(self, path):
         with path.open("rb") as file_:
             return np.load(file_)
 
@@ -384,7 +387,7 @@ class DaskProtocol(BaseProtocol):
         assert dd is not None
         assert isinstance(value, dd.DataFrame)
 
-    def read(self, path, extension):
+    def read(self, path):
         dd = import_optional_dependency("dask.dataframe", purpose="the @dask decorator")
         with warnings.catch_warnings():
             warnings.filterwarnings("error", message=r".*cannot\s+autodetect\s+index.*")
@@ -421,7 +424,7 @@ class YamlProtocol(BaseProtocol):
         with path.open("w") as file_:
             yaml.dump(value, file_, **self._kwargs)
 
-    def read(self, path, extension):
+    def read(self, path):
         with path.open("r") as file_:
             return yaml.safe_load(file_)
 
@@ -482,7 +485,7 @@ class PathProtocol(BaseProtocol):
         else:
             raise AssertionError(f"Unexpected operation: {self.operation!r}")
 
-    def read(self, path, extension):
+    def read(self, path):
         return single_element(path.iterdir())
 
 
@@ -537,13 +540,14 @@ class CombinedProtocol(BaseProtocol):
         else:
             self._subprotocols[-1].validate(value)
 
-    def read(self, path, extension):
-        if not self.can_read_file_extension(extension):
+    def read_with_extension(self, path, extension):
+        protocol = self._protocol_for_extension(extension)
+        if protocol is None:
             raise ValueError(
                 "This protocol doesn't know how to read a file with "
                 f"extension {extension!r}"
             )
-        return self._protocol_for_extension(extension).read(path, extension)
+        return protocol.read_with_extension(path, extension)
 
     def write(self, value, path):
         self._protocol_for_value(value).write(value, path)

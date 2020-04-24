@@ -108,7 +108,7 @@ class RoundingProtocol(bn.protocols.BaseProtocol):
     def write(self, value, path):
         path.write_bytes(str(round(value)).encode("utf-8"))
 
-    def read(self, path, extension):
+    def read(self, path):
         return float(path.read_bytes())
 
 
