@@ -331,7 +331,7 @@ class TaskState:
             accessor.update_provenance()
 
     # NOTE: This can be optimized further.
-    def new_state_for_completion(self, new_task_states_by_key):
+    def new_state_for_completion(self, new_task_states_by_key, to_be_computed=True):
         """
         Returns a copy of task state after keeping only the necessary data
         required for completion. Along with keeping only necessary data for
@@ -347,6 +347,9 @@ class TaskState:
         new_task_states_by_key: Dict from key to new task states.
             The cache for tracking new task states. Should be an empty dict when
             first called.
+
+        to_be_computed: Boolean.
+            Whether the task state will be computed in the subprocess.
         """
 
         # All task keys should point to the same task state.
@@ -357,13 +360,23 @@ class TaskState:
         # Note that this is not a deep copy so don't mutate so be careful when
         # mutating state variables.
         task_state = copy.copy(self)
+
+        # Clear up memoized cache to avoid sending it through IPC.
         task_state._results_by_name = None
 
-        new_dep_states = []
-        for dep_state in task_state.dep_states:
-            new_dep_state = dep_state.new_state_for_completion(new_task_states_by_key)
-            new_dep_states.append(new_dep_state)
-        task_state.dep_states = new_dep_states
+        if to_be_computed:
+            new_dep_states = []
+            for dep_state in task_state.dep_states:
+                # We will need to compute the dependency in subprocess if it's not persisted.
+                dep_to_be_computed = not dep_state.provider.attrs.should_persist()
+                new_dep_state = dep_state.new_state_for_completion(
+                    new_task_states_by_key, dep_to_be_computed,
+                )
+                new_dep_states.append(new_dep_state)
+            task_state.dep_states = new_dep_states
+        else:
+            # We don't need deps for task states that won't be computed in subprocess.
+            task_state.dep_states = []
 
         new_task_states_by_key[task_state.task.keys[0]] = task_state
         return task_state

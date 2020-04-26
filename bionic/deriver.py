@@ -344,9 +344,6 @@ class EntityDeriver:
                 state.complete(task_key_logger)
             else:
                 # NOTE 1: Logging support for multiple processes not done yet.
-                # NOTE 2: The entire task state is passed along to the executor except the
-                # memoized results. This means that the entire parent task state structure
-                # is also passed along which can can be unneeded.
                 new_state_for_subprocess = state.new_state_for_completion({})
                 ex = self._bootstrap.process_executor.submit(
                     new_state_for_subprocess.complete, task_key_logger
