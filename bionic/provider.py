@@ -141,177 +141,6 @@ class BaseProvider:
         return f"{self.__class__.__name__}{tuple(self.attrs.names)!r}"
 
 
-class WrappingProvider(BaseProvider):
-    def __init__(self, wrapped_provider):
-        if wrapped_provider.is_mutable:
-            raise ValueError(
-                oneline(
-                    f"""
-                Can only wrap immutable providers; got mutable provider
-                {wrapped_provider!r}"""
-                )
-            )
-        super(WrappingProvider, self).__init__(wrapped_provider.attrs)
-        self.wrapped_provider = wrapped_provider
-
-    def get_dependency_dnodes(self):
-        return self.wrapped_provider.get_dependency_dnodes()
-
-    def get_key_space(self, dep_key_spaces_by_dnode):
-        return self.wrapped_provider.get_key_space(dep_key_spaces_by_dnode)
-
-    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        return self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
-        )
-
-    def get_source_func(self):
-        return self.wrapped_provider.get_source_func()
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.wrapped_provider})"
-
-
-class AttrUpdateProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, attr_name, attr_value, allow_override=False):
-        super(AttrUpdateProvider, self).__init__(wrapped_provider)
-
-        old_attr_value = getattr(wrapped_provider.attrs, attr_name)
-        if old_attr_value is not None and not allow_override:
-            raise ValueError(
-                oneline(
-                    f"""
-                Attempted to set attribute {attr_name!r} twice
-                on {wrapped_provider!r};
-                old value was {old_attr_value!r},
-                new value is {attr_value!r}"""
-                )
-            )
-
-        self.attrs = copy(wrapped_provider.attrs)
-        setattr(self.attrs, attr_name, attr_value)
-
-
-class ProtocolUpdateProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, protocol=None):
-        super(ProtocolUpdateProvider, self).__init__(wrapped_provider)
-
-        protocols = [protocol for name in self.wrapped_provider.attrs.names]
-
-        self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.protocols = protocols
-
-
-class MultiProtocolUpdateProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, protocols=None):
-        super(MultiProtocolUpdateProvider, self).__init__(wrapped_provider)
-
-        self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.protocols = protocols
-
-
-class RenamingProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, name):
-
-        super(RenamingProvider, self).__init__(wrapped_provider)
-
-        orig_names = wrapped_provider.attrs.names
-        if len(orig_names) != 1:
-            raise ValueError(
-                oneline(
-                    f"""
-                Can't rename a provider that already has multiple
-                names; need exactly one name but got {tuple(orig_names)!r}"""
-                )
-            )
-
-        self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.names = [name]
-
-    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        (name,) = self.attrs.names
-
-        def wrap_task(task):
-            (task_key,) = task.keys
-            return Task(
-                keys=[
-                    TaskKey(
-                        dnode=entity_dnode_from_descriptor(name),
-                        case_key=task_key.case_key,
-                    )
-                ],
-                dep_keys=task.dep_keys,
-                compute_func=task.compute,
-            )
-
-        inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
-        )
-        return [wrap_task(task) for task in inner_tasks]
-
-
-class NameSplittingProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, names=None):
-
-        super(NameSplittingProvider, self).__init__(wrapped_provider)
-
-        orig_names = wrapped_provider.attrs.names
-        if len(orig_names) != 1:
-            raise ValueError(
-                oneline(
-                    f"""
-                Can't change a provider's number of names multiple times;
-                need exactly one name but got {tuple(orig_names)!r}"""
-                )
-            )
-
-        self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.names = names
-        if self.attrs.protocols is not None:
-            (protocol,) = self.attrs.protocols
-            self.attrs.protocols = [protocol for name in names]
-
-    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
-        )
-
-        def wrap_task(task):
-            assert len(task.keys) == 1
-            (task_key,) = task.keys
-
-            def wrapped_compute_func(dep_values):
-                (value_seq,) = task.compute(dep_values)
-
-                if len(value_seq) != len(self.attrs.names):
-                    raise ValueError(
-                        oneline(
-                            f"""
-                        Expected provider
-                        {self.wrapped_provider.attrs.names[0]!r} to return
-                        {len(self.attrs.names)} outputs named
-                        {self.attrs.names!r}; got {len(value_seq)} outputs
-                        {tuple(value_seq)!r}"""
-                        )
-                    )
-
-                return tuple(value_seq)
-
-            return Task(
-                keys=[
-                    TaskKey(
-                        dnode=entity_dnode_from_descriptor(name),
-                        case_key=task_key.case_key,
-                    )
-                    for name in self.attrs.names
-                ],
-                dep_keys=task.dep_keys,
-                compute_func=wrapped_compute_func,
-            )
-
-        return [wrap_task(task) for task in inner_tasks]
-
-
 class ValueProvider(BaseProvider):
     def __init__(self, name, protocol, doc):
         super(ValueProvider, self).__init__(
@@ -496,6 +325,177 @@ class FunctionProvider(BaseProvider):
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self._func})"
+
+
+class WrappingProvider(BaseProvider):
+    def __init__(self, wrapped_provider):
+        if wrapped_provider.is_mutable:
+            raise ValueError(
+                oneline(
+                    f"""
+                Can only wrap immutable providers; got mutable provider
+                {wrapped_provider!r}"""
+                )
+            )
+        super(WrappingProvider, self).__init__(wrapped_provider.attrs)
+        self.wrapped_provider = wrapped_provider
+
+    def get_dependency_dnodes(self):
+        return self.wrapped_provider.get_dependency_dnodes()
+
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        return self.wrapped_provider.get_key_space(dep_key_spaces_by_dnode)
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        return self.wrapped_provider.get_tasks(
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+        )
+
+    def get_source_func(self):
+        return self.wrapped_provider.get_source_func()
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.wrapped_provider})"
+
+
+class AttrUpdateProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, attr_name, attr_value, allow_override=False):
+        super(AttrUpdateProvider, self).__init__(wrapped_provider)
+
+        old_attr_value = getattr(wrapped_provider.attrs, attr_name)
+        if old_attr_value is not None and not allow_override:
+            raise ValueError(
+                oneline(
+                    f"""
+                Attempted to set attribute {attr_name!r} twice
+                on {wrapped_provider!r};
+                old value was {old_attr_value!r},
+                new value is {attr_value!r}"""
+                )
+            )
+
+        self.attrs = copy(wrapped_provider.attrs)
+        setattr(self.attrs, attr_name, attr_value)
+
+
+class ProtocolUpdateProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, protocol=None):
+        super(ProtocolUpdateProvider, self).__init__(wrapped_provider)
+
+        protocols = [protocol for name in self.wrapped_provider.attrs.names]
+
+        self.attrs = copy(wrapped_provider.attrs)
+        self.attrs.protocols = protocols
+
+
+class MultiProtocolUpdateProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, protocols=None):
+        super(MultiProtocolUpdateProvider, self).__init__(wrapped_provider)
+
+        self.attrs = copy(wrapped_provider.attrs)
+        self.attrs.protocols = protocols
+
+
+class RenamingProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, name):
+
+        super(RenamingProvider, self).__init__(wrapped_provider)
+
+        orig_names = wrapped_provider.attrs.names
+        if len(orig_names) != 1:
+            raise ValueError(
+                oneline(
+                    f"""
+                Can't rename a provider that already has multiple
+                names; need exactly one name but got {tuple(orig_names)!r}"""
+                )
+            )
+
+        self.attrs = copy(wrapped_provider.attrs)
+        self.attrs.names = [name]
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        (name,) = self.attrs.names
+
+        def wrap_task(task):
+            (task_key,) = task.keys
+            return Task(
+                keys=[
+                    TaskKey(
+                        dnode=entity_dnode_from_descriptor(name),
+                        case_key=task_key.case_key,
+                    )
+                ],
+                dep_keys=task.dep_keys,
+                compute_func=task.compute,
+            )
+
+        inner_tasks = self.wrapped_provider.get_tasks(
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+        )
+        return [wrap_task(task) for task in inner_tasks]
+
+
+class NameSplittingProvider(WrappingProvider):
+    def __init__(self, wrapped_provider, names=None):
+
+        super(NameSplittingProvider, self).__init__(wrapped_provider)
+
+        orig_names = wrapped_provider.attrs.names
+        if len(orig_names) != 1:
+            raise ValueError(
+                oneline(
+                    f"""
+                Can't change a provider's number of names multiple times;
+                need exactly one name but got {tuple(orig_names)!r}"""
+                )
+            )
+
+        self.attrs = copy(wrapped_provider.attrs)
+        self.attrs.names = names
+        if self.attrs.protocols is not None:
+            (protocol,) = self.attrs.protocols
+            self.attrs.protocols = [protocol for name in names]
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        inner_tasks = self.wrapped_provider.get_tasks(
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+        )
+
+        def wrap_task(task):
+            assert len(task.keys) == 1
+            (task_key,) = task.keys
+
+            def wrapped_compute_func(dep_values):
+                (value_seq,) = task.compute(dep_values)
+
+                if len(value_seq) != len(self.attrs.names):
+                    raise ValueError(
+                        oneline(
+                            f"""
+                        Expected provider
+                        {self.wrapped_provider.attrs.names[0]!r} to return
+                        {len(self.attrs.names)} outputs named
+                        {self.attrs.names!r}; got {len(value_seq)} outputs
+                        {tuple(value_seq)!r}"""
+                        )
+                    )
+
+                return tuple(value_seq)
+
+            return Task(
+                keys=[
+                    TaskKey(
+                        dnode=entity_dnode_from_descriptor(name),
+                        case_key=task_key.case_key,
+                    )
+                    for name in self.attrs.names
+                ],
+                dep_keys=task.dep_keys,
+                compute_func=wrapped_compute_func,
+            )
+
+        return [wrap_task(task) for task in inner_tasks]
 
 
 class GatherProvider(WrappingProvider):
