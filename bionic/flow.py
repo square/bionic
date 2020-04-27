@@ -34,7 +34,7 @@ from .provider import (
     AttrUpdateProvider,
 )
 from .deriver import EntityDeriver, TaskKeyLogger
-from .descriptors import DescriptorNode
+from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators
 from .util import (
     group_pairs,
@@ -1031,7 +1031,7 @@ class Flow:
         The value of the entity, or a collection containing its values.
         """
 
-        dnode = DescriptorNode.from_descriptor(name)
+        dnode = entity_dnode_from_descriptor(name)
         result_group = self._deriver.derive(dnode)
 
         if mode is object or mode == "object":
@@ -1118,7 +1118,7 @@ class Flow:
             "Flow#export is deprecated; use the mode argument to Flow#get " "instead"
         )
 
-        dnode = DescriptorNode.from_descriptor(name)
+        dnode = entity_dnode_from_descriptor(name)
         result_group = self._deriver.derive(dnode)
         if len(result_group) != 1:
             raise ValueError(

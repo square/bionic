@@ -37,3 +37,7 @@ class EntityComputationError(Exception):
 
 class AttributeValidationError(Exception):
     pass
+
+
+class MalformedDescriptorError(Exception):
+    pass
