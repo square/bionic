@@ -23,7 +23,7 @@ from .datatypes import (
     CodeFingerprint,
     CodeVersion,
 )
-from .exception import AttributeValidationError, EntityComputationError
+from .exception import EntityComputationError
 from .descriptors import DescriptorNode
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
@@ -61,16 +61,6 @@ class ProviderAttributes:
         return self._can_persist
 
     def should_memoize(self):
-        if not self._can_memoize and self.changes_per_run:
-            raise AttributeValidationError(
-                oneline(
-                    """
-                Entity with names {names!r} uses @changes_per_run with @memoize(False),
-                which is not allowed. @changes_per_run computes once in a flow instance
-                and memoizes the value. Memoization cannot be disabled for this entity."""
-                )
-            )
-
         return self._can_memoize
 
 
