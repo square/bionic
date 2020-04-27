@@ -344,7 +344,7 @@ class EntityDeriver:
                 state.complete(task_key_logger)
             else:
                 # NOTE 1: Logging support for multiple processes not done yet.
-                new_state_for_subprocess = state.new_state_for_completion({})
+                new_state_for_subprocess = state.strip_state_for_subprocess()
                 ex = self._bootstrap.process_executor.submit(
                     new_state_for_subprocess.complete, task_key_logger
                 )

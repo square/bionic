@@ -34,14 +34,37 @@ class TaskState:
         # This can be set by get_results_assuming_complete() or _compute().
         self._results_by_name = None
 
+        # A completed task state has it's results computed and cached somewhere for
+        # easy retrieval.
         self.is_complete = False
 
+    # TODO: We need a coherent story around incomplete states between parallel
+    # and non-parallel mode. We have to compute non-persisted deps inside the
+    # other subprocess for parallel mode but not for non-parallel mode. We should
+    # consider making the way it computes in parallel mode the default. This
+    # would also match the definition of is_completable.
     def incomplete_dep_states(self):
         return [dep_state for dep_state in self.dep_states if not dep_state.is_complete]
 
     @property
-    def is_blocked(self):
-        return len(self.incomplete_dep_states()) > 0
+    def is_completable(self):
+        """
+        Indicates whether the task state can be completed in it's current shape.
+        True when the state is initialized, all of its persisted dependencies are
+        completed, and all its other dependencies are computable.
+
+        Note that the definition is complicated because dependencies that cannot be
+        persisted can potentially be computed again in case of parallel processing.
+        But we don't want to complete the persisted entities when trying to complete
+        this task state. They should already be complete to avoid doing any unnecessary
+        state tracking for completing this state.
+        """
+        return self._is_initialized and all(
+            dep_state.is_complete
+            if dep_state.provider.attrs.should_persist()
+            else dep_state.is_completable
+            for dep_state in self.dep_states
+        )
 
     def __repr__(self):
         return f"TaskState({self.task!r})"
@@ -49,12 +72,11 @@ class TaskState:
     def complete(self, task_key_logger):
         """
         Ensures that a task state reaches completion -- i.e., that its results are
-        available and can be retrieved or can be readily computed. The results can
-        be fetched from `self.get_results_assuming_complete()`.
+        available and can be retrieved. This can happen either by computing the task's
+        values or by confirming that cached values already exist.
         """
 
-        assert self._is_initialized
-        assert not self.is_blocked
+        assert self.is_completable
         assert not self.is_complete
 
         # See if we can load it from the cache.
@@ -76,19 +98,9 @@ class TaskState:
         self.is_complete = True
 
     def get_results_assuming_complete(self, task_key_logger):
-        """
-        Returns the results of an already-completed task state. This can happen
-        by returning the cached results if they exist, or by computing the results
-        using `self._compute()` and returning them.
-        """
+        "Returns the results of an already-completed task state."
 
         assert self.is_complete
-
-        # If task state should not persist but results aren't memoized, that's
-        # probably because the results aren't communicated between processes.
-        # Compute the results to populate the in-memory cache.
-        if not self.provider.attrs.should_persist() and not self._results_by_name:
-            self._compute(task_key_logger)
 
         if self._results_by_name:
             for task_key in self.task.keys:
@@ -117,14 +129,23 @@ class TaskState:
         the task's dependencies are already complete.
         """
 
+        assert self.is_completable
+
         task = self.task
 
-        dep_results = [
-            dep_state.get_results_assuming_complete(task_key_logger)[
-                dep_key.dnode.to_entity_name()
-            ]
-            for dep_state, dep_key in zip(self.dep_states, task.dep_keys)
-        ]
+        dep_results = []
+        for dep_state, dep_key in zip(self.dep_states, task.dep_keys):
+            assert dep_state.is_complete or dep_state.is_completable
+            if dep_state.is_complete:
+                dep_result_by_name = dep_state.get_results_assuming_complete(
+                    task_key_logger
+                )
+            else:
+                # If dep_state is not complete yet, that's probably because the results
+                # aren't communicated between processes. Compute the results to populate
+                # the in-memory cache.
+                dep_result_by_name = dep_state._compute(task_key_logger)
+            dep_results.append(dep_result_by_name[dep_key.dnode.to_entity_name()])
 
         provider = self.provider
 
@@ -170,6 +191,8 @@ class TaskState:
         if provider.attrs.should_persist():
             self._result_value_hashes_by_name = result_value_hashes_by_name
 
+        return self._results_by_name
+
     def sync_after_subprocess_completion(self):
         """
         Syncs the task state by populating and reloading data in the current process
@@ -178,6 +201,8 @@ class TaskState:
         This is necessary because values populated in the task state are not communicated
         back from the subprocess.
         """
+
+        assert self.provider.attrs.should_persist()
 
         # First, let's flush the stored entries in cache accessors. This is to prevent cases
         # like current process contains an outdated stored entries.
@@ -331,9 +356,13 @@ class TaskState:
             accessor.update_provenance()
 
     # NOTE: This can be optimized further.
-    def new_state_for_completion(
-        self, new_task_states_by_key=None, to_be_computed=True
-    ):
+    # How: We can set provider as None once we remove provider attrs into task state.
+    # This might also benefit from tuple refactor to take stuff out from Provider
+    # into some sort of entity defn. Once we have a structure like that in place,
+    # we can remove usage of provider in task state completion. Also a few other
+    # stuff like setting task and queries as None when tasks won't be recomputed
+    # in subprocess.
+    def strip_state_for_subprocess(self, new_task_states_by_key=None):
         """
         Returns a copy of task state after keeping only the necessary data
         required for completion. In addition, this also removes all the memoized
@@ -346,11 +375,8 @@ class TaskState:
         Parameters
         ----------
 
-        new_task_states_by_key: Dict from key to new task states.
-            The cache for tracking new task states.
-
-        to_be_computed: Boolean.
-            Whether the task state will be computed in the subprocess.
+        new_task_states_by_key: Dict from key to stripped states, optional, default is ``{}``
+            The cache for tracking stripped task states.
         """
 
         if new_task_states_by_key is None:
@@ -367,21 +393,18 @@ class TaskState:
         # Clear up memoized cache to avoid sending it through IPC.
         task_state._results_by_name = None
 
-        if to_be_computed:
-            new_dep_states = []
-            for dep_state in task_state.dep_states:
-                # We will need to recompute the dependency in the other subprocess
-                # if it's not persisted.
-                dep_to_be_computed = not dep_state.provider.attrs.should_persist()
-                new_dep_state = dep_state.new_state_for_completion(
-                    new_task_states_by_key, dep_to_be_computed,
-                )
-                new_dep_states.append(new_dep_state)
-            task_state.dep_states = new_dep_states
-        else:
-            # We don't need deps for task states that won't be recomputed in the other
-            # subprocess.
+        # Any non-persisted value will have to be recomputed again in the other
+        # subprocess and isn't complete anymore.
+        if not task_state.provider.attrs.should_persist():
+            task_state.is_complete = False
+
+        if task_state.is_complete:
             task_state.dep_states = []
+        else:
+            task_state.dep_states = [
+                dep_state.strip_state_for_subprocess(new_task_states_by_key)
+                for dep_state in task_state.dep_states
+            ]
 
         new_task_states_by_key[task_state.task.keys[0]] = task_state
         return task_state
