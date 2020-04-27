@@ -8,7 +8,7 @@ import attr
 
 from .datatypes import ResultGroup
 from .descriptors import DescriptorNode
-from .exception import UndefinedEntityError
+from .exception import AttributeValidationError, UndefinedEntityError
 from .optdep import import_optional_dependency
 from .task_state import TaskState
 from .util import oneline
@@ -256,6 +256,16 @@ class EntityDeriver:
         task_state = TaskState(
             task=task, dep_states=dep_states, provider=provider, case_key=case_key,
         )
+
+        # Check that the provider configuration is valid.
+        if provider.attrs.changes_per_run and not provider.attrs.should_memoize():
+            message = f"""
+            Entity with names {provider.attrs.names!r} uses @changes_per_run with
+            @memoize(False), which is not allowed. @changes_per_run computes once in
+            a flow instance and memoizes the value. Memoization cannot be disabled
+            for this entity.
+            """
+            raise AttributeValidationError(oneline(message))
 
         for task_key in task.keys:
             self._saved_task_states_by_key[task_key] = task_state
