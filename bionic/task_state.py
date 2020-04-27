@@ -84,9 +84,9 @@ class TaskState:
 
         assert self.is_complete
 
-        # If task state should persist but results aren't cached, that's probably
-        # because the results aren't communicated between processes. Compute the
-        # results to populate in memory cache.
+        # If task state should not persist but results aren't memoized, that's
+        # probably because the results aren't communicated between processes.
+        # Compute the results to populate the in-memory cache.
         if not self.provider.attrs.should_persist() and not self._results_by_name:
             self._compute(task_key_logger)
 
@@ -331,34 +331,37 @@ class TaskState:
             accessor.update_provenance()
 
     # NOTE: This can be optimized further.
-    def new_state_for_completion(self, new_task_states_by_key, to_be_computed=True):
+    def new_state_for_completion(
+        self, new_task_states_by_key=None, to_be_computed=True
+    ):
         """
         Returns a copy of task state after keeping only the necessary data
-        required for completion. Along with keeping only necessary data for
-        completion, this also removes all the memoized results since they can
-        be expensive to serialize.
+        required for completion. In addition, this also removes all the memoized
+        results since they can be expensive to serialize.
 
-        Mainly used to reduce IPC overhead when sending the state over to a
-        subprocess.
+        Mainly used
+        - because some results are impossible to serialize and
+        - to reduce IPC overhead when sending the state over to another subprocess.
 
         Parameters
         ----------
 
         new_task_states_by_key: Dict from key to new task states.
-            The cache for tracking new task states. Should be an empty dict when
-            first called.
+            The cache for tracking new task states.
 
         to_be_computed: Boolean.
             Whether the task state will be computed in the subprocess.
         """
+
+        if new_task_states_by_key is None:
+            new_task_states_by_key = {}
 
         # All task keys should point to the same task state.
         if self.task.keys[0] in new_task_states_by_key:
             return new_task_states_by_key[self.task.keys[0]]
 
         # Let's make a copy of the task state.
-        # Note that this is not a deep copy so don't mutate so be careful when
-        # mutating state variables.
+        # This is not a deep copy so we'll avoid mutating any of the member variables.
         task_state = copy.copy(self)
 
         # Clear up memoized cache to avoid sending it through IPC.
@@ -367,7 +370,8 @@ class TaskState:
         if to_be_computed:
             new_dep_states = []
             for dep_state in task_state.dep_states:
-                # We will need to compute the dependency in subprocess if it's not persisted.
+                # We will need to recompute the dependency in the other subprocess
+                # if it's not persisted.
                 dep_to_be_computed = not dep_state.provider.attrs.should_persist()
                 new_dep_state = dep_state.new_state_for_completion(
                     new_task_states_by_key, dep_to_be_computed,
@@ -375,7 +379,8 @@ class TaskState:
                 new_dep_states.append(new_dep_state)
             task_state.dep_states = new_dep_states
         else:
-            # We don't need deps for task states that won't be computed in subprocess.
+            # We don't need deps for task states that won't be recomputed in the other
+            # subprocess.
             task_state.dep_states = []
 
         new_task_states_by_key[task_state.task.keys[0]] = task_state

@@ -646,7 +646,7 @@ def test_unhashable_index_values(builder):
     assert index_items == [[1, 2], [2, 3]]
 
 
-def test_unpickable_non_persisted_entity(builder):
+def test_unpicklable_non_persisted_entity(builder):
     @builder
     @bn.persist(False)
     def unpicklable_lock():
