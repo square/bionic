@@ -5,6 +5,7 @@ import io
 import pickle
 from pathlib import Path
 import contextlib
+import threading
 
 import pandas as pd
 
@@ -643,6 +644,21 @@ def test_unhashable_index_values(builder):
 
     index_items = [wrapper.get() for wrapper, in sums_series.index]
     assert index_items == [[1, 2], [2, 3]]
+
+
+def test_unpicklable_non_persisted_entity(builder):
+    @builder
+    @bn.persist(False)
+    def unpicklable_lock():
+        return threading.Lock()
+
+    @builder
+    def uses_lock(unpicklable_lock):
+        unpicklable_lock.acquire()
+        unpicklable_lock.release()
+        return True
+
+    assert builder.build().get("uses_lock")
 
 
 @pytest.mark.no_parallel
