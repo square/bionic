@@ -23,7 +23,7 @@ from .datatypes import (
     CodeFingerprint,
     CodeVersion,
 )
-from .exception import EntityComputationError
+from .exception import EntityComputationError, IncompatibleEntityError
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
@@ -181,7 +181,7 @@ class ValueProvider(BaseProvider):
 
         if self._has_any_values:
             if case_key.space != self.key_space:
-                raise ValueError(
+                raise IncompatibleEntityError(
                     oneline(
                         f"""
                     Can't add {case_key!r} to entities {self.attrs.names!r}:
@@ -190,7 +190,7 @@ class ValueProvider(BaseProvider):
                 )
 
             if case_key in self._value_tuples_by_case_key:
-                raise ValueError(
+                raise IncompatibleEntityError(
                     oneline(
                         f"""
                     Can't add {case_key!r} to entity {self.attrs.names!r}:

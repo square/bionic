@@ -162,7 +162,7 @@ def test_add_case(preset_builder):
     builder.add_case("z", 7)
     assert builder.build().get("z", set) == {2, 3, 7}
 
-    with raises(ValueError):
+    with raises(IncompatibleEntityError):
         builder.add_case("f", 7)
 
     with raises(UndefinedEntityError):
@@ -173,18 +173,37 @@ def test_add_case(preset_builder):
     assert builder.build().get("p", set) == {4, 5}
     assert builder.build().get("q", set) == {5, 6}
 
-    with raises(ValueError):
+    with raises(IncompatibleEntityError):
         builder.add_case("p", 7)
-    with raises(ValueError):
+    with raises(IncompatibleEntityError):
         builder.add_case("p", 4, "q", 6)
     builder.declare("r")
-    with raises(ValueError):
+    with raises(IncompatibleEntityError):
         builder.add_case("p", 1, "q", 2, "r", 3)
+    with raises(IncompatibleEntityError):
+        builder.add_case("p", 1, "r", 3)
+    with raises(IncompatibleEntityError):
+        builder.add_case("x", 1, "y", 2)
 
     with raises(IncompatibleEntityError):
         builder.add_case("y_plus", 2)
     with raises(IncompatibleEntityError):
         builder.add_case("y_plus", 2, "y_plus_plus", 3)
+
+
+def test_add_case_out_of_order(builder):
+    builder.declare("p")
+    builder.declare("q")
+    builder.declare("r")
+
+    builder.add_case("p", 1, "q", 10, "r", 100)
+    builder.add_case("p", 2, "r", 200, "q", 20)
+    builder.add_case("r", 300, "q", 30, "p", 3)
+
+    flow = builder.build()
+    flow.get("p", set) == {1, 2, 3}
+    flow.get("q", set) == {10, 20, 30}
+    flow.get("r", set) == {100, 200, 300}
 
 
 def test_then_set(preset_builder):
