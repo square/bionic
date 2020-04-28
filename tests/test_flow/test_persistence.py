@@ -13,9 +13,9 @@ class ReadCountingProtocol(bn.protocols.PicklableProtocol):
         self.times_read_called = 0
         super(ReadCountingProtocol, self).__init__()
 
-    def read(self, path, extension):
+    def read(self, path):
         self.times_read_called += 1
-        return super(ReadCountingProtocol, self).read(path, extension)
+        return super(ReadCountingProtocol, self).read(path)
 
 
 # It would be nice to move the builder setup into fixtures, but since we need

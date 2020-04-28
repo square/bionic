@@ -342,7 +342,7 @@ class CacheAccessor:
         value_filename = file_path.name
         extension = value_filename[len(self.value_filename_stem) :]
         try:
-            return self.query.protocol.read(file_path, extension)
+            return self.query.protocol.read_with_extension(file_path, extension)
 
         except UnsupportedSerializedValueError:
             raise
