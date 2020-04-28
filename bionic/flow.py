@@ -105,7 +105,7 @@ class FlowState(pyrs.PClass):
         if name in self.providers_by_name:
             raise AlreadyDefinedEntityError.for_name(name)
 
-        provider = ValueProvider(name, protocol, doc)
+        provider = ValueProvider([name], [protocol], [doc])
         return self._set_provider(provider).touch()
 
     def install_provider(self, provider):
@@ -115,12 +115,85 @@ class FlowState(pyrs.PClass):
 
         return self._set_provider(provider).touch()
 
-    def add_case(self, name, case_key, value):
-        provider = self.get_provider(name).copy_if_mutable()
+    def group_names_together(self, names):
+        providers = [self.get_provider(name) for name in names]
+        providers_set = set(providers)
+
+        # If there's only one provider, then the grouping is already done.
+        if len(providers_set) == 1:
+            provider = providers[0]
+            if not set(provider.attrs.names) == set(names):
+                if len(names) == 1:
+                    message = f"""
+                    Can't assign to individual entity {names[0]!r}:
+                    it's already defined jointly with entities {provider.attrs.names!r},
+                    and all subsequent assignments must be to that same group
+                    """
+                else:
+                    message = f"""
+                    Can't jointly assign to entities {names!r}:
+                    they're already defined jointly with entities
+                    {provider.attrs.names!r},
+                    and all subsequent assignments must be to that same group
+                    """
+                    raise IncompatibleEntityError(oneline(message))
+
+            return self
+
+        # If each name has a different provider, we'll try to combine into a single
+        # provider.
+        elif len(providers_set) == len(names):
+            for provider in providers:
+                if len(provider.attrs.names) != 1:
+                    message = f"""
+                    Can't jointly assign to entities {names!r}:
+                    they overlap with existing grouping {provider.attrs.names!r}
+                    """
+                    raise IncompatibleEntityError(oneline(message))
+
+                if not isinstance(provider, ValueProvider):
+                    message = f"""
+                    Can't jointly assign to entities {names!r}:
+                    entity {provider.attrs.names[0]!r} is already defined as a
+                    function
+                    """
+                    raise IncompatibleEntityError(oneline(message))
+
+                if provider.has_any_cases():
+                    message = f"""
+                    Can't jointly assign to entities {names!r}:
+                    entity {provider.attrs.names[0]!r} already has individual
+                    values assigned to it
+                    """
+                    raise IncompatibleEntityError(oneline(message))
+
+            provider = ValueProvider.from_single_value_providers(providers)
+            return self._set_provider(provider).touch()
+
+        else:
+            groupings = [provider.attrs.names for provider in providers]
+            message = f"""
+            Can't jointly assign to entities {names!r}:
+            they're already in separate groupings {", ".join(repr(groupings))}
+            """
+            raise IncompatibleEntityError(oneline(message))
+
+    def add_case(self, case_key, names, values):
+        (provider,) = set(self.get_provider(name) for name in names)
         if not isinstance(provider, ValueProvider):
-            raise ValueError(f"Can't add case to function entity {name!r}")
-        provider.check_can_add_case(case_key, value)
-        provider.add_case(case_key, value)
+            raise IncompatibleEntityError(
+                f"Can't add case to function entities {names!r}"
+            )
+
+        # We should already have called group_names_together(), so we know the names
+        # argument should match the names of the provider. However, the names may not
+        # be in the expected order. If not, we'll reorder the values to correspond to
+        # the expected order.
+        if names != provider.attrs.names:
+            values = [values[provider.attrs.names.index(name)] for name in names]
+
+        provider = provider.copy()
+        provider.add_case(case_key, values)
 
         return self._set_provider(provider).touch()
 
@@ -158,7 +231,7 @@ class FlowState(pyrs.PClass):
                 continue
             provider = state.get_provider(name)
 
-            joint_names = provider.get_joint_names()
+            joint_names = provider.attrs.names
             for related_name in joint_names:
                 if related_name not in names:
                     raise IncompatibleEntityError(
@@ -328,7 +401,7 @@ class FlowBuilder:
         state = state.create_provider(name, protocol, doc)
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
-            state = state.add_case(name, case_key, value)
+            state = state.add_case(case_key, [name], [value])
 
         self._state = state
 
@@ -367,7 +440,7 @@ class FlowBuilder:
 
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
-            state = state.add_case(name, case_key, value)
+            state = state.add_case(case_key, [name], [value])
 
         self._state = state
 
@@ -446,27 +519,23 @@ class FlowBuilder:
 
         state = self._state
 
+        names = [name for name, value in name_value_pairs]
+        state = state.group_names_together(names)
+        provider = state.get_provider(names[0])
+
+        values = []
         case_nvt_tuples = []
         for name, value in name_value_pairs:
-            provider = state.get_provider(name)
-            if len(provider.attrs.protocols) > 1:
-                raise IncompatibleEntityError(
-                    oneline(
-                        f"""
-                    Can't add case for entity co-generated with other
-                    entities {provider.attrs.names!r}"""
-                    )
-                )
-            (protocol,) = provider.attrs.protocols
+            protocol = provider.protocol_for_name(name)
             protocol.validate(value)
             token = protocol.tokenize(value)
 
+            values.append(value)
             case_nvt_tuples.append((name, value, token))
 
         case_key = CaseKey(case_nvt_tuples)
 
-        for name, value, _ in case_nvt_tuples:
-            state = state.add_case(name, case_key, value)
+        state = state.add_case(case_key, names, values)
 
         case = FlowCase(self, case_key)
         state = state.set(last_added_case_key=case.key)
@@ -559,9 +628,11 @@ class FlowBuilder:
             if (
                 old_name_provider is not None
                 and isinstance(old_name_provider, ValueProvider)
-                and len(old_name_provider._values_by_case_key.keys()) == 1
+                and len(old_name_provider._value_tuples_by_case_key.keys()) == 1
             ):
-                (old_flow_name,) = old_name_provider._values_by_case_key.values()
+                (
+                    (old_flow_name,),
+                ) = old_name_provider._value_tuples_by_case_key.values()
                 new_flow_name = flow.name
                 if old_flow_name == new_flow_name and not allow_name_match:
                     raise ValueError(
@@ -660,7 +731,7 @@ class FlowBuilder:
             ("new", new_state),
         ]:
             for provider in state.providers_by_name.values():
-                names = provider.get_joint_names()
+                names = provider.attrs.names
                 if len(names) == 1:
                     continue
 
@@ -845,7 +916,7 @@ class FlowBuilder:
         self.set("core__flow_name", name)
 
     def _set_for_case_key(self, case_key, name, value):
-        self._state = self._state.add_case(name, case_key, value)
+        self._state = self._state.add_case(case_key, [name], [value])
 
     def _set_for_last_case(self, name, value):
         last_case_key = self._state.last_added_case_key

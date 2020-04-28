@@ -69,9 +69,6 @@ class BaseProvider:
         self.attrs = attrs
         self.is_mutable = is_mutable
 
-    def get_joint_names(self):
-        return self.attrs.names
-
     def get_code_fingerprint(self, case_key):
         source_func = self.get_source_func()
         bytecode_hash = (
@@ -107,12 +104,6 @@ class BaseProvider:
     def copy(self):
         raise NotImplementedError()
 
-    def copy_if_mutable(self):
-        if self.is_mutable:
-            return self.copy()
-        else:
-            return self
-
     def protocol_for_name(self, name):
         name_ix = self.attrs.names.index(name)
         if name_ix < 0:
@@ -142,12 +133,25 @@ class BaseProvider:
 
 
 class ValueProvider(BaseProvider):
-    def __init__(self, name, protocol, doc):
+    @classmethod
+    def from_single_value_providers(cls, value_providers):
+        for provider in value_providers:
+            assert isinstance(provider, ValueProvider)
+            assert len(provider.attrs.names) == 1
+            assert not provider._has_any_values
+
+        names = [provider.attrs.names[0] for provider in value_providers]
+        protocols = [provider.attrs.protocols[0] for provider in value_providers]
+        docs = [provider.attrs.docs[0] for provider in value_providers]
+
+        return ValueProvider(names, protocols, docs)
+
+    def __init__(self, names, protocols, docs):
         super(ValueProvider, self).__init__(
             attrs=ProviderAttributes(
-                names=[name],
-                protocols=[protocol],
-                docs=[doc],
+                names=names,
+                protocols=protocols,
+                docs=docs,
                 can_persist=False,
                 can_memoize=True,
                 changes_per_run=False,
@@ -155,72 +159,59 @@ class ValueProvider(BaseProvider):
             is_mutable=True,
         )
 
-        self.name = name
-        self.dnode = entity_dnode_from_descriptor(name)
-        self.protocol = protocol
-        self.doc = doc
-
         self.clear_cases()
 
     def copy(self):
-        provider = ValueProvider(self.name, self.protocol, self.doc)
-        provider.key_space = self.key_space
-        provider._has_any_values = self._has_any_values
-        provider._values_by_case_key = self._values_by_case_key.copy()
-        provider._tokens_by_case_key = self._tokens_by_case_key.copy()
+        provider = copy(self)
+        provider._value_tuples_by_case_key = provider._value_tuples_by_case_key.copy()
+        provider._token_tuples_by_case_key = provider._token_tuples_by_case_key.copy()
         return provider
 
     def clear_cases(self):
         self.key_space = CaseKeySpace()
         self._has_any_values = False
-        self._values_by_case_key = {}
-        self._tokens_by_case_key = {}
+        self._value_tuples_by_case_key = {}
+        self._token_tuples_by_case_key = {}
 
-    def check_can_add_case(self, case_key, value):
-        self.protocol.validate(value)
+    def add_case(self, case_key, values):
+        tokens = []
+        for value, protocol in zip(values, self.attrs.protocols):
+            protocol.validate(value)
+            tokens.append(protocol.tokenize(value))
 
         if self._has_any_values:
             if case_key.space != self.key_space:
                 raise ValueError(
                     oneline(
                         f"""
-                    Can't add {case_key!r} to entity {self.name!r}:
+                    Can't add {case_key!r} to entities {self.attrs.names!r}:
                     key space doesn't match {self.key_space!r}"""
                     )
                 )
 
-            if case_key in self._values_by_case_key:
+            if case_key in self._value_tuples_by_case_key:
                 raise ValueError(
                     oneline(
                         f"""
-                    Can't add {case_key!r} to entity {self.name!r};
+                    Can't add {case_key!r} to entity {self.attrs.names!r}:
                     that case key already exists"""
                     )
                 )
-
-    def add_case(self, case_key, value):
-        token = self.protocol.tokenize(value)
 
         if not self._has_any_values:
             self.key_space = case_key.space
             self._has_any_values = True
 
-        self._values_by_case_key[case_key] = value
-        self._tokens_by_case_key[case_key] = token
+        self._value_tuples_by_case_key[case_key] = tuple(values)
+        self._token_tuples_by_case_key[case_key] = tuple(tokens)
 
     def has_any_cases(self):
         return self._has_any_values
 
-    def get_joint_names(self):
-        if self._has_any_values:
-            return list(self.key_space)
-        else:
-            return self.attrs.names
-
     def get_code_fingerprint(self, case_key):
-        value_token = self._tokens_by_case_key[case_key]
+        value_tokens = " ".join(self._token_tuples_by_case_key[case_key])
         return CodeFingerprint(
-            version=CodeVersion(major=value_token, minor=None,),
+            version=CodeVersion(major=value_tokens, minor=None,),
             bytecode_hash=None,
             orig_flow_name=None,
         )
@@ -238,16 +229,19 @@ class ValueProvider(BaseProvider):
 
         return [
             Task(
-                keys=[TaskKey(self.dnode, case_key)],
+                keys=[
+                    TaskKey(entity_dnode_from_descriptor(name), case_key)
+                    for name in self.attrs.names
+                ],
                 dep_keys=[],
                 compute_func=functools.partial(self._compute, case_key=case_key,),
                 is_simple_lookup=True,
             )
-            for case_key in self._values_by_case_key.keys()
+            for case_key in self._value_tuples_by_case_key.keys()
         ]
 
     def _compute(self, dep_values, case_key):
-        return [self._values_by_case_key[case_key]]
+        return self._value_tuples_by_case_key[case_key]
 
 
 class FunctionProvider(BaseProvider):
