@@ -122,7 +122,7 @@ class FlowState(pyrs.PClass):
         # If there's only one provider, then the grouping is already done.
         if len(providers_set) == 1:
             provider = providers[0]
-            if not set(provider.attrs.names) == set(names):
+            if set(provider.attrs.names) != set(names):
                 if len(names) == 1:
                     message = f"""
                     Can't assign to individual entity {names[0]!r}:
@@ -192,8 +192,7 @@ class FlowState(pyrs.PClass):
         if names != provider.attrs.names:
             values = [values[provider.attrs.names.index(name)] for name in names]
 
-        provider = provider.copy()
-        provider.add_case(case_key, values)
+        provider = provider.add_case(case_key, values)
 
         return self._set_provider(provider).touch()
 

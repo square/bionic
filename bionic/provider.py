@@ -65,9 +65,8 @@ class ProviderAttributes:
 
 
 class BaseProvider:
-    def __init__(self, attrs, is_mutable=False):
+    def __init__(self, attrs):
         self.attrs = attrs
-        self.is_mutable = is_mutable
 
     def get_code_fingerprint(self, case_key):
         source_func = self.get_source_func()
@@ -156,24 +155,31 @@ class ValueProvider(BaseProvider):
                 can_memoize=True,
                 changes_per_run=False,
             ),
-            is_mutable=True,
         )
 
-        self.clear_cases()
-
-    def copy(self):
-        provider = copy(self)
-        provider._value_tuples_by_case_key = provider._value_tuples_by_case_key.copy()
-        provider._token_tuples_by_case_key = provider._token_tuples_by_case_key.copy()
-        return provider
-
-    def clear_cases(self):
         self.key_space = CaseKeySpace()
         self._has_any_values = False
         self._value_tuples_by_case_key = {}
         self._token_tuples_by_case_key = {}
 
     def add_case(self, case_key, values):
+        provider = self._copy()
+        provider._add_case_in_place(case_key, values)
+        return provider
+
+    def _copy(self):
+        # TODO This copy operation is O(N) in the number of cases we already have, which
+        # means that adding N cases will take O(N^2) time. This is probably not a
+        # problem for any realistic value of N, but if we wanted we could fix it by
+        # using Pyrsistent PMaps instead of dicts.
+        provider = copy(self)
+        provider._value_tuples_by_case_key = provider._value_tuples_by_case_key.copy()
+        provider._token_tuples_by_case_key = provider._token_tuples_by_case_key.copy()
+        return provider
+
+    # This mutates the provider, so it should only be called on a fresh copy, as in
+    # add_case().
+    def _add_case_in_place(self, case_key, values):
         tokens = []
         for value, protocol in zip(values, self.attrs.protocols):
             protocol.validate(value)
@@ -323,14 +329,6 @@ class FunctionProvider(BaseProvider):
 
 class WrappingProvider(BaseProvider):
     def __init__(self, wrapped_provider):
-        if wrapped_provider.is_mutable:
-            raise ValueError(
-                oneline(
-                    f"""
-                Can only wrap immutable providers; got mutable provider
-                {wrapped_provider!r}"""
-                )
-            )
         super(WrappingProvider, self).__init__(wrapped_provider.attrs)
         self.wrapped_provider = wrapped_provider
 
