@@ -1647,7 +1647,9 @@ def create_default_flow_state():
         # it take to make is use pickle and wrap the functions that are non-picklable
         # using `loky.wrap_non_picklable_objects`.
         loky = import_optional_dependency("loky", purpose="parallel processing")
-        return loky.get_reusable_executor(max_workers=1)
+        # TODO: Use a config / cpu cores instead of using a hardcoded value.
+        # Same applies to the test executor.
+        return loky.get_reusable_executor(max_workers=2)
 
     @builder
     @decorators.immediate
