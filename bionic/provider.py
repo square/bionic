@@ -23,7 +23,7 @@ from .datatypes import (
     CodeFingerprint,
     CodeVersion,
 )
-from .exception import EntityComputationError
+from .exception import EntityComputationError, IncompatibleEntityError
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
@@ -65,12 +65,8 @@ class ProviderAttributes:
 
 
 class BaseProvider:
-    def __init__(self, attrs, is_mutable=False):
+    def __init__(self, attrs):
         self.attrs = attrs
-        self.is_mutable = is_mutable
-
-    def get_joint_names(self):
-        return self.attrs.names
 
     def get_code_fingerprint(self, case_key):
         source_func = self.get_source_func()
@@ -107,12 +103,6 @@ class BaseProvider:
     def copy(self):
         raise NotImplementedError()
 
-    def copy_if_mutable(self):
-        if self.is_mutable:
-            return self.copy()
-        else:
-            return self
-
     def protocol_for_name(self, name):
         name_ix = self.attrs.names.index(name)
         if name_ix < 0:
@@ -141,16 +131,204 @@ class BaseProvider:
         return f"{self.__class__.__name__}{tuple(self.attrs.names)!r}"
 
 
-class WrappingProvider(BaseProvider):
-    def __init__(self, wrapped_provider):
-        if wrapped_provider.is_mutable:
-            raise ValueError(
+class ValueProvider(BaseProvider):
+    @classmethod
+    def from_single_value_providers(cls, value_providers):
+        for provider in value_providers:
+            assert isinstance(provider, ValueProvider)
+            assert len(provider.attrs.names) == 1
+            assert not provider._has_any_values
+
+        names = [provider.attrs.names[0] for provider in value_providers]
+        protocols = [provider.attrs.protocols[0] for provider in value_providers]
+        docs = [provider.attrs.docs[0] for provider in value_providers]
+
+        return ValueProvider(names, protocols, docs)
+
+    def __init__(self, names, protocols, docs):
+        super(ValueProvider, self).__init__(
+            attrs=ProviderAttributes(
+                names=names,
+                protocols=protocols,
+                docs=docs,
+                can_persist=False,
+                can_memoize=True,
+                changes_per_run=False,
+            ),
+        )
+
+        self.key_space = CaseKeySpace()
+        self._has_any_values = False
+        self._value_tuples_by_case_key = {}
+        self._token_tuples_by_case_key = {}
+
+    def add_case(self, case_key, values):
+        provider = self._copy()
+        provider._add_case_in_place(case_key, values)
+        return provider
+
+    def _copy(self):
+        # TODO This copy operation is O(N) in the number of cases we already have, which
+        # means that adding N cases will take O(N^2) time. This is probably not a
+        # problem for any realistic value of N, but if we wanted we could fix it by
+        # using Pyrsistent PMaps instead of dicts.
+        provider = copy(self)
+        provider._value_tuples_by_case_key = provider._value_tuples_by_case_key.copy()
+        provider._token_tuples_by_case_key = provider._token_tuples_by_case_key.copy()
+        return provider
+
+    # This mutates the provider, so it should only be called on a fresh copy, as in
+    # add_case().
+    def _add_case_in_place(self, case_key, values):
+        tokens = []
+        for value, protocol in zip(values, self.attrs.protocols):
+            protocol.validate(value)
+            tokens.append(protocol.tokenize(value))
+
+        if self._has_any_values:
+            if case_key.space != self.key_space:
+                raise IncompatibleEntityError(
+                    oneline(
+                        f"""
+                    Can't add {case_key!r} to entities {self.attrs.names!r}:
+                    key space doesn't match {self.key_space!r}"""
+                    )
+                )
+
+            if case_key in self._value_tuples_by_case_key:
+                raise IncompatibleEntityError(
+                    oneline(
+                        f"""
+                    Can't add {case_key!r} to entity {self.attrs.names!r}:
+                    that case key already exists"""
+                    )
+                )
+
+        if not self._has_any_values:
+            self.key_space = case_key.space
+            self._has_any_values = True
+
+        self._value_tuples_by_case_key[case_key] = tuple(values)
+        self._token_tuples_by_case_key[case_key] = tuple(tokens)
+
+    def has_any_cases(self):
+        return self._has_any_values
+
+    def get_code_fingerprint(self, case_key):
+        value_tokens = " ".join(self._token_tuples_by_case_key[case_key])
+        return CodeFingerprint(
+            version=CodeVersion(major=value_tokens, minor=None,),
+            bytecode_hash=None,
+            orig_flow_name=None,
+        )
+
+    def get_source_func(self):
+        return None
+
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        assert not dep_key_spaces_by_dnode
+        return self.key_space
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        assert not dep_key_spaces_by_dnode
+        assert not dep_task_key_lists_by_dnode
+
+        return [
+            Task(
+                keys=[
+                    TaskKey(entity_dnode_from_descriptor(name), case_key)
+                    for name in self.attrs.names
+                ],
+                dep_keys=[],
+                compute_func=functools.partial(self._compute, case_key=case_key,),
+                is_simple_lookup=True,
+            )
+            for case_key in self._value_tuples_by_case_key.keys()
+        ]
+
+    def _compute(self, dep_values, case_key):
+        return self._value_tuples_by_case_key[case_key]
+
+
+class FunctionProvider(BaseProvider):
+    def __init__(self, func):
+        name = func.__name__
+        super(FunctionProvider, self).__init__(
+            attrs=ProviderAttributes(
+                names=[name], docs=(None if func.__doc__ is None else [func.__doc__]),
+            )
+        )
+
+        self._func = func
+        self.name = name
+        self.dnode = entity_dnode_from_descriptor(name)
+
+        argspec = inspect.getfullargspec(func)
+
+        if argspec.varargs:
+            raise ValueError("Functions with varargs are not supported")
+        if argspec.varkw:
+            raise ValueError("Functions with keyword args are not supported")
+        self._dep_names = list(argspec.args)
+        self._dep_dnodes = [
+            entity_dnode_from_descriptor(dep_name) for dep_name in self._dep_names
+        ]
+
+    def get_dependency_dnodes(self):
+        return self._dep_dnodes
+
+    def get_source_func(self):
+        return self._func
+
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        return CaseKeySpace.union_all(list(dep_key_spaces_by_dnode.values()))
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        dep_case_key_lists = [
+            [task_key.case_key for task_key in dep_task_key_lists_by_dnode[dep_dnode]]
+            for dep_dnode in self._dep_dnodes
+        ]
+        out_case_keys = merge_case_key_lists(dep_case_key_lists)
+
+        return [
+            Task(
+                keys=[TaskKey(self.dnode, case_key)],
+                dep_keys=[
+                    TaskKey(
+                        dep_dnode, case_key.project(dep_key_spaces_by_dnode[dep_dnode]),
+                    )
+                    for dep_dnode in self._dep_dnodes
+                ],
+                compute_func=self._apply,
+            )
+            for case_key in out_case_keys
+        ]
+
+    def _apply(self, dep_values):
+        try:
+            value = self._func(*dep_values)
+        except Exception as e:
+            entity_description = (
+                f"entity {self.attrs.names[0]!r}"
+                if len(self.attrs.names) == 1
+                else f"entities {self.attrs.names!r}"
+            )
+            raise EntityComputationError(
                 oneline(
                     f"""
-                Can only wrap immutable providers; got mutable provider
-                {wrapped_provider!r}"""
+                An exception was thrown while computing the value of
+                {entity_description}
+                """
                 )
-            )
+            ) from e
+        return [value]
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self._func})"
+
+
+class WrappingProvider(BaseProvider):
+    def __init__(self, wrapped_provider):
         super(WrappingProvider, self).__init__(wrapped_provider.attrs)
         self.wrapped_provider = wrapped_provider
 
@@ -310,192 +488,6 @@ class NameSplittingProvider(WrappingProvider):
             )
 
         return [wrap_task(task) for task in inner_tasks]
-
-
-class ValueProvider(BaseProvider):
-    def __init__(self, name, protocol, doc):
-        super(ValueProvider, self).__init__(
-            attrs=ProviderAttributes(
-                names=[name],
-                protocols=[protocol],
-                docs=[doc],
-                can_persist=False,
-                can_memoize=True,
-                changes_per_run=False,
-            ),
-            is_mutable=True,
-        )
-
-        self.name = name
-        self.dnode = entity_dnode_from_descriptor(name)
-        self.protocol = protocol
-        self.doc = doc
-
-        self.clear_cases()
-
-    def copy(self):
-        provider = ValueProvider(self.name, self.protocol, self.doc)
-        provider.key_space = self.key_space
-        provider._has_any_values = self._has_any_values
-        provider._values_by_case_key = self._values_by_case_key.copy()
-        provider._tokens_by_case_key = self._tokens_by_case_key.copy()
-        return provider
-
-    def clear_cases(self):
-        self.key_space = CaseKeySpace()
-        self._has_any_values = False
-        self._values_by_case_key = {}
-        self._tokens_by_case_key = {}
-
-    def check_can_add_case(self, case_key, value):
-        self.protocol.validate(value)
-
-        if self._has_any_values:
-            if case_key.space != self.key_space:
-                raise ValueError(
-                    oneline(
-                        f"""
-                    Can't add {case_key!r} to entity {self.name!r}:
-                    key space doesn't match {self.key_space!r}"""
-                    )
-                )
-
-            if case_key in self._values_by_case_key:
-                raise ValueError(
-                    oneline(
-                        f"""
-                    Can't add {case_key!r} to entity {self.name!r};
-                    that case key already exists"""
-                    )
-                )
-
-    def add_case(self, case_key, value):
-        token = self.protocol.tokenize(value)
-
-        if not self._has_any_values:
-            self.key_space = case_key.space
-            self._has_any_values = True
-
-        self._values_by_case_key[case_key] = value
-        self._tokens_by_case_key[case_key] = token
-
-    def has_any_cases(self):
-        return self._has_any_values
-
-    def get_joint_names(self):
-        if self._has_any_values:
-            return list(self.key_space)
-        else:
-            return self.attrs.names
-
-    def get_code_fingerprint(self, case_key):
-        value_token = self._tokens_by_case_key[case_key]
-        return CodeFingerprint(
-            version=CodeVersion(major=value_token, minor=None,),
-            bytecode_hash=None,
-            orig_flow_name=None,
-        )
-
-    def get_source_func(self):
-        return None
-
-    def get_key_space(self, dep_key_spaces_by_dnode):
-        assert not dep_key_spaces_by_dnode
-        return self.key_space
-
-    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        assert not dep_key_spaces_by_dnode
-        assert not dep_task_key_lists_by_dnode
-
-        return [
-            Task(
-                keys=[TaskKey(self.dnode, case_key)],
-                dep_keys=[],
-                compute_func=functools.partial(self._compute, case_key=case_key,),
-                is_simple_lookup=True,
-            )
-            for case_key in self._values_by_case_key.keys()
-        ]
-
-    def _compute(self, dep_values, case_key):
-        return [self._values_by_case_key[case_key]]
-
-
-class FunctionProvider(BaseProvider):
-    def __init__(self, func):
-        name = func.__name__
-        super(FunctionProvider, self).__init__(
-            attrs=ProviderAttributes(
-                names=[name], docs=(None if func.__doc__ is None else [func.__doc__]),
-            )
-        )
-
-        self._func = func
-        self.name = name
-        self.dnode = entity_dnode_from_descriptor(name)
-
-        argspec = inspect.getfullargspec(func)
-
-        if argspec.varargs:
-            raise ValueError("Functions with varargs are not supported")
-        if argspec.varkw:
-            raise ValueError("Functions with keyword args are not supported")
-        self._dep_names = list(argspec.args)
-        self._dep_dnodes = [
-            entity_dnode_from_descriptor(dep_name) for dep_name in self._dep_names
-        ]
-
-    def get_dependency_dnodes(self):
-        return self._dep_dnodes
-
-    def get_source_func(self):
-        return self._func
-
-    def get_key_space(self, dep_key_spaces_by_dnode):
-        return CaseKeySpace.union_all(list(dep_key_spaces_by_dnode.values()))
-
-    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        dep_case_key_lists = [
-            [task_key.case_key for task_key in dep_task_key_lists_by_dnode[dep_dnode]]
-            for dep_dnode in self._dep_dnodes
-        ]
-        out_case_keys = merge_case_key_lists(dep_case_key_lists)
-
-        return [
-            Task(
-                keys=[TaskKey(self.dnode, case_key)],
-                dep_keys=[
-                    TaskKey(
-                        dep_dnode, case_key.project(dep_key_spaces_by_dnode[dep_dnode]),
-                    )
-                    for dep_dnode in self._dep_dnodes
-                ],
-                compute_func=self._apply,
-            )
-            for case_key in out_case_keys
-        ]
-
-    def _apply(self, dep_values):
-        try:
-            value = self._func(*dep_values)
-        except Exception as e:
-            entity_description = (
-                f"entity {self.attrs.names[0]!r}"
-                if len(self.attrs.names) == 1
-                else f"entities {self.attrs.names!r}"
-            )
-            raise EntityComputationError(
-                oneline(
-                    f"""
-                An exception was thrown while computing the value of
-                {entity_description}
-                """
-                )
-            ) from e
-        return [value]
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self._func})"
 
 
 class GatherProvider(WrappingProvider):
