@@ -14,6 +14,7 @@ import functools
 from io import BytesIO
 
 import pandas as pd
+import attr
 
 from .datatypes import (
     Task,
@@ -157,7 +158,7 @@ class ValueProvider(BaseProvider):
             ),
         )
 
-        self.key_space = CaseKeySpace()
+        self.key_space = CaseKeySpace(names)
         self._has_any_values = False
         self._value_tuples_by_case_key = {}
         self._token_tuples_by_case_key = {}
@@ -215,7 +216,11 @@ class ValueProvider(BaseProvider):
         return self._has_any_values
 
     def get_code_fingerprint(self, case_key):
-        value_tokens = " ".join(self._token_tuples_by_case_key[case_key])
+        if not self.has_any_cases():
+            value_tokens = ""
+        else:
+            value_tokens = " ".join(self._token_tuples_by_case_key[case_key])
+
         return CodeFingerprint(
             version=CodeVersion(major=value_tokens, minor=None,),
             bytecode_hash=None,
@@ -233,18 +238,42 @@ class ValueProvider(BaseProvider):
         assert not dep_key_spaces_by_dnode
         assert not dep_task_key_lists_by_dnode
 
-        return [
-            Task(
-                keys=[
-                    TaskKey(entity_dnode_from_descriptor(name), case_key)
-                    for name in self.attrs.names
-                ],
-                dep_keys=[],
-                compute_func=functools.partial(self._compute, case_key=case_key,),
-                is_simple_lookup=True,
-            )
-            for case_key in self._value_tuples_by_case_key.keys()
-        ]
+        if self.has_any_cases():
+            return [
+                Task(
+                    keys=[
+                        TaskKey(
+                            dnode=entity_dnode_from_descriptor(name), case_key=case_key,
+                        )
+                        for name in self.attrs.names
+                    ],
+                    dep_keys=[],
+                    compute_func=functools.partial(self._compute, case_key=case_key,),
+                    is_simple_lookup=True,
+                )
+                for case_key in self._value_tuples_by_case_key.keys()
+            ]
+
+        # If we have no cases, we instead return a single "missing value" task.
+        else:
+            return [
+                Task(
+                    keys=[
+                        TaskKey(
+                            dnode=entity_dnode_from_descriptor(name),
+                            case_key=CaseKey(
+                                [
+                                    (name, CaseKey.MISSING, "<MISSING>")
+                                    for name in self.attrs.names
+                                ]
+                            ),
+                        )
+                        for name in self.attrs.names
+                    ],
+                    dep_keys=[],
+                    compute_func=None,
+                )
+            ]
 
     def _compute(self, dep_values, case_key):
         return self._value_tuples_by_case_key[case_key]
@@ -292,10 +321,11 @@ class FunctionProvider(BaseProvider):
 
         return [
             Task(
-                keys=[TaskKey(self.dnode, case_key)],
+                keys=[TaskKey(dnode=self.dnode, case_key=case_key)],
                 dep_keys=[
                     TaskKey(
-                        dep_dnode, case_key.project(dep_key_spaces_by_dnode[dep_dnode]),
+                        dnode=dep_dnode,
+                        case_key=case_key.project(dep_key_spaces_by_dnode[dep_dnode]),
                     )
                     for dep_dnode in self._dep_dnodes
                 ],
@@ -340,7 +370,7 @@ class WrappingProvider(BaseProvider):
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         return self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
         )
 
     def get_source_func(self):
@@ -423,7 +453,7 @@ class RenamingProvider(WrappingProvider):
             )
 
         inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
         )
         return [wrap_task(task) for task in inner_tasks]
 
@@ -451,7 +481,7 @@ class NameSplittingProvider(WrappingProvider):
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
         )
 
         def wrap_task(task):
@@ -578,22 +608,53 @@ class GatherProvider(WrappingProvider):
         ]
         gather_case_keys = merge_case_key_lists(gather_case_key_lists)
 
-        gather_case_key_lists_by_delta_case_key = defaultdict(list)
+        # For each of these case keys, collect a "row" of the associated dependency
+        # task keys.
+        gather_rows = []
         for gather_case_key in gather_case_keys:
-            delta_case_key = gather_case_key.project(key_spaces.delta)
-            gather_case_key_lists_by_delta_case_key[delta_case_key].append(
-                gather_case_key
+            dep_task_keys = []
+            for dep_dnode in self._gather_dnodes:
+                dep_key_space = dep_key_spaces_by_dnode[dep_dnode]
+                dep_case_key = gather_case_key.project(dep_key_space)
+                dep_task_key = TaskKey(dep_dnode, dep_case_key)
+                dep_task_keys.append(dep_task_key)
+
+            gather_row = GatherRow(
+                dep_task_keys=dep_task_keys, full_case_key=gather_case_key,
             )
+            gather_rows.append(gather_row)
 
-        delta_case_keys = gather_case_key_lists_by_delta_case_key.keys()
+        # Now partition these rows into tables. Each table corresponds to one gathered
+        # dataframe.
+        gather_row_lists_by_delta_case_key = groups_dict(
+            gather_rows, lambda row: row.full_case_key.project(key_spaces.delta)
+        )
+        gather_tables_by_out_task_key = {}
+        for (
+            delta_case_key,
+            all_gather_rows,
+        ) in gather_row_lists_by_delta_case_key.items():
+            gather_rows_without_missing_case_key_values = [
+                gather_row
+                for gather_row in all_gather_rows
+                if not any(
+                    dep_task_key.case_key.project(key_spaces.primary).has_missing_values
+                    for dep_task_key in gather_row.dep_task_keys
+                )
+            ]
+            table_task_key = TaskKey(
+                dnode=self._inner_gathered_dep_dnode, case_key=delta_case_key,
+            )
+            gather_table = GatherTable(
+                rows=gather_rows_without_missing_case_key_values,
+                out_task_key=table_task_key,
+            )
+            gather_tables_by_out_task_key[table_task_key] = gather_table
 
-        # Create new task keys for the gathered values that the inner provider
+        # Create new task keys for the gathered frame values that the inner provider
         # will consume.
         inner_gathered_key_space = key_spaces.delta
-        inner_gathered_dep_task_keys = [
-            TaskKey(dnode=self._inner_gathered_dep_dnode, case_key=case_key,)
-            for case_key in delta_case_keys
-        ]
+        inner_gathered_dep_task_keys = list(gather_tables_by_out_task_key.keys())
 
         # Now we can construct the dicts of key spaces and task keys that the
         # wrapper provider will see.
@@ -605,7 +666,6 @@ class GatherProvider(WrappingProvider):
             )
             for dnode in self._inner_dep_dnodes
         }
-
         inner_dtkls_by_dnode = {
             dnode: (
                 inner_gathered_dep_task_keys
@@ -629,26 +689,10 @@ class GatherProvider(WrappingProvider):
             # Remove the key for the aggregated value, and remember its case
             # key.
             passthrough_dep_keys = list(inner_dep_keys)
-            inner_gather_case_key = passthrough_dep_keys.pop(
-                gather_task_key_ix
-            ).case_key
-            delta_case_key = inner_gather_case_key
+            inner_gather_task_key = passthrough_dep_keys.pop(gather_task_key_ix)
 
-            # Find the task keys that need to be gathered together.
-            unique_gather_task_keys = set()
-            for dep_dnode in self._gather_dnodes:
-                dep_key_space = dep_key_spaces_by_dnode[dep_dnode]
-
-                relevant_gather_case_keys = gather_case_key_lists_by_delta_case_key[
-                    delta_case_key
-                ]
-                for gather_case_key in relevant_gather_case_keys:
-                    unique_gather_task_keys.add(
-                        TaskKey(
-                            dnode=dep_dnode,
-                            case_key=gather_case_key.project(dep_key_space),
-                        )
-                    )
+            # Identify the table that this task corresponds to.
+            gather_table = gather_tables_by_out_task_key[inner_gather_task_key]
 
             # NOTE prepended_keys has a non-deterministic order, because a
             # set's ordering depends on the hashes of its contents, and TaskKey
@@ -659,7 +703,12 @@ class GatherProvider(WrappingProvider):
             # to eliminate every source of non-deterministic ordering, I think
             # it's better to sort our values at the point where we actually
             # need determinism.  (Viz., computing the provenance hash.)
-            prepended_keys = list(unique_gather_task_keys)
+            unique_gather_dep_keys = set(
+                dep_task_key
+                for gather_row in gather_table.rows
+                for dep_task_key in gather_row.dep_task_keys
+            )
+            prepended_keys = list(unique_gather_dep_keys)
 
             # Combine the gathering task keys with the keys expected by the
             # wrapped task (except the one key we removed, since we'll be
@@ -674,17 +723,11 @@ class GatherProvider(WrappingProvider):
                 values_by_task_key = dict(list(zip(prepended_keys, prepended_values)))
 
                 # Gather the prepended values into a single frame.
-                row_case_keys = gather_case_key_lists_by_delta_case_key[delta_case_key]
-
                 gathered_df = pd.DataFrame()
-                for dnode in self._gather_dnodes:
-                    key_space = dep_key_spaces_by_dnode[dnode]
-                    descriptor = dnode.to_descriptor()
-                    gathered_df[descriptor] = [
-                        values_by_task_key.get(
-                            TaskKey(dnode, case_key.project(key_space)), None
-                        )
-                        for case_key in row_case_keys
+                for dep_ix, dnode in enumerate(self._gather_dnodes):
+                    gathered_df[dnode.to_descriptor()] = [
+                        values_by_task_key.get(gather_row.dep_task_keys[dep_ix], None)
+                        for gather_row in gather_table.rows
                     ]
 
                 # Construct the final values to pass to the wrapped task.
@@ -704,7 +747,7 @@ class GatherProvider(WrappingProvider):
             )
 
         orig_tasks = self.wrapped_provider.get_tasks(
-            inner_key_spaces_by_dnode, inner_dtkls_by_dnode
+            inner_key_spaces_by_dnode, inner_dtkls_by_dnode,
         )
         return [wrap_task(task) for task in orig_tasks]
 
@@ -792,21 +835,19 @@ class PyplotProvider(WrappingProvider):
     def get_key_space(self, dep_key_spaces_by_dnode):
         outer_dkss = dep_key_spaces_by_dnode
         inner_dkss = outer_dkss.copy()
-        inner_dkss[self._pyplot_dnode] = CaseKey([])
+        inner_dkss[self._pyplot_dnode] = CaseKeySpace()
 
         return self.wrapped_provider.get_key_space(inner_dkss)
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         outer_dkss = dep_key_spaces_by_dnode
-
         inner_dkss = outer_dkss.copy()
-        inner_dkss[self._pyplot_dnode] = CaseKey([])
+        inner_dkss[self._pyplot_dnode] = CaseKeySpace()
 
         outer_dtkls = dep_task_key_lists_by_dnode
-
         inner_dtkls = outer_dtkls.copy()
         inner_dtkls[self._pyplot_dnode] = [
-            TaskKey(dnode=self._pyplot_dnode, case_key=CaseKey([]),)
+            TaskKey(dnode=self._pyplot_dnode, case_key=CaseKey([]))
         ]
 
         inner_tasks = self.wrapped_provider.get_tasks(inner_dkss, inner_dtkls)
@@ -953,6 +994,28 @@ def multi_index_from_case_keys(case_keys, ordered_key_names):
         ],
         names=ordered_key_names,
     )
+
+
+@attr.s
+class GatherRow:
+    """
+    A collection of task keys corresponding to one row of a gathered dataframe.
+    """
+
+    dep_task_keys = attr.ib()
+    full_case_key = attr.ib()
+
+
+@attr.s
+class GatherTable:
+    """
+    Holds the task keys for one gathered dataframe. Contains the task keys required
+    to compute each cell (organized by row) and one task key corresponding to the
+    assembled frame itself.
+    """
+
+    rows = attr.ib()
+    out_task_key = attr.ib()
 
 
 # -- Helpers for working with providers.

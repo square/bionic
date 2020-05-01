@@ -16,6 +16,7 @@ from bionic.exception import (
     EntitySerializationError,
     IncompatibleEntityError,
     UndefinedEntityError,
+    UnsetEntityError,
 )
 
 from ..helpers import assert_re_matches, count_calls
@@ -335,15 +336,17 @@ def test_merge(builder):
 def test_get_single(preset_flow):
     flow = preset_flow
 
-    with raises(ValueError):
+    with raises(UnsetEntityError):
         flow.get("x")
 
     assert flow.get("y") == 1
 
     with raises(ValueError):
         assert flow.get("z")
-    with raises(ValueError):
+
+    with raises(UnsetEntityError) as excinfo:
         assert flow.get("f")
+    assert "'x'" in str(excinfo.value)
 
     assert flow.get("p") == 4
     assert flow.get("q") == 5

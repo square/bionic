@@ -15,6 +15,10 @@ class AlreadyDefinedEntityError(ValueError):
         return cls(f"Entity {name!r} is already defined")
 
 
+class UnsetEntityError(ValueError):
+    pass
+
+
 class IncompatibleEntityError(ValueError):
     pass
 

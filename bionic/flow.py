@@ -19,11 +19,12 @@ import pandas as pd
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
 from .cache import LocalStore, GcsCloudStore, PersistentCache
-from .datatypes import CaseKey, VersioningPolicy
+from .datatypes import CaseKey, VersioningPolicy, ResultGroup
 from .exception import (
     UndefinedEntityError,
     AlreadyDefinedEntityError,
     IncompatibleEntityError,
+    UnsetEntityError,
 )
 from .optdep import import_optional_dependency
 from .provider import (
@@ -1102,7 +1103,14 @@ class Flow:
         """
 
         dnode = entity_dnode_from_descriptor(name)
-        result_group = self._deriver.derive(dnode)
+        orig_result_group = self._deriver.derive(dnode)
+        # Remove all results with missing values.
+        result_group = ResultGroup(
+            results=[
+                result for result in orig_result_group if not result.value_is_missing
+            ],
+            key_space=orig_result_group.key_space,
+        )
 
         if mode is object or mode == "object":
             values = [result.value for result in result_group]
@@ -1140,7 +1148,17 @@ class Flow:
 
         if collection is None or collection is object:
             if len(values) == 0:
-                raise ValueError(f"Entity {name!r} has no defined values")
+                # There should always be at least one result, but some of them may have
+                # missing values.
+                assert len(orig_result_group) > 0
+                missing_result = orig_result_group[0]
+                missing_names = missing_result.query.case_key.missing_names
+                message = f"""
+                Entity {name} could not be computed because the following entities are
+                declared but have no values set:
+                {", ".join(repr(name) for name in missing_names)}
+                """
+                raise UnsetEntityError(oneline(message))
             if len(values) > 1:
                 raise ValueError(f"Entity {name!r} has multiple values")
             return values[0]
@@ -1160,7 +1178,6 @@ class Flow:
         else:
             raise ValueError(f"Unrecognized collection type {collection!r}")
 
-    # TODO Maybe this wants to be two different functions?
     def export(self, name, file_path=None, dir_path=None):
         """
         Provides access to the persisted file corresponding to an entity.  Note:

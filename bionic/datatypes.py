@@ -28,6 +28,18 @@ class Task:
     """
     A unit of work.  Can have dependencies, which are referred to via their
     TaskKeys.
+
+    Attributes
+    ----------
+    keys: list of TaskKeys
+        Keys corresponding to the output values computed by this task.
+    dep_keys: list of TaskKeys
+        Keys corresponding to the input values required by this task.
+    compute_func: function taking a single ``dep_values`` argument
+        Generates output values based on the passed input values.
+    is_simple_lookup: boolean
+        Whether this task consists of simply looking up the fixed value of an entity;
+        used to determine what message to log when this task is computed.
     """
 
     keys = attr.ib(converter=tuple)
@@ -83,6 +95,7 @@ class Result:
     value = attr.ib()
     file_path = attr.ib(default=None)
     value_hash = attr.ib(default=None)
+    value_is_missing = attr.ib(default=False)
 
     def __repr__(self):
         return f"Result({self.query!r}, {self.value!r})"
@@ -156,10 +169,22 @@ class CaseKeySpace(ImmutableSequence):
         return f'CaseKeySpace({", ".join(repr(name) for name in self)})'
 
 
+@attr.s(frozen=True)
+class MissingCaseKeyValue:
+    pass
+
+
 class CaseKey(ImmutableMapping):
     """
     A collection of name-value pairs that uniquely identifies a case.
     """
+
+    # This is a sentinel value used to indicate that no value is available. We can't use
+    # None because None is itself a valid value.
+    # Normally I would prefer to represent missing-ness out-of-band by making the
+    # `missing_names` field the source of truth here, but the relational methods like
+    # `project` are cleaner when we use a sentinel value.
+    MISSING = MissingCaseKeyValue()
 
     def __init__(self, name_value_token_triples):
         values_by_name = {
@@ -174,6 +199,12 @@ class CaseKey(ImmutableMapping):
         self.values = values_by_name
         self.tokens = tokens_by_name
         self.space = CaseKeySpace(list(values_by_name.keys()))
+        self.missing_names = [
+            name
+            for name, value, token in name_value_token_triples
+            if value == self.MISSING
+        ]
+        self.has_missing_values = len(self.missing_names) > 0
 
     def project(self, key_space):
         return CaseKey(
