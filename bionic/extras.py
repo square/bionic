@@ -28,6 +28,7 @@ extras["dill"] = ["dill"]
 extras["dask"] = ["dask[dataframe]"]
 extras["gcp"] = ["google-cloud-storage"]
 extras["parallel"] = ["cloudpickle", "loky"]
+extras["geopandas"] = ["geopandas"]
 
 extras["examples"] = combine(extras["standard"], ["scikit-learn"])
 extras["full"] = combine(*extras.values())

@@ -648,3 +648,42 @@ class EnumProtocol(PicklableProtocol):
 
     def __repr__(self):
         return f"EnumProtocol{tuple(self._allowed_values)!r}"
+
+
+gpd = import_optional_dependency("geopandas", raise_on_missing=False)
+
+
+class GeoPandasProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values always have the
+    ``geopandas.geodataframe.GeoDataFrame`` type.
+    These values will be serialized to a .shp directory.
+    """
+
+    def get_fixed_file_extension(self):
+        return "shp"
+
+    def write(self, value, path):
+        self._check_column_name_length_restriction(value)
+        value.to_file(path)
+
+    def _check_column_name_length_restriction(self, df):
+        long_columns = [c for c in df.columns if len(c) > 10]
+        if long_columns:
+            raise ValueError(
+                oneline(
+                    f"""
+                    GeoDataFrames truncate all column names to length 10 due
+                    to constraints from ShapeFiles. Column names {long_columns}
+                    have length greater than 10. You can fix this by renaming
+                    your columns to be a shorter length."""
+                )
+            )
+
+    def read(self, path):
+        gpd = import_optional_dependency("geopandas", purpose="deserialize a .shp file")
+        return gpd.read_file(path)
+
+    def validate(self, value):
+        assert gpd is not None
+        assert isinstance(value, gpd.GeoDataFrame)
