@@ -8,6 +8,7 @@ from enum import Enum, auto
 
 import attr
 
+from . import executors
 from .datatypes import ResultGroup
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .exception import AttributeValidationError, UndefinedEntityError
@@ -22,6 +23,9 @@ import logging
 # them into tasks, while providing the option of either handling the output
 # itself or routing it back to the global logging system.
 logger = logging.getLogger(__name__)
+
+
+_BACKUP_EXECUTOR = executors.BaseTaskCompletionExecutor()
 
 
 class EntityDeriver:
@@ -146,7 +150,7 @@ class EntityDeriver:
             versioning_policy=self._bootstrap_singleton_entity(
                 "core__versioning_policy"
             ),
-            process_executor=self._bootstrap_singleton_entity("core__process_executor"),
+            executor=self._bootstrap_singleton_entity("core__executor"),
             process_manager=self._bootstrap_singleton_entity("core__process_manager"),
         )
 
@@ -340,7 +344,7 @@ class Bootstrap:
 
     persistent_cache = attr.ib()
     versioning_policy = attr.ib()
-    process_executor = attr.ib()
+    executor = attr.ib()
     process_manager = attr.ib()
 
 
@@ -423,6 +427,12 @@ class TaskCompletionRunner:
         # These are needed to complete entries.
         self._bootstrap = bootstrap
         self._flow_instance_uuid = flow_instance_uuid
+        self._exec = (
+            self._bootstrap.executor
+            if self._bootstrap is not None
+            # Either it's a bootstrap task runner or serial processing.
+            else _BACKUP_EXECUTOR
+        )
 
         # These are used for caching and tracking.
         self._entries_by_task_key = {}
@@ -461,37 +471,13 @@ class TaskCompletionRunner:
         # Initialize the task state before attempting to complete it.
         state.initialize(self._bootstrap, self._flow_instance_uuid)
 
-        if (
-            # This is a bootstrap entity.
-            self._bootstrap is None
-            # Complete the task state serially.
-            or self._bootstrap.process_executor is None
-            # This is a non-serializable entity that needs to be returned.
-            or (
-                not state.provider.attrs.should_persist()
-                and entry.state.task.keys[0] in self._requested_task_keys
-            )
-        ):
-            # TODO: Right now, non-persisted entities include simple lookup values
-            # which we should not be really sending using IPC. We should read/write
-            # a tmp file for this instead to use protocol for serialization instead of
-            # using cloudpickle.
-            state.complete(task_key_logger)
-            self._mark_entry_completed(entry)
-
-        # Process serializable entity in parallel.
-        elif state.provider.attrs.should_persist():
-            # TODO: Logging support for multiple processes not done yet.
-            new_state_for_subprocess = state.strip_state_for_subprocess()
-            future = self._bootstrap.process_executor.submit(
-                new_state_for_subprocess.complete, task_key_logger
-            )
-            self._mark_entry_in_progress(entry, future)
-
+        # Submit the entry for completion.
+        requested_task_state = entry.state.task.keys[0] in self._requested_task_keys
+        # FIXME: Requested task state -> 
         # Do not process non-serializable entity in parallel. Any entity that
         # depends on this entity will compute it.
-        else:
-            self._mark_entry_completed(entry)
+        future = self._exec.submit(entry.state, task_key_logger, requested_task_state)
+        self._mark_entry_in_progress(entry, future)
 
     def _get_or_create_entry_for_state(self, state):
         task_key = state.task.keys[0]
@@ -518,11 +504,9 @@ class TaskCompletionRunner:
     def _wait_on_in_progress_entries(self):
         "Waits on any in-progress entry to finish."
         futures = [entry.future for entry in self._in_progress_entries.values()]
-        finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
-        for finished_future in finished_futures:
-            task_key = finished_future.result()
+        finished_task_keys = self._exec.resolve_any_future(futures)
+        for task_key in finished_task_keys:
             entry = self._entries_by_task_key[task_key]
-            entry.state.sync_after_subprocess_completion()
             self._mark_entry_completed(entry)
 
     def _mark_entry_pending(self, pending_entry):

@@ -18,6 +18,7 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
+from . import executors
 from .cache import LocalStore, GcsCloudStore, PersistentCache
 from .datatypes import CaseKey, VersioningPolicy
 from .exception import (
@@ -1639,17 +1640,13 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__process_executor(core__parallel_processing__enabled):
-        if not core__parallel_processing__enabled:
-            return None
+    def core__executor(core__parallel_processing__enabled):
+        if core__parallel_processing__enabled:
+            # TODO: Use a config / cpu cores instead of using a hardcoded value.
+            # Same applies to the test executor.
+            return executors.ParallelTaskCompletionExecutor()
 
-        # Loky uses cloudpickle by default. We should investigate further what would
-        # it take to make is use pickle and wrap the functions that are non-picklable
-        # using `loky.wrap_non_picklable_objects`.
-        loky = import_optional_dependency("loky", purpose="parallel processing")
-        # TODO: Use a config / cpu cores instead of using a hardcoded value.
-        # Same applies to the test executor.
-        return loky.get_reusable_executor(max_workers=2)
+        return executors.BaseTaskCompletionExecutor()
 
     @builder
     @decorators.immediate

@@ -10,16 +10,16 @@ from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 import bionic as bn
 from bionic.decorators import persist
 from bionic.deriver import TaskKeyLogger
+from bionic.executors import BaseTaskCompletionExecutor, ParallelTaskCompletionExecutor
 from bionic.optdep import import_optional_dependency
 
 
 @pytest.fixture(scope="session")
-def process_executor(request):
+def executor(request):
     if not request.config.getoption("--parallel"):
-        return None
+        return BaseTaskCompletionExecutor()
 
-    loky = import_optional_dependency("loky", purpose="parallel processing")
-    return loky.get_reusable_executor(max_workers=2)
+    return ParallelTaskCompletionExecutor(2)
 
 
 @pytest.fixture(scope="session")
@@ -40,7 +40,7 @@ def process_manager(request):
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture(scope="function")
-def builder(process_executor, process_manager, tmp_path):
+def builder(executor, process_manager, tmp_path):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
 
@@ -49,8 +49,8 @@ def builder(process_executor, process_manager, tmp_path):
     # them use FunctionProvider.
     @builder
     @persist(False)
-    def core__process_executor():
-        return process_executor
+    def core__executor():
+        return executor
 
     @builder
     @persist(False)
