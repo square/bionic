@@ -198,14 +198,22 @@ class PicklableProtocol(BaseProtocol):
     """
     Decorator indicating that an entity's values can be serialized using the
     ``pickle`` library.
+
+    Parameters:
+        pickle_protocol_version: int (default: 4)
+            The pickle serialization protocol to use.
     """
+
+    def __init__(self, pickle_protocol_version=4):
+        super(PicklableProtocol, self).__init__()
+        self._pickle_protocol_version = pickle_protocol_version
 
     def get_fixed_file_extension(self):
         return "pkl"
 
     def write(self, value, path):
         with path.open("wb") as file_:
-            pickle.dump(value, file_)
+            pickle.dump(value, file_, protocol=self._pickle_protocol_version)
 
     def read(self, path):
         with path.open("rb") as file_:
