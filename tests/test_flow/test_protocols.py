@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import geopandas
 import pandas as pd
 import pandas.testing as pdt
 from PIL import Image
@@ -579,3 +580,28 @@ def test_combined_protocol(builder):
     flow = flow.setting("value", 3)
     with pytest.raises(AssertionError):
         flow.get("must_be_one_or_two")
+
+
+def test_geodataframe_protocol(builder):
+    @builder
+    @bn.protocol.geodataframe
+    def basic_geopandas_df():
+        return geopandas.read_file(geopandas.datasets.get_path("nybb"))
+
+    gdf1 = builder.build().get("basic_geopandas_df")
+    gdf2 = geopandas.read_file(geopandas.datasets.get_path("nybb"))
+    pdt.assert_frame_equal(gdf1, gdf2)
+
+
+def test_geodataframe_protocol_fails_with_long_column_name(builder):
+    @builder
+    @bn.protocol.geodataframe
+    def longname_geopandas_df():
+        df = geopandas.read_file(geopandas.datasets.get_path("nybb"))
+        columns = list(df.columns)
+        columns[0] = "extra_long_column_name"
+        df.columns = columns
+        return df
+
+    with pytest.raises(EntitySerializationError):
+        builder.build().get("longname_geopandas_df")
