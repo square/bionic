@@ -41,29 +41,12 @@ class TaskState:
     # TODO: We need a coherent story around incomplete states between parallel
     # and non-parallel mode. We have to compute non-persisted deps inside the
     # other subprocess for parallel mode but not for non-parallel mode. We should
-    # consider making the way it computes in parallel mode the default. This
-    # would also match the definition of is_completable.
-    def incomplete_dep_states(self):
-        return [dep_state for dep_state in self.dep_states if not dep_state.is_complete]
-
-    def incomplete_dep_task_keys(self):
-        incomplete_dep_states = self.incomplete_dep_states()
-        return set(
-            incomplete_dep_state_tk
-            for incomplete_dep_state in incomplete_dep_states
-            for incomplete_dep_state_tk in incomplete_dep_state.task.keys
-        )
-
-    @property
-    def is_blocked(self):
-        return len(self.incomplete_dep_states()) > 0
-
-    @property
-    def is_completable(self):
+    # consider making the way it computes in parallel mode the default.
+    def blocking_dep_states(self):
         """
-        Indicates whether the task state can be completed in it's current shape.
-        True when the state is initialized, all of its persisted dependencies are
-        completed, and all its other dependencies are computable.
+        Returns all of this task state's persisted dependencies that aren't yet completed and
+        non-persisted dependencies that aren't yet completable.
+
 
         Note that the definition is complicated because dependencies that cannot be
         persisted can potentially be computed again in case of parallel processing.
@@ -71,12 +54,28 @@ class TaskState:
         this task state. They should already be complete to avoid doing any unnecessary
         state tracking for completing this state.
         """
-        return self._is_initialized and all(
-            dep_state.is_complete
-            if dep_state.provider.attrs.should_persist()
-            else dep_state.is_completable
+        return [
+            dep_state
             for dep_state in self.dep_states
+            if (dep_state.provider.attrs.should_persist() and not dep_state.is_complete)
+            or not dep_state.is_completable
+        ]
+
+    def blocking_dep_task_keys(self):
+        blocking_dep_states = self.blocking_dep_states()
+        return set(
+            blocking_dep_state_tk
+            for blocking_dep_state in blocking_dep_states
+            for blocking_dep_state_tk in blocking_dep_state.task.keys
         )
+
+    @property
+    def is_completable(self):
+        """
+        Indicates whether the task state can be completed in its current shape.
+        True when the state is initialized and doesn't have any blocking deps.
+        """
+        return self._is_initialized and len(self.blocking_dep_states()) == 0
 
     def __repr__(self):
         return f"TaskState({self.task!r})"

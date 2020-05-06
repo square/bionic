@@ -429,16 +429,18 @@ class TaskCompletionRunner:
         self._pending_entries = []
         self._in_progress_entries = {}
         self._blockage_lists_by_blocking_tk = defaultdict(list)
+        self._requested_task_keys = set()
 
     def run(self, states, task_key_logger):
         for state in states:
+            self._requested_task_keys.update(state.task.keys)
             entry = self._get_or_create_entry_for_state(state)
             self._mark_entry_pending(entry)
 
         while self._has_pending_entries():
             entry = self._activate_next_pending_entry()
 
-            if len(entry.state.incomplete_dep_states()) > 0:
+            if len(entry.state.blocking_dep_states()) > 0:
                 self._mark_entry_blocked(entry)
                 continue
 
@@ -459,28 +461,37 @@ class TaskCompletionRunner:
         # Initialize the task state before attempting to complete it.
         state.initialize(self._bootstrap, self._flow_instance_uuid)
 
-        # self._bootstrap.process_executor is None when parallel processing is
-        # disabled or when entities are bootstrapped.
         if (
-            not state.provider.attrs.should_persist()
+            # This is a bootstrap entity.
+            self._bootstrap is None
+            # Complete the task state serially.
             or self._bootstrap.process_executor is None
+            # This is a non-serializable entity that needs to be returned.
+            or (
+                not state.provider.attrs.should_persist()
+                and entry.state.task.keys[0] in self._requested_task_keys
+            )
         ):
-            # NOTE 1: This makes non-persisted entities compute here as well
-            # as in executor pool. We need to keep track of what needs to be
-            # computed in main process vs subprocess when entity is not persisted.
-            # NOTE 2: Right now, non-persisted entities include simple lookup values
+            # TODO: Right now, non-persisted entities include simple lookup values
             # which we should not be really sending using IPC. We should read/write
             # a tmp file for this instead to use protocol for serialization instead of
             # using cloudpickle.
             state.complete(task_key_logger)
             self._mark_entry_completed(entry)
-        else:
-            # NOTE 1: Logging support for multiple processes not done yet.
+
+        # Process serializable entity in parallel.
+        elif state.provider.attrs.should_persist():
+            # TODO: Logging support for multiple processes not done yet.
             new_state_for_subprocess = state.strip_state_for_subprocess()
             future = self._bootstrap.process_executor.submit(
                 new_state_for_subprocess.complete, task_key_logger
             )
             self._mark_entry_in_progress(entry, future)
+
+        # Do not process non-serializable entity in parallel. Any entity that
+        # depends on this entity will compute it.
+        else:
+            self._mark_entry_completed(entry)
 
     def _get_or_create_entry_for_state(self, state):
         task_key = state.task.keys[0]
@@ -524,7 +535,7 @@ class TaskCompletionRunner:
         assert blocked_entry.stage == EntryStage.ACTIVE
 
         blocked_entry.stage = EntryStage.BLOCKED
-        blocking_tks = blocked_entry.state.incomplete_dep_task_keys()
+        blocking_tks = blocked_entry.state.blocking_dep_task_keys()
         blockage = EntryBlockage(blocked_entry, blocking_tks)
         for blocking_tk in blocking_tks:
             self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
@@ -553,11 +564,11 @@ class TaskCompletionRunner:
         self._unblock_entries(completed_entry)
 
     def _mark_blocking_entries_pending(self, blocked_entry):
-        incomplete_dep_states = blocked_entry.state.incomplete_dep_states()
-        for incomplete_dep_state in incomplete_dep_states:
-            incomplete_entry = self._get_or_create_entry_for_state(incomplete_dep_state)
-            if incomplete_entry.stage == EntryStage.NEW:
-                self._mark_entry_pending(incomplete_entry)
+        blocking_dep_states = blocked_entry.state.blocking_dep_states()
+        for blocking_dep_state in blocking_dep_states:
+            blocking_entry = self._get_or_create_entry_for_state(blocking_dep_state)
+            if blocking_entry.stage == EntryStage.NEW:
+                self._mark_entry_pending(blocking_entry)
 
     def _unblock_entries(self, completed_entry):
         for completed_tk in completed_entry.state.task.keys:
