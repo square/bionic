@@ -3,6 +3,8 @@ Contains the core logic for resolving Entities by executing Tasks.
 """
 
 from collections import defaultdict
+from concurrent.futures import wait, FIRST_COMPLETED
+from enum import Enum, auto
 
 import attr
 
@@ -310,63 +312,12 @@ class EntityDeriver:
             self._get_or_create_task_state_for_key(task.keys[0]) for task in dinfo.tasks
         ]
 
-        ready_task_states = list(requested_task_states)
-
-        blockage_tracker = TaskBlockageTracker()
+        task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
 
         log_level = logging.INFO if self._bootstrap is not None else logging.DEBUG
         task_key_logger = TaskKeyLogger(log_level)
 
-        while ready_task_states:
-            state = ready_task_states.pop()
-
-            # If this task is already complete, we don't need to do any work.
-            if state.is_complete:
-                continue
-
-            # If blocked, let's mark it and try to derive its dependencies.
-            incomplete_dep_states = state.incomplete_dep_states()
-            if incomplete_dep_states:
-                blockage_tracker.add_blockage(
-                    blocked_state=state, blocking_states=incomplete_dep_states,
-                )
-                ready_task_states.extend(incomplete_dep_states)
-                continue
-
-            # Initialize the task state before attempting to complete it.
-            state.initialize(self._bootstrap, self._flow_instance_uuid)
-
-            # If the task isn't complete or blocked, we can complete the task.
-
-            # self._bootstrap.process_executor is None when parallel processing is
-            # disabled or when entities are bootstrapped.
-            if (
-                not state.provider.attrs.should_persist()
-                or self._bootstrap.process_executor is None
-            ):
-                # NOTE 1: This makes non-persisted entities compute here as well
-                # as in executor pool. We need to keep track of what needs to be
-                # computed in main process vs subprocess when entity is not persisted.
-                # NOTE 2: Right now, non-persisted entities include simple lookup values
-                # which we should not be really sending using IPC. We should read/write
-                # a tmp file for this instead to use protocol for serialization instead of
-                # using cloudpickle.
-                state.complete(task_key_logger)
-            else:
-                # NOTE 1: Logging support for multiple processes not done yet.
-                new_state_for_subprocess = state.strip_state_for_subprocess()
-                ex = self._bootstrap.process_executor.submit(
-                    new_state_for_subprocess.complete, task_key_logger
-                )
-                ex.result()
-                state.sync_after_subprocess_completion()
-
-            # See if we can unblock any other states now that we've completed this one.
-            unblocked_states = blockage_tracker.get_unblocked_by(state)
-            ready_task_states.extend(unblocked_states)
-
-        blocked_states = blockage_tracker.get_all_blocked_states()
-        assert not blocked_states, blocked_states
+        task_runner.run(requested_task_states, task_key_logger)
 
         for state in requested_task_states:
             assert state.is_complete, state
@@ -443,14 +394,14 @@ class DescriptorInfo:
         return self.tasks_by_key.values()
 
 
-class TaskBlockage:
+class EntryBlockage:
     """
     Represents a blocking relationship between a task state and a collection of
     not-yet-completed task keys it depends on.
     """
 
-    def __init__(self, blocked_state, blocking_tks):
-        self.blocked_state = blocked_state
+    def __init__(self, blocked_entry, blocking_tks):
+        self.blocked_entry = blocked_entry
         self._blocking_tks = set(blocking_tks)
 
     def mark_task_key_complete(self, blocking_tk):
@@ -460,46 +411,225 @@ class TaskBlockage:
         return not self._blocking_tks
 
 
-class TaskBlockageTracker:
+class TaskCompletionRunner:
     """
-    A helper class that keeps track of which task states are blocked by others.
+    Runs `TaskState` to completion.
 
-    A task state X is "blocked" by another task state Y if X depends on Y and Y is
-    not complete.
+    Using a `Bootstrap` object, this class completes given task states
+    using a stack-based state tracking approach.
     """
 
-    def __init__(self):
+    def __init__(self, bootstrap, flow_instance_uuid):
+        # These are needed to complete entries.
+        self._bootstrap = bootstrap
+        self._flow_instance_uuid = flow_instance_uuid
+
+        # These are used for caching and tracking.
+        self._entries_by_task_key = {}
+        self._pending_entries = []
+        self._in_progress_entries = {}
         self._blockage_lists_by_blocking_tk = defaultdict(list)
 
-    def add_blockage(self, blocked_state, blocking_states):
-        """Records the fact that one task state is blocked by certain others."""
+    def run(self, states, task_key_logger):
+        for state in states:
+            entry = self._get_or_create_entry_for_state(state)
+            self._mark_entry_pending(entry)
 
-        blocking_tks = [
-            blocking_tk
-            for blocking_state in blocking_states
-            for blocking_tk in blocking_state.task.keys
-        ]
-        blockage = TaskBlockage(blocked_state, blocking_tks)
+        while self._has_pending_entries():
+            entry = self._activate_next_pending_entry()
+
+            if len(entry.state.incomplete_dep_states()) > 0:
+                self._mark_entry_blocked(entry)
+                continue
+
+            self._process_entry(entry, task_key_logger)
+
+        assert len(self._pending_entries) == 0
+        assert len(self._in_progress_entries) == 0
+        assert len(self._get_all_blocked_entries()) == 0
+
+    def _process_entry(self, entry, task_key_logger):
+        assert entry.stage == EntryStage.ACTIVE
+
+        if entry.state.is_complete:
+            self._mark_entry_completed(entry)
+            return
+
+        state = entry.state
+        # Initialize the task state before attempting to complete it.
+        state.initialize(self._bootstrap, self._flow_instance_uuid)
+
+        # self._bootstrap.process_executor is None when parallel processing is
+        # disabled or when entities are bootstrapped.
+        if (
+            not state.provider.attrs.should_persist()
+            or self._bootstrap.process_executor is None
+        ):
+            # NOTE 1: This makes non-persisted entities compute here as well
+            # as in executor pool. We need to keep track of what needs to be
+            # computed in main process vs subprocess when entity is not persisted.
+            # NOTE 2: Right now, non-persisted entities include simple lookup values
+            # which we should not be really sending using IPC. We should read/write
+            # a tmp file for this instead to use protocol for serialization instead of
+            # using cloudpickle.
+            state.complete(task_key_logger)
+            self._mark_entry_completed(entry)
+        else:
+            # NOTE 1: Logging support for multiple processes not done yet.
+            new_state_for_subprocess = state.strip_state_for_subprocess()
+            future = self._bootstrap.process_executor.submit(
+                new_state_for_subprocess.complete, task_key_logger
+            )
+            self._mark_entry_in_progress(entry, future)
+
+    def _get_or_create_entry_for_state(self, state):
+        task_key = state.task.keys[0]
+        if task_key not in self._entries_by_task_key:
+            self._entries_by_task_key[task_key] = TaskRunnerEntry(state=state)
+        return self._entries_by_task_key[task_key]
+
+    def _has_pending_entries(self):
+        # While there are no entries in the to-process stack but have any in-progress ones,
+        # let's wait for in-progress entries to finish till we find an entry to process or
+        # exhaust all in-progress entries.
+        while len(self._pending_entries) == 0 and len(self._in_progress_entries) != 0:
+            self._wait_on_in_progress_entries()
+        return len(self._pending_entries) != 0
+
+    def _activate_next_pending_entry(self):
+        assert len(self._pending_entries) != 0
+        next_entry = self._pending_entries.pop()
+        assert next_entry.stage == EntryStage.PENDING
+
+        next_entry.stage = EntryStage.ACTIVE
+        return next_entry
+
+    def _wait_on_in_progress_entries(self):
+        "Waits on any in-progress entry to finish."
+        futures = [entry.future for entry in self._in_progress_entries.values()]
+        finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
+        for finished_future in finished_futures:
+            task_key = finished_future.result()
+            entry = self._entries_by_task_key[task_key]
+            entry.state.sync_after_subprocess_completion()
+            self._mark_entry_completed(entry)
+
+    def _mark_entry_pending(self, pending_entry):
+        assert pending_entry.stage in (EntryStage.NEW, EntryStage.BLOCKED)
+
+        pending_entry.stage = EntryStage.PENDING
+        self._pending_entries.append(pending_entry)
+
+    def _mark_entry_blocked(self, blocked_entry):
+        assert blocked_entry.stage == EntryStage.ACTIVE
+
+        blocked_entry.stage = EntryStage.BLOCKED
+        blocking_tks = blocked_entry.state.incomplete_dep_task_keys()
+        blockage = EntryBlockage(blocked_entry, blocking_tks)
         for blocking_tk in blocking_tks:
             self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
 
-    def get_unblocked_by(self, completed_state):
-        """
-        Records the fact that a task state is complete, and yields all task states
-        that are newly unblocked.
-        """
+        self._mark_blocking_entries_pending(blocked_entry)
 
-        for completed_tk in completed_state.task.keys:
+    def _mark_entry_in_progress(self, in_progress_entry, future):
+        assert in_progress_entry.stage == EntryStage.ACTIVE
+        assert in_progress_entry.future is None
+        assert in_progress_entry not in self._in_progress_entries
+
+        in_progress_entry.stage = EntryStage.IN_PROGRESS
+        in_progress_entry.future = future
+        self._in_progress_entries[
+            in_progress_entry.state.task.keys[0]
+        ] = in_progress_entry
+
+    def _mark_entry_completed(self, completed_entry):
+        assert completed_entry.stage == EntryStage.ACTIVE or EntryStage.IN_PROGRESS
+
+        if completed_entry.stage == EntryStage.IN_PROGRESS:
+            completed_entry.future = None
+            del self._in_progress_entries[completed_entry.state.task.keys[0]]
+
+        completed_entry.stage = EntryStage.COMPLETED
+        self._unblock_entries(completed_entry)
+
+    def _mark_blocking_entries_pending(self, blocked_entry):
+        incomplete_dep_states = blocked_entry.state.incomplete_dep_states()
+        for incomplete_dep_state in incomplete_dep_states:
+            incomplete_entry = self._get_or_create_entry_for_state(incomplete_dep_state)
+            if incomplete_entry.stage == EntryStage.NEW:
+                self._mark_entry_pending(incomplete_entry)
+
+    def _unblock_entries(self, completed_entry):
+        for completed_tk in completed_entry.state.task.keys:
             affected_blockages = self._blockage_lists_by_blocking_tk[completed_tk]
             for blockage in affected_blockages:
                 blockage.mark_task_key_complete(completed_tk)
-                if blockage.is_resolved():
-                    yield blockage.blocked_state
+                if (
+                    blockage.is_resolved()
+                    and blockage.blocked_entry.stage == EntryStage.BLOCKED
+                ):
+                    self._mark_entry_pending(blockage.blocked_entry)
 
-    def get_all_blocked_states(self):
+    def _get_all_blocked_entries(self):
         return {
-            blockage.blocked_state
+            blockage.blocked_entry
             for blockages in self._blockage_lists_by_blocking_tk.values()
             for blockage in blockages
             if not blockage.is_resolved()
         }
+
+
+class TaskRunnerEntry:
+    """
+    Basic unit of `TaskCompletionRunner` that contains the data for
+    `TaskState` execution and tracking.
+    """
+
+    def __init__(self, state):
+        self.state = state
+        self.stage = EntryStage.NEW
+        self.future = None
+
+
+class EntryStage(Enum):
+    """
+    Represents the stage of a `TaskRunnerEntry`.
+    """
+
+    """
+    Entry was just created.
+    This is the always the first stage for an entry.
+    Valid next stages: [PENDING]
+    """
+    NEW = auto()
+
+    """
+    Entry is waiting to be processed.
+    Valid next stages: [ACTIVE]
+    """
+    PENDING = auto()
+
+    """
+    We are actively attempting to start running this entry.
+    There should only be one such entry at a time. Any active entry
+    running concurrently should be moved to IN_PROGRESS.
+    Valid next stages: [BLOCKED, IN_PROGRESS, COMPLETED]
+    """
+    ACTIVE = auto()
+
+    """
+    Entry is blocked by another entry(ies).
+    Valid next stages: [PENDING]
+    """
+    BLOCKED = auto()
+
+    """
+    Entry is currently running in another process.
+    Valid next stages: [COMPLETED]
+    """
+    IN_PROGRESS = auto()
+
+    """
+    Entry has been successfully processed. This is a terminal stage.
+    """
+    COMPLETED = auto()

@@ -46,6 +46,18 @@ class TaskState:
     def incomplete_dep_states(self):
         return [dep_state for dep_state in self.dep_states if not dep_state.is_complete]
 
+    def incomplete_dep_task_keys(self):
+        incomplete_dep_states = self.incomplete_dep_states()
+        return set(
+            incomplete_dep_state_tk
+            for incomplete_dep_state in incomplete_dep_states
+            for incomplete_dep_state_tk in incomplete_dep_state.task.keys
+        )
+
+    @property
+    def is_blocked(self):
+        return len(self.incomplete_dep_states()) > 0
+
     @property
     def is_completable(self):
         """
@@ -96,6 +108,8 @@ class TaskState:
             self._compute(task_key_logger)
 
         self.is_complete = True
+
+        return self.task.keys[0]
 
     def get_results_assuming_complete(self, task_key_logger):
         "Returns the results of an already-completed task state."

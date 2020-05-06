@@ -19,7 +19,7 @@ def process_executor(request):
         return None
 
     loky = import_optional_dependency("loky", purpose="parallel processing")
-    return loky.get_reusable_executor(max_workers=1)
+    return loky.get_reusable_executor(max_workers=2)
 
 
 @pytest.fixture(scope="session")
