@@ -19,6 +19,13 @@ class TaskState:
         self.case_key = case_key
         self.provider = provider
 
+        # Cached values.
+        self.task_keys = task.keys
+        self.should_memoize = provider.attrs.should_memoize()
+        self.should_persist = (
+            self.provider.attrs.should_persist() and not self.output_would_be_missing()
+        )
+
         # These are set by initialize().
         self._is_initialized = False
         self._provenance = None
@@ -28,7 +35,7 @@ class TaskState:
         # This can be set by complete() or _compute().
         #
         # This will be present if and only if both is_complete and
-        # should_persist() are True.
+        # should_persist are True.
         self._result_value_hashes_by_name = None
 
         # This can be set by get_results_assuming_complete() or _compute().
@@ -57,7 +64,7 @@ class TaskState:
         return [
             dep_state
             for dep_state in self.dep_states
-            if (dep_state.should_persist() and not dep_state.is_complete)
+            if (dep_state.should_persist and not dep_state.is_complete)
             or not dep_state.is_completable
         ]
 
@@ -66,7 +73,7 @@ class TaskState:
         return set(
             blocking_dep_state_tk
             for blocking_dep_state in blocking_dep_states
-            for blocking_dep_state_tk in blocking_dep_state.task.keys
+            for blocking_dep_state_tk in blocking_dep_state.task_keys
         )
 
     @property
@@ -76,14 +83,6 @@ class TaskState:
         True when the state is initialized and doesn't have any blocking deps.
         """
         return self._is_initialized and len(self.blocking_dep_states()) == 0
-
-    # TODO Now that we've introduced this method, let's remove
-    # provider.attrs.should_persist(), which is just a wrapper for
-    # provider.attrs._can_persist anyway.
-    def should_persist(self):
-        return (
-            self.provider.attrs.should_persist() and not self.output_would_be_missing()
-        )
 
     def output_would_be_missing(self):
         return single_unique_element(
@@ -104,9 +103,7 @@ class TaskState:
         assert not self.is_complete
 
         # See if we can load it from the cache.
-        if self.should_persist() and all(
-            axr.can_load() for axr in self._cache_accessors
-        ):
+        if self.should_persist and all(axr.can_load() for axr in self._cache_accessors):
             # We only load the hashed result while completing task state
             # and lazily load the entire result when needed later.
             value_hashes_by_name = {}
@@ -121,7 +118,7 @@ class TaskState:
 
         self.is_complete = True
 
-        return self.task.keys[0]
+        return self.task_keys[0]
 
     def get_results_assuming_complete(self, task_key_logger):
         "Returns the results of an already-completed task state."
@@ -129,7 +126,7 @@ class TaskState:
         assert self.is_complete
 
         if self._results_by_name:
-            for task_key in self.task.keys:
+            for task_key in self.task_keys:
                 task_key_logger.log_accessed_from_memory(task_key)
             return self._results_by_name
 
@@ -144,7 +141,7 @@ class TaskState:
 
             results_by_name[result.query.dnode.to_entity_name()] = result
 
-        if self.provider.attrs.should_memoize():
+        if self.should_memoize:
             self._results_by_name = results_by_name
 
         return results_by_name
@@ -173,10 +170,8 @@ class TaskState:
                 dep_results_by_name = dep_state._compute(task_key_logger)
             dep_results.append(dep_results_by_name[dep_key.dnode.to_entity_name()])
 
-        provider = self.provider
-
         if not task.is_simple_lookup:
-            for task_key in task.keys:
+            for task_key in self.task_keys:
                 task_key_logger.log_computing(task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
@@ -202,7 +197,7 @@ class TaskState:
             )
 
         values = task.compute(dep_values)
-        assert len(values) == len(provider.attrs.names)
+        assert len(values) == len(self.task_keys)
 
         for query in self._queries:
             if task.is_simple_lookup:
@@ -217,7 +212,7 @@ class TaskState:
 
             result = Result(query=query, value=value)
 
-            if self.should_persist():
+            if self.should_persist:
                 accessor = self._cache_accessors[ix]
                 accessor.save_result(result)
 
@@ -230,11 +225,11 @@ class TaskState:
         # Otherwise, load it lazily later so that if the serialized/deserialized
         # value is not exactly the same as the original, we still
         # always return the same value.
-        if provider.attrs.should_memoize() and not self.should_persist():
+        if self.should_memoize and not self.should_persist:
             self._results_by_name = results_by_name
 
         # But we cache the hashed values eagerly since they are cheap to load.
-        if self.should_persist():
+        if self.should_persist:
             self._result_value_hashes_by_name = result_value_hashes_by_name
 
         return self._results_by_name
@@ -248,7 +243,7 @@ class TaskState:
         back from the subprocess.
         """
 
-        assert self.should_persist()
+        assert self.should_persist
 
         # First, let's flush the stored entries in cache accessors. This is to prevent cases
         # like current process contains an outdated stored entries.
@@ -300,7 +295,7 @@ class TaskState:
         dep_provenance_digests_by_task_key = {}
         for dep_key, dep_state in zip(self.task.dep_keys, self.dep_states):
             # Use value hash of persistable values.
-            if dep_state.should_persist():
+            if dep_state.should_persist:
                 value_hash = dep_state._result_value_hashes_by_name[
                     dep_key.dnode.to_entity_name()
                 ]
@@ -331,13 +326,13 @@ class TaskState:
                 ),
                 provenance=self._provenance,
             )
-            for task_key in self.task.keys
+            for task_key in self.task_keys
         ]
 
         # Lastly, set up cache accessors.
-        if self.should_persist():
+        if self.should_persist:
             if bootstrap is None:
-                name = self.task.keys[0].entity_name
+                name = self.task_keys[0].entity_name
                 raise AssertionError(
                     oneline(
                         f"""
@@ -401,13 +396,6 @@ class TaskState:
         for accessor in accessors_needing_saving:
             accessor.update_provenance()
 
-    # NOTE: This can be optimized further.
-    # How: We can set provider as None once we remove provider attrs into task state.
-    # This might also benefit from tuple refactor to take stuff out from Provider
-    # into some sort of entity defn. Once we have a structure like that in place,
-    # we can remove usage of provider in task state completion. Also a few other
-    # stuff like setting task and queries as None when tasks won't be recomputed
-    # in subprocess.
     def strip_state_for_subprocess(self, new_task_states_by_key=None):
         """
         Returns a copy of task state after keeping only the necessary data
@@ -429,8 +417,8 @@ class TaskState:
             new_task_states_by_key = {}
 
         # All task keys should point to the same task state.
-        if self.task.keys[0] in new_task_states_by_key:
-            return new_task_states_by_key[self.task.keys[0]]
+        if self.task_keys[0] in new_task_states_by_key:
+            return new_task_states_by_key[self.task_keys[0]]
 
         # Let's make a copy of the task state.
         # This is not a deep copy so we'll avoid mutating any of the member variables.
@@ -438,19 +426,25 @@ class TaskState:
 
         # Clear up memoized cache to avoid sending it through IPC.
         task_state._results_by_name = None
+        # Clear up fields not needed in subprocess, for computing or for cache lookup.
+        task_state.provider = None
+        task_state.case_key = None
+        task_state._provenance = None
 
         # Any non-persisted value will have to be recomputed again in the other
         # subprocess and isn't complete anymore.
-        if not task_state.should_persist():
+        if not task_state.should_persist:
             task_state.is_complete = False
 
         if task_state.is_complete:
             task_state.dep_states = []
+            task_state.task = None
+            task_state._queries = None
         else:
             task_state.dep_states = [
                 dep_state.strip_state_for_subprocess(new_task_states_by_key)
                 for dep_state in task_state.dep_states
             ]
 
-        new_task_states_by_key[task_state.task.keys[0]] = task_state
+        new_task_states_by_key[task_state.task_keys[0]] = task_state
         return task_state
