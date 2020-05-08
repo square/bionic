@@ -3,7 +3,7 @@ import copy
 from .cache import Provenance
 from .datatypes import ProvenanceDigest, Query, Result
 from .exception import CodeVersioningError
-from .util import oneline
+from .util import oneline, single_unique_element
 
 
 class TaskState:
@@ -28,7 +28,7 @@ class TaskState:
         # This can be set by complete() or _compute().
         #
         # This will be present if and only if both is_complete and
-        # provider.attrs.should_persist() are True.
+        # should_persist() are True.
         self._result_value_hashes_by_name = None
 
         # This can be set by get_results_assuming_complete() or _compute().
@@ -57,7 +57,7 @@ class TaskState:
         return [
             dep_state
             for dep_state in self.dep_states
-            if (dep_state.provider.attrs.should_persist() and not dep_state.is_complete)
+            if (dep_state.should_persist() and not dep_state.is_complete)
             or not dep_state.is_completable
         ]
 
@@ -77,6 +77,19 @@ class TaskState:
         """
         return self._is_initialized and len(self.blocking_dep_states()) == 0
 
+    # TODO Now that we've introduced this method, let's remove
+    # provider.attrs.should_persist(), which is just a wrapper for
+    # provider.attrs._can_persist anyway.
+    def should_persist(self):
+        return (
+            self.provider.attrs.should_persist() and not self.output_would_be_missing()
+        )
+
+    def output_would_be_missing(self):
+        return single_unique_element(
+            task_key.case_key.has_missing_values for task_key in self.task.keys
+        )
+
     def __repr__(self):
         return f"TaskState({self.task!r})"
 
@@ -91,7 +104,7 @@ class TaskState:
         assert not self.is_complete
 
         # See if we can load it from the cache.
-        if self.provider.attrs.should_persist() and all(
+        if self.should_persist() and all(
             axr.can_load() for axr in self._cache_accessors
         ):
             # We only load the hashed result while completing task state
@@ -150,15 +163,15 @@ class TaskState:
         for dep_state, dep_key in zip(self.dep_states, task.dep_keys):
             assert dep_state.is_complete or dep_state.is_completable
             if dep_state.is_complete:
-                dep_result_by_name = dep_state.get_results_assuming_complete(
+                dep_results_by_name = dep_state.get_results_assuming_complete(
                     task_key_logger
                 )
             else:
                 # If dep_state is not complete yet, that's probably because the results
                 # aren't communicated between processes. Compute the results to populate
                 # the in-memory cache.
-                dep_result_by_name = dep_state._compute(task_key_logger)
-            dep_results.append(dep_result_by_name[dep_key.dnode.to_entity_name()])
+                dep_results_by_name = dep_state._compute(task_key_logger)
+            dep_results.append(dep_results_by_name[dep_key.dnode.to_entity_name()])
 
         provider = self.provider
 
@@ -167,6 +180,26 @@ class TaskState:
                 task_key_logger.log_computing(task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
+
+        # If we have any missing outputs, exit early with a missing result.
+        if self.output_would_be_missing():
+            results_by_name = {}
+            result_value_hashes_by_name = {}
+            for query in self._queries:
+                result = Result(query=query, value=None, value_is_missing=True)
+                entity_name = query.dnode.to_entity_name()
+                results_by_name[entity_name] = result
+                result_value_hashes_by_name[entity_name] = ""
+            self._results_by_name = results_by_name
+            self._result_value_hashes_by_name = result_value_hashes_by_name
+            return self._results_by_name
+
+        else:
+            # If we have no missing outputs, we should not be consuming any missing
+            # inputs either.
+            assert not any(
+                dep_key.case_key.has_missing_values for dep_key in task.dep_keys
+            )
 
         values = task.compute(dep_values)
         assert len(values) == len(provider.attrs.names)
@@ -182,9 +215,9 @@ class TaskState:
         for ix, (query, value) in enumerate(zip(self._queries, values)):
             query.protocol.validate(value)
 
-            result = Result(query=query, value=value,)
+            result = Result(query=query, value=value)
 
-            if provider.attrs.should_persist():
+            if self.should_persist():
                 accessor = self._cache_accessors[ix]
                 accessor.save_result(result)
 
@@ -197,11 +230,11 @@ class TaskState:
         # Otherwise, load it lazily later so that if the serialized/deserialized
         # value is not exactly the same as the original, we still
         # always return the same value.
-        if provider.attrs.should_memoize() and not provider.attrs.should_persist():
+        if provider.attrs.should_memoize() and not self.should_persist():
             self._results_by_name = results_by_name
 
         # But we cache the hashed values eagerly since they are cheap to load.
-        if provider.attrs.should_persist():
+        if self.should_persist():
             self._result_value_hashes_by_name = result_value_hashes_by_name
 
         return self._results_by_name
@@ -215,7 +248,7 @@ class TaskState:
         back from the subprocess.
         """
 
-        assert self.provider.attrs.should_persist()
+        assert self.should_persist()
 
         # First, let's flush the stored entries in cache accessors. This is to prevent cases
         # like current process contains an outdated stored entries.
@@ -267,7 +300,7 @@ class TaskState:
         dep_provenance_digests_by_task_key = {}
         for dep_key, dep_state in zip(self.task.dep_keys, self.dep_states):
             # Use value hash of persistable values.
-            if dep_state.provider.attrs.should_persist():
+            if dep_state.should_persist():
                 value_hash = dep_state._result_value_hashes_by_name[
                     dep_key.dnode.to_entity_name()
                 ]
@@ -302,7 +335,7 @@ class TaskState:
         ]
 
         # Lastly, set up cache accessors.
-        if self.provider.attrs.should_persist():
+        if self.should_persist():
             if bootstrap is None:
                 name = self.task.keys[0].entity_name
                 raise AssertionError(
@@ -408,7 +441,7 @@ class TaskState:
 
         # Any non-persisted value will have to be recomputed again in the other
         # subprocess and isn't complete anymore.
-        if not task_state.provider.attrs.should_persist():
+        if not task_state.should_persist():
             task_state.is_complete = False
 
         if task_state.is_complete:

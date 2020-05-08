@@ -217,8 +217,14 @@ class EntityDeriver:
             for dep_dinfo in dep_dinfos
         }
 
+        # TODO Maybe of having these two separate variables that we pass around, we
+        # should just have a single method:
+        #
+        #     provider.get_dinfo(dep_dinfos_by_dnode)
         key_space = provider.get_key_space(dep_key_spaces_by_dnode)
-        tasks = provider.get_tasks(dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode)
+        tasks = provider.get_tasks(
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
+        )
         tasks_by_key = {
             task_key: task
             for task in tasks
@@ -299,7 +305,18 @@ class EntityDeriver:
                 value; got {len(values)} ({values!r})"""
                 )
             )
-        return result_group[0].value
+        (result,) = result_group
+        if result.value_is_missing:
+            raise ValueError(
+                oneline(
+                    f"""
+                Bootstrap entity {entity_name!r} could not be computed because
+                the following entities are declared but not set:
+                {", ".join(result.query.case_key.missing_names)}
+                """
+                )
+            )
+        return result.value
 
     def _compute_result_group_for_dnode(self, dnode):
         """
@@ -383,6 +400,15 @@ class TaskKeyLogger:
 class DescriptorInfo:
     """
     Holds useful metadata about a descriptor.
+
+    Attributes
+    ----------
+    dnode: DescriptorNode
+        The descriptor this object refers to.
+    key_space: CaseKeySpace
+        Each of this descriptor's tasks' CaseKeys will have this key space.
+    tasks_by_key: dict from TaskKey to Task
+        All the tasks for this decriptor, organized by TaskKey.
     """
 
     dnode = attr.ib()
@@ -468,7 +494,7 @@ class TaskCompletionRunner:
             or self._bootstrap.process_executor is None
             # This is a non-serializable entity that needs to be returned.
             or (
-                not state.provider.attrs.should_persist()
+                not state.should_persist()
                 and entry.state.task.keys[0] in self._requested_task_keys
             )
         ):
@@ -480,7 +506,7 @@ class TaskCompletionRunner:
             self._mark_entry_completed(entry)
 
         # Process serializable entity in parallel.
-        elif state.provider.attrs.should_persist():
+        elif state.should_persist():
             # TODO: Logging support for multiple processes not done yet.
             new_state_for_subprocess = state.strip_state_for_subprocess()
             future = self._bootstrap.process_executor.submit(

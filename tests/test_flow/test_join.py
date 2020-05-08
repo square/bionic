@@ -1,5 +1,7 @@
 import pytest
 
+from bionic.exception import UnsetEntityError
+
 
 @pytest.fixture(scope="function")
 def preset_builder(builder):
@@ -75,3 +77,8 @@ def test_empty(preset_builder):
     assert flow.get("xy", set) == set()
     assert flow.get("yz", set) == {12, 15}
     assert flow.get("xy_plus_yz", set) == set()
+
+    with pytest.raises(UnsetEntityError):
+        flow.get("xy")
+    with pytest.raises(UnsetEntityError):
+        flow.get("xy_plus_yz")

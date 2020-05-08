@@ -852,6 +852,28 @@ def test_disable_memory_caching(builder):
         assert flow.get("y") == 1
 
 
+def test_unset_and_not_memoized(builder):
+    builder.declare("x")
+
+    @builder
+    @bn.memoize(False)
+    def x_plus_one(x):
+        return x + 1
+
+    assert builder.build().get("x_plus_one", list) == []
+
+
+def test_unset_and_not_persisted(builder):
+    builder.declare("x")
+
+    @builder
+    @bn.persist(False)
+    def x_plus_one(x):
+        return x + 1
+
+    assert builder.build().get("x_plus_one", list) == []
+
+
 @pytest.mark.no_parallel
 def test_changes_per_run_and_not_persist(builder, make_counter):
     builder.assign("x", 5)

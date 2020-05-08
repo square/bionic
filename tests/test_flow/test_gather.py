@@ -44,6 +44,36 @@ def test_x(preset_builder):
     }
 
 
+def test_x__with_empty_x(preset_builder):
+    builder = preset_builder
+
+    builder.set("x", values=[])
+
+    @builder
+    @bn.gather("x")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", set) == {
+        "",
+    }
+
+
+def test_x__with_unset_x(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("x")
+
+    @builder
+    @bn.gather("x")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", list) == [
+        "",
+    ]
+
+
 def test_x__y(preset_builder):
     builder = preset_builder
 
@@ -56,6 +86,36 @@ def test_x__y(preset_builder):
         "X.Y x.Y",
         "X.y x.y",
     }
+
+
+def test_x__y__with_unset_x(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("x")
+
+    @builder
+    @bn.gather("x", "y")
+    def summary(gather_df):
+        assert set(gather_df.columns) == {"x", "y"}
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", list) == [
+        "",
+        "",
+    ]
+
+
+def test_x__y__with_unset_y(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("y")
+
+    @builder
+    @bn.gather("x", "y")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", set) == set()
 
 
 def test_x__xy(preset_builder):
@@ -72,6 +132,35 @@ def test_x__xy(preset_builder):
     }
 
 
+def test_x__xy__with_unset_x(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("x")
+
+    @builder
+    @bn.gather("x", "xy")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", list) == [
+        "",
+        "",
+    ]
+
+
+def test_x__xy__with_unset_y(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("y")
+
+    @builder
+    @bn.gather("x", "xy")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", list) == []
+
+
 def test_xy__yz(preset_builder):
     builder = preset_builder
 
@@ -84,6 +173,51 @@ def test_xy__yz(preset_builder):
         "XY.YZ Xy.yZ xY.YZ xy.yZ",
         "XY.Yz Xy.yz xY.Yz xy.yz",
     }
+
+
+def test_xy__yz__with_unset_x(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("x")
+
+    @builder
+    @bn.gather("xy", "yz")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", list) == [
+        "",
+        "",
+    ]
+
+
+def test_xy__yz__with_unset_y(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("y")
+
+    @builder
+    @bn.gather("xy", "yz")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", list) == [
+        "",
+        "",
+    ]
+
+
+def test_xy__yz__with_unset_z(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("z")
+
+    @builder
+    @bn.gather("xy", "yz")
+    def summary(gather_df):
+        return summarize(gather_df)
+
+    assert builder.build().get("summary", list) == []
 
 
 def test_x_y__z(preset_builder):
@@ -146,6 +280,19 @@ def test_wx__xy__z(preset_builder):
     }
 
 
+def test_wx__xy__z_with_unset_z(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("z")
+
+    @builder
+    @bn.gather("wx", "xy")
+    def summary(gather_df, z):
+        return summarize(gather_df) + " -- " + z
+
+    assert builder.build().get("summary", set) == set()
+
+
 def test_wx__xy__yz(preset_builder):
     builder = preset_builder
 
@@ -182,6 +329,63 @@ def test_xy__yz__wx(preset_builder):
     }
 
 
+def test_xy__yz__wx__unset_x(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("x")
+
+    @builder
+    @bn.gather("xy", "yz")
+    def summary(gather_df, wx):
+        return summarize(gather_df) + " -- " + wx
+
+    assert builder.build().get("summary", list) == []
+
+
+def test_xy__yz__wx__unset_y(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("y")
+
+    @builder
+    @bn.gather("xy", "yz")
+    def summary(gather_df, wx):
+        return summarize(gather_df) + " -- " + wx
+
+    assert builder.build().get("summary", set) == {
+        " -- WX",
+        " -- Wx",
+        " -- wX",
+        " -- wx",
+    }
+
+
+def test_xy__yz__wx__unset_z(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("z")
+
+    @builder
+    @bn.gather("xy", "yz")
+    def summary(gather_df, wx):
+        return summarize(gather_df) + " -- " + wx
+
+    assert builder.build().get("summary", list) == []
+
+
+def test_xy__yz__wx__unset_w(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("w")
+
+    @builder
+    @bn.gather("xy", "yz")
+    def summary(gather_df, wx):
+        return summarize(gather_df) + " -- " + wx
+
+    assert builder.build().get("summary", list) == []
+
+
 def test_rename_frame(preset_builder):
     builder = preset_builder
 
@@ -210,6 +414,72 @@ def test_multiple_gathers(preset_builder):
         "W.WX w.wX -- Y.Yz y.yz",
         "W.Wx w.wx -- Y.YZ y.yZ",
         "W.Wx w.wx -- Y.Yz y.yz",
+    }
+
+
+def test_multiple_gathers__unset_x(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("x")
+
+    @builder
+    @bn.gather("w", "wx", "df1")
+    @bn.gather("y", "yz", "df2")
+    def summary(df1, df2):
+        return summarize(df1) + " -- " + summarize(df2)
+
+    assert builder.build().get("summary", list) == []
+
+
+def test_multiple_gathers__unset_y(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("y")
+
+    @builder
+    @bn.gather("w", "wx", "df1")
+    @bn.gather("y", "yz", "df2")
+    def summary(df1, df2):
+        return summarize(df1) + " -- " + summarize(df2)
+
+    assert builder.build().get("summary", set) == {
+        "W.WX w.wX -- ",
+        "W.WX w.wX -- ",
+        "W.Wx w.wx -- ",
+        "W.Wx w.wx -- ",
+    }
+
+
+def test_multiple_gathers__unset_z(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("z")
+
+    @builder
+    @bn.gather("w", "wx", "df1")
+    @bn.gather("y", "yz", "df2")
+    def summary(df1, df2):
+        return summarize(df1) + " -- " + summarize(df2)
+
+    assert builder.build().get("summary", list) == []
+
+
+def test_multiple_gathers__unset_w(preset_builder):
+    builder = preset_builder
+
+    builder.clear_cases("w")
+
+    @builder
+    @bn.gather("w", "wx", "df1")
+    @bn.gather("y", "yz", "df2")
+    def summary(df1, df2):
+        return summarize(df1) + " -- " + summarize(df2)
+
+    assert builder.build().get("summary", set) == {
+        " -- Y.YZ y.yZ",
+        " -- Y.Yz y.yz",
+        " -- Y.YZ y.yZ",
+        " -- Y.Yz y.yz",
     }
 
 

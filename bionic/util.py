@@ -78,7 +78,14 @@ def single_element(iterable):
         )
     return items[0]
 
-    return next(iter(iterable))
+
+def single_unique_element(iterable):
+    """
+    Takes an iterable with exactly one unique element and returns that element.
+
+    Equivalent to `single_element(set(iterable))`.
+    """
+    return single_element(set(iterable))
 
 
 def hash_to_hex(bytestring, n_bytes=None):
