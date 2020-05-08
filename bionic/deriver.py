@@ -494,7 +494,7 @@ class TaskCompletionRunner:
             or self._bootstrap.process_executor is None
             # This is a non-serializable entity that needs to be returned.
             or (
-                not state.should_persist()
+                not state.should_persist
                 and entry.state.task.keys[0] in self._requested_task_keys
             )
         ):
@@ -506,7 +506,7 @@ class TaskCompletionRunner:
             self._mark_entry_completed(entry)
 
         # Process serializable entity in parallel.
-        elif state.should_persist():
+        elif state.should_persist:
             # TODO: Logging support for multiple processes not done yet.
             new_state_for_subprocess = state.strip_state_for_subprocess()
             future = self._bootstrap.process_executor.submit(
