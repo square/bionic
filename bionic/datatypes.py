@@ -202,7 +202,9 @@ class CaseKey(ImmutableMapping):
         self.missing_names = [
             name
             for name, value, token in name_value_token_triples
-            if value == self.MISSING
+            # We don't want to say `value == MISSING` because `value` might override the
+            # `==` operator to mean something different (like a Pandas DataFrame does).
+            if type(value) is MissingCaseKeyValue
         ]
         self.has_missing_values = len(self.missing_names) > 0
 
