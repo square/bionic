@@ -8,6 +8,7 @@ import contextlib
 import threading
 
 import pandas as pd
+import pandas.testing as pdt
 
 import bionic as bn
 from bionic.exception import (
@@ -753,6 +754,17 @@ def test_multiple_compute_attempts(builder):
     # the flow to be in a valid state and able to attempt another run.
     with pytest.raises(EntityComputationError):
         flow.get("uncomputable_value")
+
+
+# Checks that a dataframe can be used as a fixed value. (This was added as a regression
+# test after finding a bug where Bionic was applying == to a fixed value, which doesn't
+# work for DataFrames.)
+def test_fixed_dataframe(builder):
+    df = pd.DataFrame(columns=["a", "b"], data=[[1, 2], [3, 4]],)
+
+    builder.assign("df", df)
+
+    pdt.assert_frame_equal(builder.build().get("df"), df)
 
 
 def test_entity_doc(builder):
