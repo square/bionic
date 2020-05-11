@@ -30,13 +30,12 @@ from .optdep import import_optional_dependency
 from .provider import (
     ValueProvider,
     multi_index_from_case_keys,
-    as_provider,
-    provider_wrapper,
     AttrUpdateProvider,
+    ProtocolUpdateProvider,
 )
 from .deriver import EntityDeriver, TaskKeyLogger
 from .descriptors.parsing import entity_dnode_from_descriptor
-from . import decorators
+from . import decorators, decoration
 from .util import (
     group_pairs,
     check_exactly_one_present,
@@ -795,14 +794,12 @@ class FlowBuilder:
                 not isinstance(provider, ValueProvider)
                 and provider.attrs.orig_flow_name is None
             ):
-                provider = provider_wrapper(
-                    AttrUpdateProvider, "orig_flow_name", new_flow_name
-                )(provider)
+                provider = AttrUpdateProvider(provider, "orig_flow_name", new_flow_name)
             cur_state = cur_state.install_provider(provider)
 
         self._state = cur_state
 
-    def __call__(self, func_or_provider):
+    def __call__(self, func):
         """
         Defines an entity by providing a function that derives its value from
         other entities.
@@ -817,23 +814,25 @@ class FlowBuilder:
         Parameters
         ----------
 
-        func_or_provider: Function or entity
+        func: Function
             A Python function, optionally decorated with one or more Bionic
             entity decorators.
         """
 
-        provider = as_provider(func_or_provider)
+        decoration.init_accumulator_if_not_set_on_func(func)
+        provider = decoration.pop_accumulator_from_func(func).provider
+
         if provider.attrs.protocols is None:
-            provider = DEFAULT_PROTOCOL(provider)
+            provider = ProtocolUpdateProvider(provider, DEFAULT_PROTOCOL)
         if provider.attrs.docs is None:
             docs = [None] * len(provider.attrs.names)
-            provider = decorators.docs(*docs)(provider)
+            provider = AttrUpdateProvider(provider, "docs", docs)
         if provider.attrs._can_persist is None:
-            provider = decorators.persist(True)(provider)
+            provider = AttrUpdateProvider(provider, "_can_persist", True)
         if provider.attrs._can_memoize is None:
-            provider = decorators.memoize(True)(provider)
+            provider = AttrUpdateProvider(provider, "_can_memoize", True)
         if provider.attrs.changes_per_run is None:
-            provider = decorators.changes_per_run(False)(provider)
+            provider = AttrUpdateProvider(provider, "changes_per_run", False)
 
         if not (provider.attrs.should_persist() or provider.attrs.should_memoize()):
             raise ValueError(
@@ -841,7 +840,7 @@ class FlowBuilder:
                     f"""
                 Attempted to set both persist and memoize to False.
                 At least one form of storage must be enabled for entities:
-                {func_or_provider.attrs.names!r}"""
+                {provider.attrs.names!r}"""
                 )
             )
         if len(provider.attrs.protocols) != len(provider.attrs.names):
@@ -890,7 +889,7 @@ class FlowBuilder:
 
         return provider.get_source_func()
 
-    def derive(self, func_or_provider):
+    def derive(self, func):
         """
         (Deprecated) An alias for ``__call__``; use that instead.
         """
@@ -900,7 +899,7 @@ class FlowBuilder:
             "decorator) instead."
         )
 
-        return self.derive(func_or_provider)
+        return self.derive(func)
 
     # --- Private helpers.
 

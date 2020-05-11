@@ -13,8 +13,8 @@ from collections import defaultdict
 import functools
 from io import BytesIO
 
-import pandas as pd
 import attr
+import pandas as pd
 
 from .datatypes import (
     Task,
@@ -1016,40 +1016,3 @@ class GatherTable:
 
     rows = attr.ib()
     out_task_key = attr.ib()
-
-
-# -- Helpers for working with providers.
-
-PROVIDER_METHODS = [
-    "get_code_fingerprint",
-    "get_dependency_dnodes",
-    "get_tasks",
-    "get_source_func",
-]
-
-
-def is_provider(obj):
-    return all(hasattr(obj, method_name) for method_name in PROVIDER_METHODS)
-
-
-def is_func_or_provider(obj):
-    return callable(obj) or is_provider(obj)
-
-
-def as_provider(func_or_provider):
-    if is_provider(func_or_provider):
-        provider = func_or_provider
-    elif callable(func_or_provider):
-        provider = FunctionProvider(func_or_provider)
-    else:
-        raise ValueError("func must be either callable or a Provider")
-
-    return provider
-
-
-def provider_wrapper(wrapper_fn, *args, **kwargs):
-    def decorator(func_or_provider):
-        provider = as_provider(func_or_provider)
-        return wrapper_fn(provider, *args, **kwargs)
-
-    return decorator
