@@ -16,6 +16,7 @@ import dask.dataframe as dd
 
 from ..helpers import (
     ResettingCounter,
+    count_calls,
     df_from_csv_str,
     equal_frame_and_index_content,
     gsutil_wipe_path,
@@ -45,33 +46,22 @@ def gcs_builder(builder, tmp_gcs_url_prefix):
 
     builder.set("core__versioning_mode", "assist")
 
-    return builder
-
-
-# This should really be multiple separate tests, but it's expensive to do the
-# setup, teardown, and client initialization, so we'll just do it all in one
-# place.
-# TODO Now that we have a workspace fixture and cached client initialization,
-# this may not be true anymore.
-def test_gcs_caching(gcs_builder, make_counter):
-    # Setup.
-
-    call_counter = make_counter()
-
-    builder = gcs_builder
-
     builder.assign("x", 2)
     builder.assign("y", 3)
 
+    return builder
+
+
+def test_gcs_caching(gcs_builder, make_counter):
+    call_counter = make_counter()
+    builder = gcs_builder
+
     @builder
+    @count_calls(call_counter)
     def xy(x, y):
-        call_counter.mark()
         return x * y
 
-    # Test reading from and writing to GCS cache.
-
     flow = builder.build()
-
     local_cache_path_str = flow.get("core__persistent_cache__flow_dir")
     gcs_cache_url = flow.get("core__persistent_cache__gcs__url")
 
@@ -107,7 +97,21 @@ def test_gcs_caching(gcs_builder, make_counter):
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 2
 
-    # Test versioning.
+
+def test_versioning(gcs_builder, make_counter):
+    call_counter = make_counter()
+    builder = gcs_builder
+
+    @builder
+    def xy(x, y):
+        return x * y
+
+    flow = builder.build()
+    local_cache_path_str = flow.get("core__persistent_cache__flow_dir")
+
+    assert flow.get("xy") == 6
+    assert flow.setting("x", 4).get("xy") == 12
+
     @builder  # noqa: F811
     def xy(x, y):
         call_counter.mark()
@@ -160,7 +164,21 @@ def test_gcs_caching(gcs_builder, make_counter):
     assert flow.setting("x", 4).get("xy") == 64
     assert call_counter.times_called() == 0
 
-    # Test indirect versioning.
+
+def test_indirect_versioning(gcs_builder, make_counter):
+    call_counter = make_counter()
+    builder = gcs_builder
+
+    @builder
+    @bn.version(major=1)
+    def xy(x, y):
+        call_counter.mark()
+        return x ** y
+
+    flow = builder.build()
+    assert flow.get("xy") == 8
+    assert call_counter.times_called() == 1
+
     @builder
     def xy_plus(xy):
         return xy + 1
@@ -202,7 +220,11 @@ def test_gcs_caching(gcs_builder, make_counter):
     assert flow.get("xy_plus") == 10
     assert call_counter.times_called() == 1
 
-    # Test multi-file serialization.
+
+def test_multifile_serialization(gcs_builder, make_counter):
+    call_counter = make_counter()
+    builder = gcs_builder
+
     dask_df = dd.from_pandas(
         df_from_csv_str(
             """
@@ -217,11 +239,12 @@ def test_gcs_caching(gcs_builder, make_counter):
 
     @builder
     @bn.protocol.dask
+    @count_calls(call_counter)
     def df():
-        call_counter.mark()
         return dask_df
 
     flow = builder.build()
+    local_cache_path_str = flow.get("core__persistent_cache__flow_dir")
 
     assert equal_frame_and_index_content(flow.get("df").compute(), dask_df.compute())
     assert equal_frame_and_index_content(flow.get("df").compute(), dask_df.compute())
@@ -233,10 +256,15 @@ def test_gcs_caching(gcs_builder, make_counter):
     assert equal_frame_and_index_content(flow.get("df").compute(), dask_df.compute())
     assert call_counter.times_called() == 0
 
-    # Test file path copying.
+
+def test_file_path_copying(gcs_builder, make_counter):
+    call_counter = make_counter()
+    builder = gcs_builder
+
     file_contents = "DATA"
 
     @builder
+    @count_calls(call_counter)
     @bn.protocol.path(operation="move")
     def data_path():
         call_counter.mark()
@@ -246,6 +274,7 @@ def test_gcs_caching(gcs_builder, make_counter):
         return Path(filename)
 
     flow = builder.build()
+    local_cache_path_str = flow.get("core__persistent_cache__flow_dir")
 
     assert flow.get("data_path").read_text() == file_contents
     assert call_counter.times_called() == 1
