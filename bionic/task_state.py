@@ -23,7 +23,9 @@ class TaskState:
         self.task_keys = task.keys
         self.should_memoize = provider.attrs.should_memoize()
         self.should_persist = (
-            self.provider.attrs.should_persist() and not self.output_would_be_missing()
+            self.provider.attrs.should_persist()
+            and not self.task.is_simple_lookup
+            and not self.output_would_be_missing()
         )
 
         # These are set by initialize().
