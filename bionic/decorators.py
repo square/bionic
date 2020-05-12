@@ -1,7 +1,7 @@
 """
 These are the decorators we expose to Bionic users.  They are used as follows:
 
-    @builder.derive
+    @builder
     @bionic.decorator1
     @bionic.decorator2
     ...
@@ -11,13 +11,13 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 """
 
 from .datatypes import CodeVersion
+from .decoration import decorator_wrapping_provider
 from .provider import (
     GatherProvider,
     AttrUpdateProvider,
     PyplotProvider,
     RenamingProvider,
     NameSplittingProvider,
-    provider_wrapper,
 )
 from . import interpret
 
@@ -59,7 +59,7 @@ def version(major=None, minor=None):
         A decorator which can be applied to an entity function.
     """
 
-    return provider_wrapper(
+    return decorator_wrapping_provider(
         AttrUpdateProvider, "code_version", CodeVersion(major, minor)
     )
 
@@ -87,7 +87,7 @@ def persist(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return provider_wrapper(AttrUpdateProvider, "_can_persist", enabled)
+    return decorator_wrapping_provider(AttrUpdateProvider, "_can_persist", enabled)
 
 
 def memoize(enabled):
@@ -109,7 +109,7 @@ def memoize(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return provider_wrapper(AttrUpdateProvider, "_can_memoize", enabled)
+    return decorator_wrapping_provider(AttrUpdateProvider, "_can_memoize", enabled)
 
 
 def changes_per_run(enabled=None):
@@ -179,19 +179,17 @@ def changes_per_run(enabled=None):
             return summarize(current_data)
     """
 
-    DEFAULT_VALUE = True
     if callable(enabled):
-        func_or_provider = enabled
-        wrapper = provider_wrapper(AttrUpdateProvider, "changes_per_run", DEFAULT_VALUE)
-        return wrapper(func_or_provider)
+        func = enabled
+        return changes_per_run()(func)
 
     if enabled is None:
-        enabled = DEFAULT_VALUE
+        enabled = True
 
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return provider_wrapper(AttrUpdateProvider, "changes_per_run", enabled)
+    return decorator_wrapping_provider(AttrUpdateProvider, "changes_per_run", enabled)
 
 
 def output(name):
@@ -213,7 +211,7 @@ def output(name):
         A decorator which can be applied to an entity function.
     """
 
-    return provider_wrapper(RenamingProvider, name)
+    return decorator_wrapping_provider(RenamingProvider, name)
 
 
 def outputs(*names):
@@ -241,7 +239,7 @@ def outputs(*names):
         A decorator which can be applied to an entity function.
     """
 
-    return provider_wrapper(NameSplittingProvider, names)
+    return decorator_wrapping_provider(NameSplittingProvider, names)
 
 
 def docs(*docs):
@@ -264,7 +262,7 @@ def docs(*docs):
         A decorator which can be applied to an entity function.
     """
 
-    return provider_wrapper(AttrUpdateProvider, "docs", docs)
+    return decorator_wrapping_provider(AttrUpdateProvider, "docs", docs)
 
 
 # TODO I'd like to put a @protocols decorator here that exposes the
@@ -331,7 +329,7 @@ def gather(over, also=None, into="gather_df"):
     """
     over = interpret.str_or_seq_as_list(over)
     also = interpret.str_or_seq_or_none_as_list(also)
-    return provider_wrapper(
+    return decorator_wrapping_provider(
         GatherProvider, primary_names=over, secondary_names=also, gathered_dep_name=into
     )
 
@@ -362,15 +360,13 @@ def pyplot(name=None, savefig_kwargs=None):
         A decorator which can be applied to an entity function.
     """
 
-    DEFAULT_NAME = "pyplot"
     if callable(name):
-        func_or_provider = name
-        wrapper = provider_wrapper(PyplotProvider, DEFAULT_NAME)
-        return wrapper(func_or_provider)
+        func = name
+        return pyplot()(func)
 
     if name is None:
-        name = DEFAULT_NAME
-    return provider_wrapper(PyplotProvider, name, savefig_kwargs)
+        name = "pyplot"
+    return decorator_wrapping_provider(PyplotProvider, name, savefig_kwargs)
 
 
 immediate = persist(False)

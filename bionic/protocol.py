@@ -1,5 +1,4 @@
 from . import protocols
-from .provider import is_func_or_provider
 from .util import oneline
 
 # These are callable with or without arguments.  See BaseProtocol.__call__ for
@@ -14,7 +13,7 @@ path = protocols.PathProtocol()  # noqa: F401
 geodataframe = protocols.GeoPandasProtocol()  # noqa: F401
 
 
-def frame(func_or_provider=None, file_format=None, check_dtypes=None):
+def frame(func=None, file_format=None, check_dtypes=None):
     """
     Decorator indicating that an entity will always have a pandas DataFrame
     type.
@@ -49,10 +48,10 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
 
     # If the first argument is present, we were (hopefully) used as a decorator
     # without any other arguments.
-    if func_or_provider is not None:
+    if func is not None:
         if file_format is not None or check_dtypes is not None:
             raise ValueError("frame can't be called with both a function and keywords")
-        if not is_func_or_provider(func_or_provider):
+        if not callable(func):
             raise ValueError(
                 oneline(
                     """
@@ -62,7 +61,7 @@ def frame(func_or_provider=None, file_format=None, check_dtypes=None):
                 """
                 )
             )
-        return protocols.ParquetDataFrameProtocol()(func_or_provider)
+        return protocols.ParquetDataFrameProtocol()(func)
 
     # Otherwise, we have arguments and should return a decorator.
     if file_format is None or file_format == "parquet":

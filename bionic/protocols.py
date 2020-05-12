@@ -22,8 +22,9 @@ import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
 
+from .decoration import decorator_wrapping_provider
 from .exception import UnsupportedSerializedValueError
-from .provider import provider_wrapper, ProtocolUpdateProvider, is_func_or_provider
+from .provider import ProtocolUpdateProvider
 from .optdep import import_optional_dependency
 from .util import (
     read_hashable_bytes_from_file_or_dir,
@@ -168,13 +169,13 @@ class BaseProtocol:
     #    def func(...):
     #        ...
     #
-    def __call__(self, func_or_provider=None, **kwargs):
-        if func_or_provider is not None:
+    def __call__(self, func=None, **kwargs):
+        if func is not None:
             if len(kwargs) > 0:
                 raise ValueError(
                     f"{self} can't be called with both a function and keywords"
                 )
-            if not is_func_or_provider(func_or_provider):
+            if not callable(func):
                 raise ValueError(
                     oneline(
                         f"""
@@ -185,8 +186,8 @@ class BaseProtocol:
                     )
                 )
 
-            wrapper = provider_wrapper(ProtocolUpdateProvider, self)
-            return wrapper(func_or_provider)
+            wrapper = decorator_wrapping_provider(ProtocolUpdateProvider, self)
+            return wrapper(func)
         else:
             return self.__class__(**kwargs)
 
