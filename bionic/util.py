@@ -202,7 +202,11 @@ def read_hashable_bytes_from_file_or_dir(path):
 
 
 def ensure_parent_dir_exists(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir_exists(path.parent)
+
+
+def ensure_dir_exists(path):
+    path.mkdir(parents=True, exist_ok=True)
 
 
 def recursively_copy_path(src_path, dst_path):
