@@ -152,7 +152,7 @@ class ValueProvider(BaseProvider):
                 names=names,
                 protocols=protocols,
                 docs=docs,
-                can_persist=False,
+                can_persist=True,
                 can_memoize=True,
                 changes_per_run=False,
             ),
