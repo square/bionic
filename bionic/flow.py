@@ -19,7 +19,7 @@ import pandas as pd
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
 from .cache import LocalStore, GcsCloudStore, PersistentCache
-from .datatypes import CaseKey, VersioningPolicy, ResultGroup
+from .datatypes import CaseKey, EntityDefinition, VersioningPolicy, ResultGroup
 from .exception import (
     UndefinedEntityError,
     AlreadyDefinedEntityError,
@@ -31,7 +31,6 @@ from .provider import (
     ValueProvider,
     multi_index_from_case_keys,
     AttrUpdateProvider,
-    ProtocolUpdateProvider,
 )
 from .deriver import EntityDeriver, TaskKeyLogger
 from .descriptors.parsing import entity_dnode_from_descriptor
@@ -72,7 +71,8 @@ class FlowState(pyrs.PClass):
     """
 
     providers_by_name = pyrs.field(initial=pyrs.pmap())
-    default_provider_names = pyrs.field(initial=pyrs.pset())
+    entity_defs_by_name = pyrs.field(initial=pyrs.pmap())
+    default_entity_names = pyrs.field(initial=pyrs.pset())
     last_added_case_key = pyrs.field(initial=None)
 
     # These are used to keep track of whether a flow state is safe to reload.
@@ -93,6 +93,27 @@ class FlowState(pyrs.PClass):
     def touch(self):
         return self.set(is_blessed=False)
 
+    def define_entity(self, entity_def):
+        if entity_def.name in self.entity_defs_by_name:
+            raise AlreadyDefinedEntityError(entity_def.name)
+
+        return self._set_entity_def(entity_def).touch()
+
+    def delete_entity_defs(self, names):
+        state = self
+
+        for name in names:
+            if name not in self.entity_defs_by_name:
+                continue
+            state = state._erase_entity_def(name).touch()
+
+        return state.touch()
+
+    def get_entity_def(self, name):
+        if name not in self.entity_defs_by_name:
+            raise UndefinedEntityError.for_name(name)
+        return self.entity_defs_by_name[name]
+
     def get_provider(self, name):
         if name not in self.providers_by_name:
             raise UndefinedEntityError.for_name(name)
@@ -101,11 +122,11 @@ class FlowState(pyrs.PClass):
     def has_provider(self, name):
         return name in self.providers_by_name
 
-    def create_provider(self, name, protocol, doc):
+    def create_provider(self, name):
         if name in self.providers_by_name:
             raise AlreadyDefinedEntityError.for_name(name)
 
-        provider = ValueProvider([name], [protocol], [doc])
+        provider = ValueProvider([name])
         return self._set_provider(provider).touch()
 
     def install_provider(self, provider):
@@ -192,30 +213,49 @@ class FlowState(pyrs.PClass):
         if names != provider.attrs.names:
             values = [values[provider.attrs.names.index(name)] for name in names]
 
-        provider = provider.add_case(case_key, values)
+        tokens = []
+        for name, value in zip(names, values):
+            protocol = self.get_entity_def(name).protocol
+            protocol.validate(value)
+            tokens.append(protocol.tokenize(value))
+        provider = provider.add_case(case_key, values, tokens)
 
         return self._set_provider(provider).touch()
 
     def clear_providers(self, names):
         state = self
 
-        # Remember the original provider attributes per entity.
-        attrs_by_entity_name = {}
-        for name in names:
-            if not state.has_provider(name):
-                continue
-            provider = self.get_provider(name)
-            attrs_by_entity_name[name] = provider.attrs
+        # Remember the original entity definitions.
+        # TODO Here we delete each entity definition and then re-create it. The only
+        # effect this has is to reset the can_persist and can_memoize attributes to
+        # their default values. This shouldn't change any actual behavior, since these
+        # attributes don't matter for ValueProviders. However, I'm keeping the
+        # deletion/creation code in order to keep the entity definition attributes 100%
+        # consistent with their legacy provider equivalents. Once the old provider code
+        # has been removed, we can decide whether to remove the deletion/creation of
+        # the entity definitions.
+        original_entity_defs = [
+            state.get_entity_def(name)
+            for name in names
+            if name in state.entity_defs_by_name
+        ]
 
         # Delete the providers (or fail if not possible).
         state = state.delete_providers(names)
+        state = state.delete_entity_defs(names)
 
         # Recreate an empty version of each provider.
-        for name, attrs in attrs_by_entity_name.items():
-            name_ix = attrs.names.index(name)
-            protocol = attrs.protocols[name_ix]
-            doc = attrs.docs[name_ix]
-            state = state.create_provider(name, protocol, doc)
+        for entity_def in original_entity_defs:
+            state = state.define_entity(
+                # As noted above, we only preserve some of the attributes from the
+                # original definition.
+                EntityDefinition(
+                    name=entity_def.name,
+                    protocol=entity_def.protocol,
+                    doc=entity_def.doc,
+                )
+            )
+            state = state.create_provider(entity_def.name)
 
         return state.touch()
 
@@ -246,30 +286,43 @@ class FlowState(pyrs.PClass):
 
         return state.touch()
 
-    def mark_all_providers_default(self):
+    def mark_all_entities_default(self):
+        new_default_names = pyrs.pset(self.entity_defs_by_name.keys())
+        return self.set(default_entity_names=new_default_names).touch()
+
+    def _erase_entity_def(self, name):
+        assert name not in self.providers_by_name
+
         state = self
-
-        new_default_names = pyrs.pset(state.providers_by_name.keys())
-        state = state.set(default_provider_names=new_default_names)
-
-        return state.touch()
+        state = state.set(entity_defs_by_name=state.entity_defs_by_name.remove(name),)
+        if name in state.default_entity_names:
+            state = state.set(
+                default_entity_names=(state.default_entity_names.remove(name))
+            )
+        return state
 
     def _erase_provider(self, name):
         state = self
         if name in state.providers_by_name:
-            state = state.set(providers_by_name=state.providers_by_name.remove(name))
-        if name in state.default_provider_names:
-            state = state.set(
-                default_provider_names=(state.default_provider_names.remove(name))
-            )
+            state = state.set(providers_by_name=state.providers_by_name.remove(name),)
         return state
 
+    def _set_entity_def(self, entity_def):
+        return self.set(
+            entity_defs_by_name=self.entity_defs_by_name.set(
+                entity_def.name, entity_def
+            ),
+        )
+
     def _set_provider(self, provider):
+        for name in provider.attrs.names:
+            assert name in self.entity_defs_by_name
+
         state = self
         for name in provider.attrs.names:
             state = state._erase_provider(name)
             state = state.set(
-                providers_by_name=state.providers_by_name.set(name, provider)
+                providers_by_name=state.providers_by_name.set(name, provider),
             )
         return state
 
@@ -350,7 +403,9 @@ class FlowBuilder:
             )
             doc = docstring
 
-        self._state = self._state.create_provider(name, protocol, doc)
+        self._state = self._state.define_entity(
+            EntityDefinition(name=name, protocol=protocol, doc=doc)
+        ).create_provider(name)
 
     def assign(
         self, name, value=None, values=None, protocol=None, doc=None, docstring=None
@@ -392,12 +447,16 @@ class FlowBuilder:
             )
             doc = docstring
 
+        # TODO We can remove this validation, since it also happens in add_case below.
         for value in values:
             protocol.validate(value)
 
         state = self._state
 
-        state = state.create_provider(name, protocol, doc)
+        state = state.define_entity(
+            EntityDefinition(name=name, protocol=protocol, doc=doc)
+        )
+        state = state.create_provider(name)
         for value in values:
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
@@ -430,14 +489,13 @@ class FlowBuilder:
         state = self._state
 
         state = state.clear_providers([name])
-        provider = state.get_provider(name)
-        # This provider must have a single name and single protocol; otherwise
-        # we wouldn't have been able to clear it.
-        (protocol,) = provider.attrs.protocols
 
-        protocol.validate(value)
+        protocol = state.get_entity_def(name).protocol
 
         for value in values:
+            # TODO We can remove this validation, since it also happens in add_case
+            # below.
+            protocol.validate(value)
             case_key = CaseKey([(name, value, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
 
@@ -520,12 +578,13 @@ class FlowBuilder:
 
         names = [name for name, value in name_value_pairs]
         state = state.group_names_together(names)
-        provider = state.get_provider(names[0])
 
         values = []
         case_nvt_tuples = []
         for name, value in name_value_pairs:
-            protocol = provider.protocol_for_name(name)
+            protocol = state.get_entity_def(name).protocol
+            # TODO Both the validation and tokenization are also happening in
+            # state.add_case below; maybe we can remove some duplicate work.
             protocol.validate(value)
             token = protocol.tokenize(value)
 
@@ -574,7 +633,7 @@ class FlowBuilder:
             The entities to be deleted.
         """
 
-        self._state = self._state.delete_providers(names)
+        self._state = self._state.delete_providers(names).delete_entity_defs(names)
 
     def merge(self, flow, keep="error", allow_name_match=False):
         """
@@ -678,7 +737,7 @@ class FlowBuilder:
                 conflict.resolve("new", "conflicting definition is default")
                 continue
 
-            if conflict.old_protocol is conflict.new_protocol:
+            if conflict.old_entity_def.protocol is conflict.new_entity_def.protocol:
                 if conflict.new_is_only_declaration:
                     conflict.resolve(
                         "old",
@@ -776,6 +835,7 @@ class FlowBuilder:
         names_to_delete = [conflict.name for conflict in conflicts_keeping_new]
         try:
             cur_state = cur_state.delete_providers(names_to_delete)
+            cur_state = cur_state.delete_entity_defs(names_to_delete)
         except IncompatibleEntityError as e:
             raise IncompatibleEntityError("Merge failure: " + e)
 
@@ -795,6 +855,9 @@ class FlowBuilder:
                 and provider.attrs.orig_flow_name is None
             ):
                 provider = AttrUpdateProvider(provider, "orig_flow_name", new_flow_name)
+            for name in provider.attrs.names:
+                new_entity_def = new_state.get_entity_def(name)
+                cur_state = cur_state.define_entity(new_entity_def)
             cur_state = cur_state.install_provider(provider)
 
         self._state = cur_state
@@ -820,69 +883,81 @@ class FlowBuilder:
         """
 
         decoration.init_accumulator_if_not_set_on_func(func)
-        provider = decoration.pop_accumulator_from_func(func).provider
+        acc = decoration.pop_accumulator_from_func(func)
 
-        if provider.attrs.protocols is None:
-            provider = ProtocolUpdateProvider(provider, DEFAULT_PROTOCOL)
-        if provider.attrs.docs is None:
-            docs = [None] * len(provider.attrs.names)
-            provider = AttrUpdateProvider(provider, "docs", docs)
-        if provider.attrs._can_persist is None:
-            provider = AttrUpdateProvider(provider, "_can_persist", True)
-        if provider.attrs._can_memoize is None:
-            provider = AttrUpdateProvider(provider, "_can_memoize", True)
+        provider = acc.provider
+
+        # TODO Data like `changes_per_run` and `version` should probably also be stored
+        # in the DecorationAccumulator and then attached to some kind of
+        # FunctionAttributes object.
         if provider.attrs.changes_per_run is None:
             provider = AttrUpdateProvider(provider, "changes_per_run", False)
 
-        if not (provider.attrs.should_persist() or provider.attrs.should_memoize()):
-            raise ValueError(
-                oneline(
-                    f"""
-                Attempted to set both persist and memoize to False.
-                At least one form of storage must be enabled for entities:
-                {provider.attrs.names!r}"""
-                )
-            )
-        if len(provider.attrs.protocols) != len(provider.attrs.names):
-            names = provider.attrs.names
-            protocols = provider.attrs.protocols
-            raise ValueError(
-                oneline(
-                    f"""
-                Number of protocols must match the number of names;
-                got {len(names)} names {tuple(names)!r} and
-                {len(protocols)} protocols {tuple(protocols)!r}"""
-                )
-            )
-        if len(provider.attrs.docs) != len(provider.attrs.names):
-            names = provider.attrs.names
-            docs = provider.attrs.docs
-            message = oneline(
-                f"""
-                Number of docs must match the number of names;
-                got {len(names)} names {tuple(names)!r} and
-                {len(docs)} docs {tuple(docs)!r}"""
-            )
-            if len(provider.attrs.docs) == 1:
-                prefix = oneline(
-                    """
-                    Using a single doc string for a multi-output function is
-                    deprecated and will become an error condition in a future
-                    release; use the ``@docs`` decorator to specify
-                    one doc string for each entity.  Details:"""
-                )
-                warnings.warn(prefix + "\n" + message)
+        names = provider.attrs.names
 
-                docs = [docs[0]] * len(names)
-                provider = AttrUpdateProvider(
-                    provider, "docs", docs, allow_override=True
-                )
-            else:
-                raise ValueError(message)
+        protocol = acc.protocol
+        if protocol is None:
+            protocol = DEFAULT_PROTOCOL
+
+        docs = acc.docs
+        orig_docstring = provider.get_source_func().__doc__
+        if docs is None:
+            if orig_docstring is not None and len(names) > 1:
+                preamble = """
+                Using a single doc string for a multi-output function is
+                deprecated and will become an error condition in a future
+                release; use the ``@docs`` decorator to specify
+                one doc string for each entity.  Details:
+                """
+                details = f"""
+                got {len(names)} names {tuple(names)!r} and
+                just one docstring {orig_docstring}
+                """
+                warnings.warn(oneline(preamble) + "\n" + oneline(details))
+
+            docs = [orig_docstring for name in names]
+        if len(docs) != len(names):
+            message = f"""
+            Number of docs must match the number of names;
+            got {len(names)} names {tuple(names)!r} and
+            {len(docs)} docs {tuple(docs)!r}"""
+            raise ValueError(oneline(message))
+
+        can_persist = acc.can_persist
+        if can_persist is None:
+            can_persist = True
+
+        can_memoize = acc.can_memoize
+        if can_memoize is None:
+            can_memoize = True
+
+        if not can_persist and not can_memoize:
+            message = f"""
+            Attempted to set both @persist and @memoize to False.
+            At least one form of storage must be enabled for entities:
+            {provider.attrs.names!r}"""
+            raise ValueError(oneline(message))
 
         state = self._state
 
+        # Delete the original definitions.
+        # TODO Deleting the original entity definition is a little counterintuitive. It
+        # would probably make more sense to keep the original definition, although
+        # that would be a breaking change at this point. We need to think through the
+        # relationship between APIs for fixed and derived entities.
         state = state.delete_providers(provider.attrs.names)
+        state = state.delete_entity_defs(provider.attrs.names)
+
+        # Create the new definitions.
+        for name, doc in zip(names, docs):
+            entity_def = EntityDefinition(
+                name=name,
+                protocol=protocol,
+                doc=doc,
+                can_persist=can_persist,
+                can_memoize=can_memoize,
+            )
+            state = state.define_entity(entity_def)
         state = state.install_provider(provider)
 
         self._state = state
@@ -930,21 +1005,10 @@ class MergeConflict:
         self.name = name
         self.old_provider = old_state.providers_by_name.get(name)
         self.new_provider = new_state.providers_by_name.get(name)
-        self.old_is_default = name in old_state.default_provider_names
-        self.new_is_default = name in new_state.default_provider_names
-
-    @property
-    def old_protocol(self):
-        return self._protocol_for_provider(self.old_provider)
-
-    @property
-    def new_protocol(self):
-        return self._protocol_for_provider(self.new_provider)
-
-    def _protocol_for_provider(self, provider):
-        assert provider is not None
-        name_ix = provider.attrs.names.index(self.name)
-        return provider.attrs.protocols[name_ix]
+        self.old_is_default = name in old_state.default_entity_names
+        self.new_is_default = name in new_state.default_entity_names
+        self.old_entity_def = old_state.entity_defs_by_name.get(name)
+        self.new_entity_def = new_state.entity_defs_by_name.get(name)
 
     @property
     def old_is_only_declaration(self):
@@ -1016,7 +1080,7 @@ class Flow:
             The name of an entity.
         """
 
-        return self._state.get_provider(name).protocol_for_name(name)
+        return self._state.get_entity_def(name).protocol
 
     def entity_doc(self, name):
         """
@@ -1029,7 +1093,7 @@ class Flow:
         name: String
             The name of an entity.
         """
-        return self._state.get_provider(name).doc_for_name(name)
+        return self._state.get_entity_def(name).doc
 
     def entity_docstring(self, name):
         """
@@ -1682,4 +1746,4 @@ def create_default_flow_state():
         manager.start()
         return manager
 
-    return builder._state.mark_all_providers_default()
+    return builder._state.mark_all_entities_default()

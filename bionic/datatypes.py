@@ -8,6 +8,22 @@ from .util import ImmutableSequence, ImmutableMapping
 
 
 @attr.s(frozen=True)
+class EntityDefinition:
+    """
+    Describes the immutable properties of an entity. These properties generally have
+    to do with the entity's "contract": the assumptions other parts of the system can
+    make about its value. However, this does *not* include the way the entity's value
+    is determined; this is configured separately and can be changed more easily.
+    """
+
+    name = attr.ib()
+    protocol = attr.ib()
+    doc = attr.ib()
+    can_persist = attr.ib(default=True)
+    can_memoize = attr.ib(default=True)
+
+
+@attr.s(frozen=True)
 class TaskKey:
     """
     A unique identifier for a Task.

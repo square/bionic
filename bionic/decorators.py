@@ -11,7 +11,8 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 """
 
 from .datatypes import CodeVersion
-from .decoration import decorator_wrapping_provider
+from .decoration import decorator_updating_accumulator
+from .exception import AttributeValidationError
 from .provider import (
     GatherProvider,
     AttrUpdateProvider,
@@ -19,6 +20,7 @@ from .provider import (
     RenamingProvider,
     NameSplittingProvider,
 )
+from .util import oneline
 from . import interpret
 
 
@@ -59,8 +61,10 @@ def version(major=None, minor=None):
         A decorator which can be applied to an entity function.
     """
 
-    return decorator_wrapping_provider(
-        AttrUpdateProvider, "code_version", CodeVersion(major, minor)
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(
+            AttrUpdateProvider, "code_version", CodeVersion(major, minor)
+        )
     )
 
 
@@ -87,7 +91,9 @@ def persist(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return decorator_wrapping_provider(AttrUpdateProvider, "_can_persist", enabled)
+    return decorator_updating_accumulator(
+        lambda acc: acc.update_attr("can_persist", enabled, "@persist")
+    )
 
 
 def memoize(enabled):
@@ -109,7 +115,9 @@ def memoize(enabled):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return decorator_wrapping_provider(AttrUpdateProvider, "_can_memoize", enabled)
+    return decorator_updating_accumulator(
+        lambda acc: acc.update_attr("can_memoize", enabled, "@memoize")
+    )
 
 
 def changes_per_run(enabled=None):
@@ -189,7 +197,9 @@ def changes_per_run(enabled=None):
     if not isinstance(enabled, bool):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
-    return decorator_wrapping_provider(AttrUpdateProvider, "changes_per_run", enabled)
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(AttrUpdateProvider, "changes_per_run", enabled)
+    )
 
 
 def output(name):
@@ -211,7 +221,9 @@ def output(name):
         A decorator which can be applied to an entity function.
     """
 
-    return decorator_wrapping_provider(RenamingProvider, name)
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(RenamingProvider, name)
+    )
 
 
 def outputs(*names):
@@ -239,7 +251,9 @@ def outputs(*names):
         A decorator which can be applied to an entity function.
     """
 
-    return decorator_wrapping_provider(NameSplittingProvider, names)
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(NameSplittingProvider, names)
+    )
 
 
 def docs(*docs):
@@ -262,12 +276,9 @@ def docs(*docs):
         A decorator which can be applied to an entity function.
     """
 
-    return decorator_wrapping_provider(AttrUpdateProvider, "docs", docs)
-
-
-# TODO I'd like to put a @protocols decorator here that exposes the
-# MultiProtocolUpdateProvider class, but that would collide with the
-# protocols.py module.  Let's do this in a later PR.
+    return decorator_updating_accumulator(
+        lambda acc: acc.update_attr("docs", docs, "@docs")
+    )
 
 
 def gather(over, also=None, into="gather_df"):
@@ -329,8 +340,14 @@ def gather(over, also=None, into="gather_df"):
     """
     over = interpret.str_or_seq_as_list(over)
     also = interpret.str_or_seq_or_none_as_list(also)
-    return decorator_wrapping_provider(
-        GatherProvider, primary_names=over, secondary_names=also, gathered_dep_name=into
+
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(
+            GatherProvider,
+            primary_names=over,
+            secondary_names=also,
+            gathered_dep_name=into,
+        )
     )
 
 
@@ -366,7 +383,10 @@ def pyplot(name=None, savefig_kwargs=None):
 
     if name is None:
         name = "pyplot"
-    return decorator_wrapping_provider(PyplotProvider, name, savefig_kwargs)
+
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(PyplotProvider, name, savefig_kwargs)
+    )
 
 
 immediate = persist(False)
