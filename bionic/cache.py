@@ -17,7 +17,12 @@ from urllib.parse import urlparse
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import get_gcs_client_without_warnings, ensure_parent_dir_exists, oneline
+from .util import (
+    get_gcs_client_without_warnings,
+    ensure_dir_exists,
+    ensure_parent_dir_exists,
+    oneline,
+)
 from .tokenization import tokenize
 
 import logging
@@ -569,8 +574,9 @@ class LocalStore:
         self._artifact_root_path = root_path / "artifacts"
 
         inventory_root_path = root_path / "inventory"
+        tmp_root_path = root_path / "tmp"
         self.inventory = Inventory(
-            "local disk", "local", LocalFilesystem(inventory_root_path)
+            "local disk", "local", LocalFilesystem(inventory_root_path, tmp_root_path)
         )
 
     def generate_unique_dir_path(self, query):
@@ -694,8 +700,9 @@ class LocalFilesystem:
     to local disk.
     """
 
-    def __init__(self, inventory_dir):
+    def __init__(self, inventory_dir, tmp_dir):
         self.root_url = url_from_path(inventory_dir)
+        self.tmp_root_path = tmp_dir
 
     def exists(self, url):
         return path_from_url(url).exists()
@@ -713,7 +720,8 @@ class LocalFilesystem:
     def write_bytes(self, content_bytes, url):
         path = path_from_url(url)
         ensure_parent_dir_exists(path)
-        working_dir = Path(tempfile.mkdtemp(dir=str(path.parent)))
+        ensure_dir_exists(self.tmp_root_path)
+        working_dir = Path(tempfile.mkdtemp(dir=str(self.tmp_root_path)))
         try:
             working_path = working_dir / "tmp_file"
             working_path.write_bytes(content_bytes)
