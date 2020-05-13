@@ -3,8 +3,8 @@ This module provides local and cloud storage of computed values.  The main
 point of entry is the PersistentCache, which encapsulates this functionality.
 """
 
-from collections import namedtuple
 from hashlib import sha256
+import attr
 import os
 import shutil
 import subprocess
@@ -369,23 +369,41 @@ class CacheAccessor:
         ) from source_exc
 
 
-# TODO In Python 3 we can store these comments as docstrings.
-# A simple wrapper for a value that might be None.  We use this when we want
-# to distinguish between "we have a value which is None" from "we don't have a
-# value".
-NullableWrapper = namedtuple("NullableWrapper", "value")
+@attr.s(frozen=True)
+class NullableWrapper:
+    """
+    A simple wrapper for a value that might be None.  We use this when we want
+    to distinguish between "we have a value which is None" from "we don't have a
+    value".
+    """
+
+    value = attr.ib()
 
 
-# Represents a saved artifact tracked by an Inventory; returned by Inventory
-# to CacheAccessor.
-InventoryEntry = namedtuple(
-    "InventoryEntry",
-    "tier has_artifact artifact_url provenance exactly_matches_query value_hash",
-)
+@attr.s(frozen=True)
+class InventoryEntry:
+    """
+    Represents a saved artifact tracked by an Inventory; returned by Inventory
+    to CacheAccessor.
+    """
 
-# Represents a match between a query and a saved artifact.  `level` is a string
-# describing the match level, ranging from "functional" to "exact".
-MetadataMatch = namedtuple("MetadataMatch", "metadata_url level")
+    tier = attr.ib()
+    has_artifact = attr.ib()
+    artifact_url = attr.ib()
+    provenance = attr.ib()
+    exactly_matches_query = attr.ib()
+    value_hash = attr.ib()
+
+
+@attr.s(frozen=True)
+class MetadataMatch:
+    """
+    Represents a match between a query and a saved artifact.  `level` is a string
+    describing the match level, ranging from "functional" to "exact".
+    """
+
+    metadata_url = attr.ib()
+    level = attr.ib()
 
 
 class Inventory:
