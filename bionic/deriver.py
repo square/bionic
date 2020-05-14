@@ -7,6 +7,7 @@ from concurrent.futures import wait, FIRST_COMPLETED
 from enum import Enum, auto
 
 import attr
+import threading
 
 from .datatypes import ResultGroup
 from .descriptors.parsing import entity_dnode_from_descriptor
@@ -144,8 +145,9 @@ class EntityDeriver:
             versioning_policy=self._bootstrap_singleton_entity(
                 "core__versioning_policy"
             ),
-            process_executor=self._bootstrap_singleton_entity("core__process_executor"),
             process_manager=self._bootstrap_singleton_entity("core__process_manager"),
+            logging_receiver=self._bootstrap_singleton_entity("core__logging_receiver"),
+            process_executor=self._bootstrap_singleton_entity("core__process_executor"),
         )
 
     def _prevalidate_base_dnodes(self):
@@ -339,18 +341,17 @@ class EntityDeriver:
         ]
 
         task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
+        task_runner.run(requested_task_states)
 
-        log_level = logging.INFO if self._bootstrap is not None else logging.DEBUG
-        task_key_logger = TaskKeyLogger(log_level)
-
-        task_runner.run(requested_task_states, task_key_logger)
+        if self._bootstrap is not None and self._bootstrap.logging_receiver is not None:
+            self._bootstrap.logging_receiver.flush()
 
         for state in requested_task_states:
             assert state.is_complete, state
 
         return ResultGroup(
             results=[
-                state.get_results_assuming_complete(task_key_logger)[dnode]
+                state.get_results_assuming_complete(task_runner.task_key_logger)[dnode]
                 for state in requested_task_states
             ],
             key_space=dinfo.key_space,
@@ -365,8 +366,9 @@ class Bootstrap:
 
     persistent_cache = attr.ib()
     versioning_policy = attr.ib()
-    process_executor = attr.ib()
     process_manager = attr.ib()
+    logging_receiver = attr.ib()
+    process_executor = attr.ib()
 
 
 class TaskKeyLogger:
@@ -377,16 +379,45 @@ class TaskKeyLogger:
     of a computation.)
     """
 
-    def __init__(self, level):
-        self._level = level
-        self._already_logged_task_keys = set()
+    def __init__(self, bootstrap):
+        self._level = logging.INFO if bootstrap is not None else logging.DEBUG
+
+        class TaskKeySet:
+            """
+            Keeps track of task keys, for both parallel and serial processing. It also
+            exposes a method that returns whether the task key has been seen before and
+            adds it if requested.
+            """
+
+            def __init__(self, manager):
+                if manager is not None:
+                    self.task_keys = manager.dict()
+                    self.lock = manager.Lock()
+                else:
+                    self.task_keys = {}
+                    self.lock = threading.Lock()
+
+            def try_to_add(self, task_key):
+                with self.lock:
+                    if task_key in self.task_keys:
+                        return False
+                    self.task_keys[task_key] = True
+                    return True
+
+            def contains(self, task_key):
+                return task_key in self.task_keys
+
+        manager = bootstrap.process_manager if bootstrap is not None else None
+        self._task_key_set = TaskKeySet(manager)
 
     def _log(self, template, task_key, is_resolved=True):
-        if task_key in self._already_logged_task_keys:
-            return
-        logger.log(self._level, template, task_key)
-        if is_resolved:
-            self._already_logged_task_keys.add(task_key)
+        if not is_resolved:
+            can_log = not self._task_key_set.contains(task_key)
+        else:
+            can_log = self._task_key_set.try_to_add(task_key)
+
+        if can_log:
+            logger.log(self._level, template, task_key)
 
     def log_accessed_from_memory(self, task_key):
         self._log("Accessed   %s from in-memory cache", task_key)
@@ -457,6 +488,7 @@ class TaskCompletionRunner:
         # These are needed to complete entries.
         self._bootstrap = bootstrap
         self._flow_instance_uuid = flow_instance_uuid
+        self.task_key_logger = TaskKeyLogger(bootstrap)
 
         # These are used for caching and tracking.
         self._entries_by_task_key = {}
@@ -465,7 +497,7 @@ class TaskCompletionRunner:
         self._blockage_lists_by_blocking_tk = defaultdict(list)
         self._requested_task_keys = set()
 
-    def run(self, states, task_key_logger):
+    def run(self, states):
         for state in states:
             self._requested_task_keys.update(state.task.keys)
             entry = self._get_or_create_entry_for_state(state)
@@ -478,13 +510,13 @@ class TaskCompletionRunner:
                 self._mark_entry_blocked(entry)
                 continue
 
-            self._process_entry(entry, task_key_logger)
+            self._process_entry(entry)
 
         assert len(self._pending_entries) == 0
         assert len(self._in_progress_entries) == 0
         assert len(self._get_all_blocked_entries()) == 0
 
-    def _process_entry(self, entry, task_key_logger):
+    def _process_entry(self, entry):
         assert entry.stage == EntryStage.ACTIVE
 
         if entry.state.is_complete:
@@ -510,7 +542,7 @@ class TaskCompletionRunner:
             # which we should not be really sending using IPC. We should read/write
             # a tmp file for this instead to use protocol for serialization instead of
             # using cloudpickle.
-            state.complete(task_key_logger)
+            state.complete(self.task_key_logger)
             self._mark_entry_completed(entry)
 
         # Process serializable entity in parallel.
@@ -518,7 +550,7 @@ class TaskCompletionRunner:
             # TODO: Logging support for multiple processes not done yet.
             new_state_for_subprocess = state.strip_state_for_subprocess()
             future = self._bootstrap.process_executor.submit(
-                new_state_for_subprocess.complete, task_key_logger
+                new_state_for_subprocess.complete, self.task_key_logger
             )
             self._mark_entry_in_progress(entry, future)
 

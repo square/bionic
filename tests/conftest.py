@@ -1,6 +1,7 @@
 import pytest
 
 import getpass
+import logging
 import random
 
 from multiprocessing.managers import SyncManager
@@ -10,39 +11,82 @@ from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 import bionic as bn
 from bionic.decorators import persist
 from bionic.deriver import TaskKeyLogger
+from bionic.logging import LoggingReceiver, WorkerProcessLogHandler
 from bionic.optdep import import_optional_dependency
 
 
 @pytest.fixture(scope="session")
-def process_executor(request):
-    if not request.config.getoption("--parallel"):
-        return None
-
-    loky = import_optional_dependency("loky", purpose="parallel processing")
-    return loky.get_reusable_executor(max_workers=2)
+def parallel_processing_enabled(request):
+    return request.config.getoption("--parallel")
 
 
 @pytest.fixture(scope="session")
-def process_manager(request):
-    if not request.config.getoption("--parallel"):
+def process_manager(parallel_processing_enabled, request):
+    if not parallel_processing_enabled:
         return None
 
     class MyManager(SyncManager):
         pass
 
     MyManager.register("ResettingCounter", ResettingCounter)
-    MyManager.register("TaskKeyLogger", TaskKeyLogger)
     manager = MyManager()
     manager.start()
+    request.addfinalizer(manager.shutdown)
+
     return manager
+
+
+@pytest.fixture(scope="session")
+def logging_queue(parallel_processing_enabled, process_manager):
+    if not parallel_processing_enabled:
+        return None
+    return process_manager.Queue(-1)
+
+
+@pytest.fixture(scope="session")
+def logging_receiver(logging_queue, parallel_processing_enabled, request):
+    if not parallel_processing_enabled:
+        return None
+
+    logging_receiver = LoggingReceiver(logging_queue)
+    logging_receiver.start()
+    request.addfinalizer(logging_receiver.stop)
+    return logging_receiver
+
+
+@pytest.fixture(scope="session")
+def process_executor(logging_queue, parallel_processing_enabled):
+    if not parallel_processing_enabled:
+        return None
+
+    # Copied from the original process_executor in flow.py.
+    def logging_initializer():
+        logger = logging.getLogger()
+        orig_handlers = logger.handlers
+        for orig_handler in orig_handlers:
+            logger.removeHandler(orig_handler)
+        logger.addHandler(WorkerProcessLogHandler(logging_queue))
+        logger.setLevel(logging.DEBUG)
+
+    loky = import_optional_dependency("loky", purpose="parallel processing")
+    return loky.get_reusable_executor(max_workers=2, initializer=logging_initializer)
 
 
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture(scope="function")
-def builder(process_executor, process_manager, tmp_path):
+def builder(
+    logging_queue,
+    logging_receiver,
+    parallel_processing_enabled,
+    process_executor,
+    process_manager,
+    request,
+    tmp_path,
+):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
+    builder.set("core__parallel_processing__enabled", parallel_processing_enabled)
 
     # We can't use builder.set here because that uses ValueProvider which tries to
     # tokenize the value by writing / pickling it. We go around that issue by making
@@ -56,6 +100,16 @@ def builder(process_executor, process_manager, tmp_path):
     @persist(False)
     def core__process_manager():
         return process_manager
+
+    @builder
+    @persist(False)
+    def core__logging_queue():
+        return logging_queue
+
+    @builder
+    @persist(False)
+    def core__logging_receiver():
+        return logging_receiver
 
     return builder
 

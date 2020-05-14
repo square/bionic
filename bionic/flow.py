@@ -3,6 +3,7 @@ Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 """
 
+import logging
 import os
 import shutil
 import warnings
@@ -11,7 +12,7 @@ from importlib import reload
 from textwrap import dedent
 from uuid import uuid4
 
-from multiprocessing.managers import BaseManager
+from multiprocessing import Manager
 
 import pyrsistent as pyrs
 import pandas as pd
@@ -26,6 +27,7 @@ from .exception import (
     IncompatibleEntityError,
     UnsetEntityError,
 )
+from .logging import LoggingReceiver, WorkerProcessLogHandler
 from .optdep import import_optional_dependency
 from .provider import (
     ValueProvider,
@@ -1721,31 +1723,105 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__process_executor(core__parallel_processing__enabled):
+    def core__process_manager(core__parallel_processing__enabled):
         if not core__parallel_processing__enabled:
             return None
+
+        return Manager()
+
+    @builder
+    @decorators.immediate
+    def core__logging_queue(core__parallel_processing__enabled, core__process_manager):
+        if not core__parallel_processing__enabled:
+            return None
+
+        if core__process_manager is None:
+            raise AssertionError(
+                oneline(
+                    """
+                    Expected core__process_manager to have a value, cannot be None
+                    when core__parallel_processing__enabled is True."""
+                )
+            )
+
+        return core__process_manager.Queue(-1)
+
+    @builder
+    @decorators.immediate
+    def core__logging_receiver(core__parallel_processing__enabled, core__logging_queue):
+        if not core__parallel_processing__enabled:
+            return None
+
+        if core__logging_queue is None:
+            raise AssertionError(
+                oneline(
+                    """
+                    Expected core__logging_queue to have a value, cannot be None
+                    when core__parallel_processing__enabled is True."""
+                )
+            )
+
+        logging_receiver = LoggingReceiver(core__logging_queue)
+        logging_receiver.start()
+        return logging_receiver
+
+    @builder
+    @decorators.immediate
+    def core__process_executor(core__parallel_processing__enabled, core__logging_queue):
+        if not core__parallel_processing__enabled:
+            return None
+
+        if core__logging_queue is None:
+            raise AssertionError(
+                oneline(
+                    """
+                    Expected core__logging_queue to have a value, cannot be None
+                    when core__parallel_processing__enabled is True."""
+                )
+            )
+
+        # NOTE this initializer is copied in test files. Update the test initializer
+        # when changing the initializer here.
+        def logging_initializer():
+            # NOTE when adding a new executor, revisit this logger logic since
+            # logging might behave differently in a different process pool like
+            # multiprocessing.ProcessPoolExecutor.
+            logger = logging.getLogger()
+
+            # https://stackoverflow.com/questions/58837076/logging-works-with-multiprocessing-but-not-with-loky
+            # For loky, there should be no handlers since it uses fork + exec.
+            # Let's remove any handlers that might have been added from previous
+            # runs in this subprocess and add the new handler.
+            warning = None
+            if len(logger.handlers) > 1:
+                warning = """
+                Root logger in the subprocess seems to be modified and have
+                multiple logging handlers. Make any logger changes outside
+                Bionic entities for logging to work correctly when processing
+                parallely.
+                """
+            orig_handlers = logger.handlers
+            for orig_handler in orig_handlers:
+                logger.removeHandler(orig_handler)
+            logger.addHandler(WorkerProcessLogHandler(core__logging_queue))
+
+            # We want the subprocess to forward all messages to the queue and
+            # let the receiver in main process take care of logging at the
+            # appropriate logging level.
+            logger.setLevel(logging.DEBUG)
+
+            if warning is not None:
+                logger.warn(oneline(warning))
 
         # Loky uses cloudpickle by default. We should investigate further what would
         # it take to make is use pickle and wrap the functions that are non-picklable
         # using `loky.wrap_non_picklable_objects`.
         loky = import_optional_dependency("loky", purpose="parallel processing")
+
         # TODO: Use a config / cpu cores instead of using a hardcoded value.
         # Same applies to the test executor.
-        return loky.get_reusable_executor(max_workers=2)
-
-    @builder
-    @decorators.immediate
-    def core__process_manager(core__parallel_processing__enabled):
-        if not core__parallel_processing__enabled:
-            return None
-
-        class MyManager(BaseManager):
-            pass
-
-        MyManager.register("TaskKeyLogger", TaskKeyLogger)
-
-        manager = MyManager()
-        manager.start()
-        return manager
+        return loky.get_reusable_executor(
+            max_workers=2, initializer=logging_initializer
+        )
 
     return builder._state.mark_all_entities_default()
