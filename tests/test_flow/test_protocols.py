@@ -14,9 +14,13 @@ import dask.dataframe as dd
 from ..helpers import count_calls, df_from_csv_str, equal_frame_and_index_content
 
 import bionic as bn
-from bionic.util import recursively_delete_path
-from bionic.exception import UnsupportedSerializedValueError, EntitySerializationError
+from bionic.exception import (
+    AttributeValidationError,
+    EntitySerializationError,
+    UnsupportedSerializedValueError,
+)
 from bionic.protocols import CombinedProtocol, PicklableProtocol
+from bionic.util import recursively_delete_path
 
 
 PICKLABLE_VALUES = [
@@ -605,3 +609,18 @@ def test_geodataframe_protocol_fails_with_long_column_name(builder):
 
     with pytest.raises(EntitySerializationError):
         builder.build().get("longname_geopandas_df")
+
+
+@pytest.mark.parametrize("protocol1", [bn.protocol.picklable, bn.protocol.frame])
+@pytest.mark.parametrize("protocol2", [bn.protocol.picklable, bn.protocol.image])
+def test_redundant_protocols(builder, protocol1, protocol2):
+    with pytest.warns(Warning):
+
+        @builder
+        @protocol1
+        @protocol2
+        def problem():
+            return None
+
+    actual_protocol = builder.build().entity_protocol("problem")
+    assert isinstance(actual_protocol, protocol1().__class__)
