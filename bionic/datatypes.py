@@ -2,8 +2,6 @@
 Contains various data structures used by Bionic's infrastructure.
 """
 
-from collections import namedtuple
-
 import attr
 
 from .util import ImmutableSequence, ImmutableMapping
@@ -285,11 +283,22 @@ class CodeVersion:
     minor = attr.ib(converter=str_from_version_value)
 
 
-# A collection of characteristics attempting to uniquely identify a function.
-CodeFingerprint = namedtuple("CodeFingerprint", "version bytecode_hash orig_flow_name")
+@attr.s(frozen=True)
+class CodeFingerprint:
+    """
+    A collection of characteristics attempting to uniquely identify a function.
+    """
+
+    version = attr.ib()
+    bytecode_hash = attr.ib()
+    orig_flow_name = attr.ib()
 
 
-# Encodes the versioning rules to use when computing entity values.
-VersioningPolicy = namedtuple(
-    "VersioningPolicy", "check_for_bytecode_errors treat_bytecode_as_functional"
-)
+@attr.s(frozen=True)
+class VersioningPolicy:
+    """
+    Encodes the versioning rules to use when computing entity values.
+    """
+
+    check_for_bytecode_errors = attr.ib()
+    treat_bytecode_as_functional = attr.ib()
