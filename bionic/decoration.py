@@ -16,28 +16,57 @@ this accumulator object and uses it to define a new entity.
 """
 
 import attr
+import warnings
 
+from .exception import AttributeValidationError
 from .provider import FunctionProvider
+from .util import oneline
 
 
 @attr.s
 class DecorationAccumulator:
     provider = attr.ib()
 
+    protocol = attr.ib(default=None)
+    docs = attr.ib(default=None)
+    can_persist = attr.ib(default=None)
+    can_memoize = attr.ib(default=None)
+
     def wrap_provider(self, wrapper_fn, *args, **kwargs):
         self.provider = wrapper_fn(self.provider, *args, **kwargs)
 
+    def update_attr(
+        self, attr_name, attr_value, decorator_name, raise_if_already_set=True
+    ):
+        old_attr_value = getattr(self, attr_name)
+        if old_attr_value is not None:
+            message = f"""
+            Tried to use {decorator_name} with value {attr_value!r},
+            but this decorator was already used with value {old_attr_value!r}
+            """
+            if raise_if_already_set:
+                raise AttributeValidationError(oneline(message))
+            else:
+                preamble = """
+                Applying this type of decorator multiple times is deprecated and will
+                become an error condition in a future release; please remove all but
+                the uppermost uses of this decorator. Details:
+                """
+                warnings.warn(oneline(preamble) + "\n" + oneline(message))
+        setattr(self, attr_name, attr_value)
 
-def decorator_wrapping_provider(wrapper_fn, *args, **kwargs):
+
+def decorator_updating_accumulator(acc_update_func):
     """
-    Returns a decorator which transforms the accumulated provider on a decorated
-    function by applying the given wrapping function and arguments.
+    Creates a decorator which applies a transformation to the DecorationAccumulator
+    attached to the decorated function. (If no accumulator is attached, the decorator
+    will initialize one.)
     """
 
     def decorator(func):
         init_accumulator_if_not_set_on_func(func)
         acc = get_accumulator_from_func(func)
-        acc.wrap_provider(wrapper_fn, *args, **kwargs)
+        acc_update_func(acc)
         return func
 
     return decorator

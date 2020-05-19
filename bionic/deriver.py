@@ -116,9 +116,7 @@ class EntityDeriver:
                     entity_name=entity_name,
                     case_key=task_key.case_key,
                     task_ix=task_ix,
-                    doc=self._flow_state.get_provider(entity_name).doc_for_name(
-                        entity_name
-                    ),
+                    doc=self._flow_state.get_entity_def(entity_name).doc,
                 )
 
                 for dep_state in state.dep_states:
@@ -249,26 +247,38 @@ class EntityDeriver:
         dinfo = self._get_or_create_dinfo_for_dnode(dnode)
         task = dinfo.tasks_by_key[task_key]
 
+        entity_names = [task_key.dnode.to_entity_name() for task_key in task.keys]
+
         dep_states = [
             self._get_or_create_task_state_for_key(dep_key) for dep_key in task.dep_keys
         ]
         # All keys in this task should point to the same provider, so the set below
         # should have exactly one element.
         (provider,) = set(
-            self._flow_state.get_provider(task_key.dnode.to_entity_name())
-            for task_key in task.keys
+            self._flow_state.get_provider(entity_name) for entity_name in entity_names
         )
         # And all the task keys should have the same case key.
         (case_key,) = set(task_key.case_key for task_key in task.keys)
 
+        entity_defs_by_name = {
+            entity_name: self._flow_state.get_entity_def(entity_name)
+            for entity_name in entity_names
+        }
+
         task_state = TaskState(
-            task=task, dep_states=dep_states, provider=provider, case_key=case_key,
+            task=task,
+            dep_states=dep_states,
+            case_key=case_key,
+            provider=provider,
+            entity_defs_by_name=entity_defs_by_name,
         )
 
         # Check that the provider configuration is valid.
-        if provider.attrs.changes_per_run and not provider.attrs.should_memoize():
+        if provider.attrs.changes_per_run and not task_state.should_memoize:
+            # TODO This message should say something like:
+            #    "Entity with name ..." or "Entities with names ..."
             message = f"""
-            Entity with names {provider.attrs.names!r} uses @changes_per_run with
+            Entity with names {entity_names!r} uses @changes_per_run with
             @memoize(False), which is not allowed. @changes_per_run computes once in
             a flow instance and memoizes the value. Memoization cannot be disabled
             for this entity.

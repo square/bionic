@@ -852,6 +852,19 @@ def test_disable_memory_caching(builder):
         assert flow.get("y") == 1
 
 
+@pytest.mark.parametrize("decorator", [bn.persist, bn.memoize])
+@pytest.mark.parametrize("enabled1", [True, False])
+@pytest.mark.parametrize("enabled2", [True, False])
+def test_redundant_decorators(builder, decorator, enabled1, enabled2):
+    with pytest.raises(AttributeValidationError):
+
+        @builder
+        @decorator(enabled1)
+        @decorator(enabled2)
+        def fail():
+            pass
+
+
 def test_unset_and_not_memoized(builder):
     builder.declare("x")
 

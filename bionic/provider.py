@@ -39,30 +39,16 @@ class ProviderAttributes:
     def __init__(
         self,
         names,
-        protocols=None,
         code_version=None,
         orig_flow_name=None,
-        can_persist=None,
-        can_memoize=None,
         is_default_value=None,
-        docs=None,
         changes_per_run=None,
     ):
         self.names = names
-        self.protocols = protocols
-        self.docs = docs
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
-        self._can_persist = can_persist
-        self._can_memoize = can_memoize
         self.changes_per_run = changes_per_run
         self.is_default_value = is_default_value
-
-    def should_persist(self):
-        return self._can_persist
-
-    def should_memoize(self):
-        return self._can_memoize
 
 
 class BaseProvider:
@@ -104,30 +90,6 @@ class BaseProvider:
     def copy(self):
         raise NotImplementedError()
 
-    def protocol_for_name(self, name):
-        name_ix = self.attrs.names.index(name)
-        if name_ix < 0:
-            raise ValueError(
-                oneline(
-                    f"""
-                Attempted to look up name {name!r} from provider
-                providing only {tuple(self.attrs.names)!r}"""
-                )
-            )
-        return self.attrs.protocols[name_ix]
-
-    def doc_for_name(self, name):
-        name_ix = self.attrs.names.index(name)
-        if name_ix < 0:
-            raise ValueError(
-                oneline(
-                    f"""
-                Attempted to look up name {name!r} from provider
-                providing only {tuple(self.attrs.names)!r}"""
-                )
-            )
-        return self.attrs.docs[name_ix]
-
     def __repr__(self):
         return f"{self.__class__.__name__}{tuple(self.attrs.names)!r}"
 
@@ -141,21 +103,12 @@ class ValueProvider(BaseProvider):
             assert not provider._has_any_values
 
         names = [provider.attrs.names[0] for provider in value_providers]
-        protocols = [provider.attrs.protocols[0] for provider in value_providers]
-        docs = [provider.attrs.docs[0] for provider in value_providers]
 
-        return ValueProvider(names, protocols, docs)
+        return ValueProvider(names)
 
-    def __init__(self, names, protocols, docs):
+    def __init__(self, names):
         super(ValueProvider, self).__init__(
-            attrs=ProviderAttributes(
-                names=names,
-                protocols=protocols,
-                docs=docs,
-                can_persist=True,
-                can_memoize=True,
-                changes_per_run=False,
-            ),
+            attrs=ProviderAttributes(names=names, changes_per_run=False,),
         )
 
         self.key_space = CaseKeySpace(names)
@@ -163,9 +116,9 @@ class ValueProvider(BaseProvider):
         self._value_tuples_by_case_key = {}
         self._token_tuples_by_case_key = {}
 
-    def add_case(self, case_key, values):
+    def add_case(self, case_key, values, tokens):
         provider = self._copy()
-        provider._add_case_in_place(case_key, values)
+        provider._add_case_in_place(case_key, values, tokens)
         return provider
 
     def _copy(self):
@@ -180,12 +133,7 @@ class ValueProvider(BaseProvider):
 
     # This mutates the provider, so it should only be called on a fresh copy, as in
     # add_case().
-    def _add_case_in_place(self, case_key, values):
-        tokens = []
-        for value, protocol in zip(values, self.attrs.protocols):
-            protocol.validate(value)
-            tokens.append(protocol.tokenize(value))
-
+    def _add_case_in_place(self, case_key, values, tokens):
         if self._has_any_values:
             if case_key.space != self.key_space:
                 raise IncompatibleEntityError(
@@ -282,11 +230,7 @@ class ValueProvider(BaseProvider):
 class FunctionProvider(BaseProvider):
     def __init__(self, func):
         name = func.__name__
-        super(FunctionProvider, self).__init__(
-            attrs=ProviderAttributes(
-                names=[name], docs=(None if func.__doc__ is None else [func.__doc__]),
-            )
-        )
+        super(FunctionProvider, self).__init__(attrs=ProviderAttributes(names=[name]))
 
         self._func = func
         self.name = name
@@ -400,24 +344,6 @@ class AttrUpdateProvider(WrappingProvider):
         setattr(self.attrs, attr_name, attr_value)
 
 
-class ProtocolUpdateProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, protocol=None):
-        super(ProtocolUpdateProvider, self).__init__(wrapped_provider)
-
-        protocols = [protocol for name in self.wrapped_provider.attrs.names]
-
-        self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.protocols = protocols
-
-
-class MultiProtocolUpdateProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, protocols=None):
-        super(MultiProtocolUpdateProvider, self).__init__(wrapped_provider)
-
-        self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.protocols = protocols
-
-
 class RenamingProvider(WrappingProvider):
     def __init__(self, wrapped_provider, name):
 
@@ -475,9 +401,6 @@ class NameSplittingProvider(WrappingProvider):
 
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.names = names
-        if self.attrs.protocols is not None:
-            (protocol,) = self.attrs.protocols
-            self.attrs.protocols = [protocol for name in names]
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         inner_tasks = self.wrapped_provider.get_tasks(

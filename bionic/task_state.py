@@ -13,17 +13,27 @@ class TaskState:
     intermediate state and the deriving logic.
     """
 
-    def __init__(self, task, dep_states, case_key, provider):
+    def __init__(self, task, dep_states, case_key, provider, entity_defs_by_name):
         self.task = task
         self.dep_states = dep_states
         self.case_key = case_key
         self.provider = provider
+        self.entity_defs_by_name = entity_defs_by_name
+
+        # In theory different entities for a single task could have different cache
+        # settings, but I'm not sure it can happen in practice (given the way grouped
+        # entities are created). At any rate, once we have tuple descriptors, each task
+        # state will only be responsible for a single entity and this won't be an issue.
+        can_persist, can_memoize = single_unique_element(
+            (entity_def.can_persist, entity_def.can_memoize)
+            for entity_def in entity_defs_by_name.values()
+        )
 
         # Cached values.
         self.task_keys = task.keys
-        self.should_memoize = provider.attrs.should_memoize()
+        self.should_memoize = can_memoize
         self.should_persist = (
-            self.provider.attrs.should_persist()
+            can_persist
             and not self.task.is_simple_lookup
             and not self.output_would_be_missing()
         )
@@ -323,9 +333,9 @@ class TaskState:
         self._queries = [
             Query(
                 task_key=task_key,
-                protocol=self.provider.protocol_for_name(
+                protocol=self.entity_defs_by_name[
                     task_key.dnode.to_entity_name()
-                ),
+                ].protocol,
                 provenance=self._provenance,
             )
             for task_key in self.task_keys
