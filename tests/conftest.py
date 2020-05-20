@@ -11,7 +11,6 @@ from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 import bionic as bn
 from bionic.decorators import persist
 from bionic.deriver import TaskKeyLogger
-from bionic.logging import LoggingReceiver, WorkerProcessLogHandler
 from bionic.optdep import import_optional_dependency
 
 
@@ -36,54 +35,10 @@ def process_manager(parallel_processing_enabled, request):
     return manager
 
 
-@pytest.fixture(scope="session")
-def logging_queue(parallel_processing_enabled, process_manager):
-    if not parallel_processing_enabled:
-        return None
-    return process_manager.Queue(-1)
-
-
-@pytest.fixture(scope="session")
-def logging_receiver(logging_queue, parallel_processing_enabled, request):
-    if not parallel_processing_enabled:
-        return None
-
-    logging_receiver = LoggingReceiver(logging_queue)
-    logging_receiver.start()
-    request.addfinalizer(logging_receiver.stop)
-    return logging_receiver
-
-
-@pytest.fixture(scope="session")
-def process_executor(logging_queue, parallel_processing_enabled):
-    if not parallel_processing_enabled:
-        return None
-
-    # Copied from the original process_executor in flow.py.
-    def logging_initializer():
-        logger = logging.getLogger()
-        orig_handlers = logger.handlers
-        for orig_handler in orig_handlers:
-            logger.removeHandler(orig_handler)
-        logger.addHandler(WorkerProcessLogHandler(logging_queue))
-        logger.setLevel(logging.DEBUG)
-
-    loky = import_optional_dependency("loky", purpose="parallel processing")
-    return loky.get_reusable_executor(max_workers=2, initializer=logging_initializer)
-
-
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture(scope="function")
-def builder(
-    logging_queue,
-    logging_receiver,
-    parallel_processing_enabled,
-    process_executor,
-    process_manager,
-    request,
-    tmp_path,
-):
+def builder(parallel_processing_enabled, process_manager, tmp_path):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
     builder.set("core__parallel_processing__enabled", parallel_processing_enabled)
@@ -93,23 +48,8 @@ def builder(
     # them use FunctionProvider.
     @builder
     @persist(False)
-    def core__process_executor():
-        return process_executor
-
-    @builder
-    @persist(False)
     def core__process_manager():
         return process_manager
-
-    @builder
-    @persist(False)
-    def core__logging_queue():
-        return logging_queue
-
-    @builder
-    @persist(False)
-    def core__logging_receiver():
-        return logging_receiver
 
     return builder
 

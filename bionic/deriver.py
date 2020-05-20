@@ -146,7 +146,6 @@ class EntityDeriver:
                 "core__versioning_policy"
             ),
             process_manager=self._bootstrap_singleton_entity("core__process_manager"),
-            logging_receiver=self._bootstrap_singleton_entity("core__logging_receiver"),
             process_executor=self._bootstrap_singleton_entity("core__process_executor"),
         )
 
@@ -343,8 +342,8 @@ class EntityDeriver:
         task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
         task_runner.run(requested_task_states)
 
-        if self._bootstrap is not None and self._bootstrap.logging_receiver is not None:
-            self._bootstrap.logging_receiver.flush()
+        if self._bootstrap is not None and self._bootstrap.process_executor is not None:
+            self._bootstrap.process_executor.flush_logs()
 
         for state in requested_task_states:
             assert state.is_complete, state
@@ -367,7 +366,6 @@ class Bootstrap:
     persistent_cache = attr.ib()
     versioning_policy = attr.ib()
     process_manager = attr.ib()
-    logging_receiver = attr.ib()
     process_executor = attr.ib()
 
 
