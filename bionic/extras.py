@@ -39,6 +39,7 @@ extras["dev"] = combine(
         "black",
         "flake8",
         "flake8-print",
+        "flake8-fixme",
         "sphinx",
         "sphinx_rtd_theme",
         "sphinx-autobuild",

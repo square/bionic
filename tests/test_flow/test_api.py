@@ -726,8 +726,6 @@ def test_entity_computation_exception(builder):
         builder.build().get("uncomputable_value")
     except EntityComputationError as e:
         assert isinstance(e.__cause__, ZeroDivisionError)
-        # FIXME: Parallel processing should assert the error differently.
-        # assert "\nZeroDivisionError:" in e.__cause__.tb
 
 
 @pytest.mark.only_parallel
