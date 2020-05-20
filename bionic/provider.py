@@ -9,7 +9,6 @@ rethink.
 
 import inspect
 from copy import copy
-from collections import defaultdict
 import functools
 from io import BytesIO
 

@@ -12,7 +12,6 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 
 from .datatypes import CodeVersion
 from .decoration import decorator_updating_accumulator
-from .exception import AttributeValidationError
 from .provider import (
     GatherProvider,
     AttrUpdateProvider,
@@ -20,7 +19,6 @@ from .provider import (
     RenamingProvider,
     NameSplittingProvider,
 )
-from .util import oneline
 from . import interpret
 
 

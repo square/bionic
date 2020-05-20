@@ -15,7 +15,6 @@ from ..helpers import count_calls, df_from_csv_str, equal_frame_and_index_conten
 
 import bionic as bn
 from bionic.exception import (
-    AttributeValidationError,
     EntitySerializationError,
     UnsupportedSerializedValueError,
 )
