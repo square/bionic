@@ -48,6 +48,14 @@ class DescriptorNode(ABC):
         """
         raise TypeError(f"Descriptor {self.to_descriptor()!r} is not an entity name")
 
+    @abstractmethod
+    def all_entity_names(self):
+        """
+        Returns a list of every entity name appearing in this descriptor, in order,
+        include duplicates.
+        """
+        pass
+
 
 @attr.s(frozen=True)
 class EntityNode(DescriptorNode):
@@ -62,6 +70,9 @@ class EntityNode(DescriptorNode):
 
     def to_descriptor(self, near_commas=False):
         return self.name
+
+    def all_entity_names(self):
+        return [self.name]
 
 
 @attr.s(frozen=True)
@@ -85,3 +96,6 @@ class TupleNode(DescriptorNode):
         if near_commas:
             desc = f"({desc})"
         return desc
+
+    def all_entity_names(self):
+        return [name for child in self.children for name in child.entity_names()]

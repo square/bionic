@@ -38,13 +38,13 @@ logger = logging.getLogger(__name__)
 class ProviderAttributes:
     def __init__(
         self,
-        names,
+        dnodes,
         code_version=None,
         orig_flow_name=None,
         is_default_value=None,
         changes_per_run=None,
     ):
-        self.names = names
+        self.dnodes = dnodes
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
         self.changes_per_run = changes_per_run
@@ -90,25 +90,35 @@ class BaseProvider:
     def copy(self):
         raise NotImplementedError()
 
+    @property
+    def entity_names(self):
+        return [
+            name for dnode in self.attrs.dnodes for name in dnode.all_entity_names()
+        ]
+
     def __repr__(self):
-        return f"{self.__class__.__name__}{tuple(self.attrs.names)!r}"
+        descriptors = tuple(dnode.to_descriptor() for dnode in self.attrs.dnodes)
+        return f"{self.__class__.__name__}{descriptors!r}"
 
 
 class ValueProvider(BaseProvider):
     @classmethod
     def from_single_value_providers(cls, value_providers):
+        names = []
         for provider in value_providers:
             assert isinstance(provider, ValueProvider)
-            assert len(provider.attrs.names) == 1
+            assert len(provider.attrs.dnodes) == 1
             assert not provider._has_any_values
 
-        names = [provider.attrs.names[0] for provider in value_providers]
+            (dnode,) = provider.attrs.dnodes
+            names.append(dnode.to_entity_name())
 
         return ValueProvider(names)
 
     def __init__(self, names):
+        dnodes = [entity_dnode_from_descriptor(name) for name in names]
         super(ValueProvider, self).__init__(
-            attrs=ProviderAttributes(names=names, changes_per_run=False,),
+            attrs=ProviderAttributes(dnodes=dnodes, changes_per_run=False,),
         )
 
         self.key_space = CaseKeySpace(names)
@@ -139,7 +149,7 @@ class ValueProvider(BaseProvider):
                 raise IncompatibleEntityError(
                     oneline(
                         f"""
-                    Can't add {case_key!r} to entities {self.attrs.names!r}:
+                    Can't add {case_key!r} to entities {self.entity_names!r}:
                     key space doesn't match {self.key_space!r}"""
                     )
                 )
@@ -148,7 +158,7 @@ class ValueProvider(BaseProvider):
                 raise IncompatibleEntityError(
                     oneline(
                         f"""
-                    Can't add {case_key!r} to entity {self.attrs.names!r}:
+                    Can't add {case_key!r} to entity {self.entity_names!r}:
                     that case key already exists"""
                     )
                 )
@@ -193,7 +203,7 @@ class ValueProvider(BaseProvider):
                         TaskKey(
                             dnode=entity_dnode_from_descriptor(name), case_key=case_key,
                         )
-                        for name in self.attrs.names
+                        for name in self.entity_names
                     ],
                     dep_keys=[],
                     compute_func=functools.partial(self._compute, case_key=case_key,),
@@ -212,11 +222,11 @@ class ValueProvider(BaseProvider):
                             case_key=CaseKey(
                                 [
                                     (name, CaseKey.MISSING, "<MISSING>")
-                                    for name in self.attrs.names
+                                    for name in self.entity_names
                                 ]
                             ),
                         )
-                        for name in self.attrs.names
+                        for name in self.entity_names
                     ],
                     dep_keys=[],
                     compute_func=None,
@@ -230,11 +240,12 @@ class ValueProvider(BaseProvider):
 class FunctionProvider(BaseProvider):
     def __init__(self, func):
         name = func.__name__
-        super(FunctionProvider, self).__init__(attrs=ProviderAttributes(names=[name]))
+        dnode = entity_dnode_from_descriptor(name)
+        super(FunctionProvider, self).__init__(attrs=ProviderAttributes(dnodes=[dnode]))
 
         self._func = func
         self.name = name
-        self.dnode = entity_dnode_from_descriptor(name)
+        self.dnode = dnode
 
         argspec = inspect.getfullargspec(func)
 
@@ -282,16 +293,17 @@ class FunctionProvider(BaseProvider):
         try:
             value = self._func(*dep_values)
         except Exception as e:
-            entity_description = (
-                f"entity {self.attrs.names[0]!r}"
-                if len(self.attrs.names) == 1
-                else f"entities {self.attrs.names!r}"
+            names = [dnode.to_descriptor() for dnode in self.attrs.dnodes]
+            descriptor_description = (
+                f"descriptor {names[0]!r}"
+                if len(names) == 1
+                else f"descriptors {names!r}"
             )
             raise EntityComputationError(
                 oneline(
                     f"""
                 An exception was thrown while computing the value of
-                {entity_description}
+                {descriptor_description}
                 """
                 )
             ) from e
@@ -349,31 +361,29 @@ class RenamingProvider(WrappingProvider):
 
         super(RenamingProvider, self).__init__(wrapped_provider)
 
-        orig_names = wrapped_provider.attrs.names
-        if len(orig_names) != 1:
+        orig_dnodes = wrapped_provider.attrs.dnodes
+        if len(orig_dnodes) != 1:
+            orig_descriptors = [dnode.to_descriptor() for dnode in orig_dnodes]
             raise ValueError(
                 oneline(
                     f"""
                 Can't rename a provider that already has multiple
-                names; need exactly one name but got {tuple(orig_names)!r}"""
+                names; need exactly one name but got {tuple(orig_descriptors)!r}"""
                 )
             )
 
+        dnode = entity_dnode_from_descriptor(name)
+
         self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.names = [name]
+        self.attrs.dnodes = [dnode]
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        (name,) = self.attrs.names
+        (dnode,) = self.attrs.dnodes
 
         def wrap_task(task):
             (task_key,) = task.keys
             return Task(
-                keys=[
-                    TaskKey(
-                        dnode=entity_dnode_from_descriptor(name),
-                        case_key=task_key.case_key,
-                    )
-                ],
+                keys=[TaskKey(dnode=dnode, case_key=task_key.case_key,)],
                 dep_keys=task.dep_keys,
                 compute_func=task.compute,
             )
@@ -385,22 +395,25 @@ class RenamingProvider(WrappingProvider):
 
 
 class NameSplittingProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, names=None):
+    def __init__(self, wrapped_provider, names):
 
         super(NameSplittingProvider, self).__init__(wrapped_provider)
 
-        orig_names = wrapped_provider.attrs.names
-        if len(orig_names) != 1:
+        orig_dnodes = wrapped_provider.attrs.dnodes
+        if len(orig_dnodes) != 1:
+            orig_descriptors = [dnode.to_descriptor() for dnode in orig_dnodes]
             raise ValueError(
                 oneline(
                     f"""
                 Can't change a provider's number of names multiple times;
-                need exactly one name but got {tuple(orig_names)!r}"""
+                need exactly one name but got {tuple(orig_descriptors)!r}"""
                 )
             )
 
+        dnodes = [entity_dnode_from_descriptor(name) for name in names]
+
         self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.names = names
+        self.attrs.dnodes = dnodes
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         inner_tasks = self.wrapped_provider.get_tasks(
@@ -414,15 +427,16 @@ class NameSplittingProvider(WrappingProvider):
             def wrapped_compute_func(dep_values):
                 (value_seq,) = task.compute(dep_values)
 
-                if len(value_seq) != len(self.attrs.names):
+                if len(value_seq) != len(self.attrs.dnodes):
+                    descriptors = [dnode.to_descriptor() for dnode in self.attrs.dnodes]
                     raise ValueError(
                         oneline(
                             f"""
                         Expected provider
-                        {self.wrapped_provider.attrs.names[0]!r} to return
-                        {len(self.attrs.names)} outputs named
-                        {self.attrs.names!r}; got {len(value_seq)} outputs
-                        {tuple(value_seq)!r}"""
+                        {self.wrapped_provider.attrs.dnodes[0].to_descriptor()!r} to
+                        return {len(descriptors)} outputs named
+                        {descriptors!r};
+                        got {len(value_seq)} outputs {tuple(value_seq)!r}"""
                         )
                     )
 
@@ -430,11 +444,8 @@ class NameSplittingProvider(WrappingProvider):
 
             return Task(
                 keys=[
-                    TaskKey(
-                        dnode=entity_dnode_from_descriptor(name),
-                        case_key=task_key.case_key,
-                    )
-                    for name in self.attrs.names
+                    TaskKey(dnode=dnode, case_key=task_key.case_key,)
+                    for dnode in self.attrs.dnodes
                 ],
                 dep_keys=task.dep_keys,
                 compute_func=wrapped_compute_func,

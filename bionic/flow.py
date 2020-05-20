@@ -130,7 +130,7 @@ class FlowState(pyrs.PClass):
         return self._set_provider(provider).touch()
 
     def install_provider(self, provider):
-        for name in provider.attrs.names:
+        for name in provider.entity_names:
             if name in self.providers_by_name:
                 raise AlreadyDefinedEntityError.for_name(name)
 
@@ -143,18 +143,19 @@ class FlowState(pyrs.PClass):
         # If there's only one provider, then the grouping is already done.
         if len(providers_set) == 1:
             provider = providers[0]
-            if set(provider.attrs.names) != set(names):
+            if set(provider.entity_names) != set(names):
                 if len(names) == 1:
                     message = f"""
                     Can't assign to individual entity {names[0]!r}:
-                    it's already defined jointly with entities {provider.attrs.names!r},
+                    it's already defined jointly with entities
+                    {provider.entity_names!r},
                     and all subsequent assignments must be to that same group
                     """
                 else:
                     message = f"""
                     Can't jointly assign to entities {names!r}:
                     they're already defined jointly with entities
-                    {provider.attrs.names!r},
+                    {provider.entity_names!r},
                     and all subsequent assignments must be to that same group
                     """
                     raise IncompatibleEntityError(oneline(message))
@@ -165,17 +166,17 @@ class FlowState(pyrs.PClass):
         # provider.
         elif len(providers_set) == len(names):
             for provider in providers:
-                if len(provider.attrs.names) != 1:
+                if len(provider.entity_names) != 1:
                     message = f"""
                     Can't jointly assign to entities {names!r}:
-                    they overlap with existing grouping {provider.attrs.names!r}
+                    they overlap with existing grouping {provider.entity_names!r}
                     """
                     raise IncompatibleEntityError(oneline(message))
 
                 if not isinstance(provider, ValueProvider):
                     message = f"""
                     Can't jointly assign to entities {names!r}:
-                    entity {provider.attrs.names[0]!r} is already defined as a
+                    entity {provider.entity_names[0]!r} is already defined as a
                     function
                     """
                     raise IncompatibleEntityError(oneline(message))
@@ -183,7 +184,7 @@ class FlowState(pyrs.PClass):
                 if provider.has_any_cases():
                     message = f"""
                     Can't jointly assign to entities {names!r}:
-                    entity {provider.attrs.names[0]!r} already has individual
+                    entity {provider.entity_names[0]!r} already has individual
                     values assigned to it
                     """
                     raise IncompatibleEntityError(oneline(message))
@@ -192,7 +193,7 @@ class FlowState(pyrs.PClass):
             return self._set_provider(provider).touch()
 
         else:
-            groupings = [provider.attrs.names for provider in providers]
+            groupings = [provider.entity_names for provider in providers]
             message = f"""
             Can't jointly assign to entities {names!r}:
             they're already in separate groupings {", ".join(repr(groupings))}
@@ -210,8 +211,9 @@ class FlowState(pyrs.PClass):
         # argument should match the names of the provider. However, the names may not
         # be in the expected order. If not, we'll reorder the values to correspond to
         # the expected order.
-        if names != provider.attrs.names:
-            values = [values[provider.attrs.names.index(name)] for name in names]
+        provider_names = provider.entity_names
+        if names != provider_names:
+            values = [values[provider_names.index(name)] for name in names]
 
         tokens = []
         for name, value in zip(names, values):
@@ -270,7 +272,7 @@ class FlowState(pyrs.PClass):
                 continue
             provider = state.get_provider(name)
 
-            joint_names = provider.attrs.names
+            joint_names = provider.entity_names
             for related_name in joint_names:
                 if related_name not in names:
                     raise IncompatibleEntityError(
@@ -315,11 +317,11 @@ class FlowState(pyrs.PClass):
         )
 
     def _set_provider(self, provider):
-        for name in provider.attrs.names:
+        for name in provider.entity_names:
             assert name in self.entity_defs_by_name
 
         state = self
-        for name in provider.attrs.names:
+        for name in provider.entity_names:
             state = state._erase_provider(name)
             state = state.set(
                 providers_by_name=state.providers_by_name.set(name, provider),
@@ -789,7 +791,7 @@ class FlowBuilder:
             ("new", new_state),
         ]:
             for provider in state.providers_by_name.values():
-                names = provider.attrs.names
+                names = provider.entity_names
                 if len(names) == 1:
                     continue
 
@@ -843,7 +845,7 @@ class FlowBuilder:
         # may have multiple names and hence multiple conflicts, but should be
         # installed exactly once.
         providers_to_install = {
-            tuple(conflict.new_provider.attrs.names): conflict.new_provider
+            tuple(conflict.new_provider.entity_names): conflict.new_provider
             for conflict in conflicts_keeping_new
         }.values()
         for provider in providers_to_install:
@@ -855,7 +857,7 @@ class FlowBuilder:
                 and provider.attrs.orig_flow_name is None
             ):
                 provider = AttrUpdateProvider(provider, "orig_flow_name", new_flow_name)
-            for name in provider.attrs.names:
+            for name in provider.entity_names:
                 new_entity_def = new_state.get_entity_def(name)
                 cur_state = cur_state.define_entity(new_entity_def)
             cur_state = cur_state.install_provider(provider)
@@ -893,7 +895,7 @@ class FlowBuilder:
         if provider.attrs.changes_per_run is None:
             provider = AttrUpdateProvider(provider, "changes_per_run", False)
 
-        names = provider.attrs.names
+        names = provider.entity_names
 
         protocol = acc.protocol
         if protocol is None:
@@ -935,7 +937,7 @@ class FlowBuilder:
             message = f"""
             Attempted to set both @persist and @memoize to False.
             At least one form of storage must be enabled for entities:
-            {provider.attrs.names!r}"""
+            {provider.entity_names!r}"""
             raise ValueError(oneline(message))
 
         state = self._state
@@ -945,8 +947,8 @@ class FlowBuilder:
         # would probably make more sense to keep the original definition, although
         # that would be a breaking change at this point. We need to think through the
         # relationship between APIs for fixed and derived entities.
-        state = state.delete_providers(provider.attrs.names)
-        state = state.delete_entity_defs(provider.attrs.names)
+        state = state.delete_providers(provider.entity_names)
+        state = state.delete_entity_defs(provider.entity_names)
 
         # Create the new definitions.
         for name, doc in zip(names, docs):
