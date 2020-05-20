@@ -2,7 +2,7 @@ import copy
 
 from .cache import Provenance
 from .datatypes import ProvenanceDigest, Query, Result
-from .exception import CodeVersioningError
+from .exception import AttributeValidationError, CodeVersioningError
 from .util import oneline, single_unique_element
 
 
@@ -341,18 +341,17 @@ class TaskState:
         # Lastly, set up cache accessors.
         if self.should_persist:
             if bootstrap is None:
-                # TODO TaskKey.entity_name does not exist, so this will crash.
-                name = self.task_keys[0].entity_name
-                raise AssertionError(
-                    oneline(
-                        f"""
-                    Attempting to load cached state for entity {name!r},
-                    but the cache is not available yet because core bootstrap
-                    entities depend on this one;
-                    you should decorate entity {name!r} with `@persist(False)`
-                    or `@immediate` to indicate that it can't be cached."""
-                    )
-                )
+                descriptors = [
+                    task_key.dnode.to_descriptor() for task_key in self.task_keys
+                ]
+                message = f"""
+                Attempting to load cached state for descriptors {descriptors!r},
+                but the cache is not available yet because core bootstrap
+                entities depend on this one;
+                you should decorate the corresponding function with
+                `@persist(False)` or `@immediate` to indicate that it can't be
+                cached."""
+                raise AttributeValidationError(oneline(message))
 
             self._cache_accessors = [
                 bootstrap.persistent_cache.get_accessor(query)
