@@ -38,6 +38,7 @@ extras["dev"] = combine(
         "pytest",
         "black",
         "flake8",
+        "flake8-print",
         "sphinx",
         "sphinx_rtd_theme",
         "sphinx-autobuild",
