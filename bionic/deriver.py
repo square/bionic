@@ -103,7 +103,7 @@ class EntityDeriver:
             for task_ix, task in enumerate(
                 sorted(tasks, key=lambda task: task.keys[0].case_key)
             ):
-                task_key = task.key_for_entity_name(entity_name)
+                task_key = task.key_for_dnode(dnode)
                 state = self._get_or_create_task_state_for_key(task_key)
 
                 node_name = name_template.format(
@@ -209,8 +209,7 @@ class EntityDeriver:
         }
         dep_task_key_lists_by_dnode = {
             dep_dinfo.dnode: [
-                task.key_for_entity_name(dep_dinfo.dnode.to_entity_name())
-                for task in dep_dinfo.tasks
+                task.key_for_dnode(dep_dinfo.dnode) for task in dep_dinfo.tasks
             ]
             for dep_dinfo in dep_dinfos
         }
@@ -349,10 +348,9 @@ class EntityDeriver:
         for state in requested_task_states:
             assert state.is_complete, state
 
-        entity_name = dnode.to_entity_name()
         return ResultGroup(
             results=[
-                state.get_results_assuming_complete(task_key_logger)[entity_name]
+                state.get_results_assuming_complete(task_key_logger)[dnode]
                 for state in requested_task_states
             ],
             key_space=dinfo.key_space,

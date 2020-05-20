@@ -64,12 +64,8 @@ class Task:
     def compute(self, dep_values):
         return self.compute_func(dep_values)
 
-    def key_for_entity_name(self, name):
-        matching_keys = [
-            task_key
-            for task_key in self.keys
-            if task_key.dnode.to_entity_name() == name
-        ]
+    def key_for_dnode(self, dnode):
+        matching_keys = [task_key for task_key in self.keys if task_key.dnode == dnode]
         (key,) = matching_keys
         return key
 

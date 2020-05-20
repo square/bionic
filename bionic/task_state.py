@@ -48,10 +48,10 @@ class TaskState:
         #
         # This will be present if and only if both is_complete and
         # should_persist are True.
-        self._result_value_hashes_by_name = None
+        self._result_value_hashes_by_dnode = None
 
         # This can be set by get_results_assuming_complete() or _compute().
-        self._results_by_name = None
+        self._results_by_dnode = None
 
         # A completed task state has it's results computed and cached somewhere for
         # easy retrieval.
@@ -118,12 +118,12 @@ class TaskState:
         if self.should_persist and all(axr.can_load() for axr in self._cache_accessors):
             # We only load the hashed result while completing task state
             # and lazily load the entire result when needed later.
-            value_hashes_by_name = {}
+            value_hashes_by_dnode = {}
             for accessor in self._cache_accessors:
                 value_hash = accessor.load_result_value_hash()
-                value_hashes_by_name[accessor.query.dnode.to_entity_name()] = value_hash
+                value_hashes_by_dnode[accessor.query.dnode] = value_hash
 
-            self._result_value_hashes_by_name = value_hashes_by_name
+            self._result_value_hashes_by_dnode = value_hashes_by_dnode
         # If we cannot load it from cache, we compute the task state.
         else:
             self._compute(task_key_logger)
@@ -137,12 +137,12 @@ class TaskState:
 
         assert self.is_complete
 
-        if self._results_by_name:
+        if self._results_by_dnode:
             for task_key in self.task_keys:
                 task_key_logger.log_accessed_from_memory(task_key)
-            return self._results_by_name
+            return self._results_by_dnode
 
-        results_by_name = dict()
+        results_by_dnode = dict()
         for accessor in self._cache_accessors:
             result = accessor.load_result()
             task_key_logger.log_loaded_from_disk(result.query.task_key)
@@ -151,12 +151,12 @@ class TaskState:
             # query.
             accessor.save_result(result)
 
-            results_by_name[result.query.dnode.to_entity_name()] = result
+            results_by_dnode[result.query.dnode] = result
 
         if self.should_memoize:
-            self._results_by_name = results_by_name
+            self._results_by_dnode = results_by_dnode
 
-        return results_by_name
+        return results_by_dnode
 
     def _compute(self, task_key_logger):
         """
@@ -172,15 +172,15 @@ class TaskState:
         for dep_state, dep_key in zip(self.dep_states, task.dep_keys):
             assert dep_state.is_complete or dep_state.is_completable
             if dep_state.is_complete:
-                dep_results_by_name = dep_state.get_results_assuming_complete(
+                dep_results_by_dnode = dep_state.get_results_assuming_complete(
                     task_key_logger
                 )
             else:
                 # If dep_state is not complete yet, that's probably because the results
                 # aren't communicated between processes. Compute the results to populate
                 # the in-memory cache.
-                dep_results_by_name = dep_state._compute(task_key_logger)
-            dep_results.append(dep_results_by_name[dep_key.dnode.to_entity_name()])
+                dep_results_by_dnode = dep_state._compute(task_key_logger)
+            dep_results.append(dep_results_by_dnode[dep_key.dnode])
 
         if not task.is_simple_lookup:
             for task_key in self.task_keys:
@@ -190,16 +190,15 @@ class TaskState:
 
         # If we have any missing outputs, exit early with a missing result.
         if self.output_would_be_missing():
-            results_by_name = {}
-            result_value_hashes_by_name = {}
+            results_by_dnode = {}
+            result_value_hashes_by_dnode = {}
             for query in self._queries:
                 result = Result(query=query, value=None, value_is_missing=True)
-                entity_name = query.dnode.to_entity_name()
-                results_by_name[entity_name] = result
-                result_value_hashes_by_name[entity_name] = ""
-            self._results_by_name = results_by_name
-            self._result_value_hashes_by_name = result_value_hashes_by_name
-            return self._results_by_name
+                results_by_dnode[query.dnode] = result
+                result_value_hashes_by_dnode[query.dnode] = ""
+            self._results_by_dnode = results_by_dnode
+            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
+            return self._results_by_dnode
 
         else:
             # If we have no missing outputs, we should not be consuming any missing
@@ -217,8 +216,8 @@ class TaskState:
             else:
                 task_key_logger.log_computed(query.task_key)
 
-        results_by_name = {}
-        result_value_hashes_by_name = {}
+        results_by_dnode = {}
+        result_value_hashes_by_dnode = {}
         for ix, (query, value) in enumerate(zip(self._queries, values)):
             query.protocol.validate(value)
 
@@ -229,22 +228,22 @@ class TaskState:
                 accessor.save_result(result)
 
                 value_hash = accessor.load_result_value_hash()
-                result_value_hashes_by_name[query.dnode.to_entity_name()] = value_hash
+                result_value_hashes_by_dnode[query.dnode] = value_hash
 
-            results_by_name[query.dnode.to_entity_name()] = result
+            results_by_dnode[query.dnode] = result
 
         # Memoize results at this point only if results should not persist.
         # Otherwise, load it lazily later so that if the serialized/deserialized
         # value is not exactly the same as the original, we still
         # always return the same value.
         if self.should_memoize and not self.should_persist:
-            self._results_by_name = results_by_name
+            self._results_by_dnode = results_by_dnode
 
         # But we cache the hashed values eagerly since they are cheap to load.
         if self.should_persist:
-            self._result_value_hashes_by_name = result_value_hashes_by_name
+            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
 
-        return self._results_by_name
+        return self._results_by_dnode
 
     def sync_after_subprocess_completion(self):
         """
@@ -268,22 +267,22 @@ class TaskState:
             accessor.flush_stored_entries()
 
         # Then, populate the value hash.
-        if self._result_value_hashes_by_name is None:
-            self._result_value_hashes_by_name = {}
+        if self._result_value_hashes_by_dnode is None:
+            self._result_value_hashes_by_dnode = {}
             for accessor in self._cache_accessors:
                 value_hash = accessor.load_result_value_hash()
-                name = accessor.query.dnode.to_entity_name()
                 if value_hash is None:
                     raise AssertionError(
                         oneline(
                             f"""
-                        Failed to load cached value (hash) for entity {name!r};
-                        this suggests we did not successfully completed the entity
-                        in subprocess or the entity wasn't cached which should not
-                        happen."""
+                        Failed to load cached value (hash) for descriptor
+                        {accessor.query.dnode.to_descriptor()!r}.
+                        This suggests we did not successfully complete the task
+                        in subprocess, or the entity wasn't cached;
+                        this should be impossible!"""
                         )
                     )
-                self._result_value_hashes_by_name[name] = value_hash
+                self._result_value_hashes_by_dnode[accessor.query.dnode] = value_hash
 
         # Lastly, we can mark the process as complete.
         self.is_complete = True
@@ -308,9 +307,7 @@ class TaskState:
         for dep_key, dep_state in zip(self.task.dep_keys, self.dep_states):
             # Use value hash of persistable values.
             if dep_state.should_persist:
-                value_hash = dep_state._result_value_hashes_by_name[
-                    dep_key.dnode.to_entity_name()
-                ]
+                value_hash = dep_state._result_value_hashes_by_dnode[dep_key.dnode]
                 dep_provenance_digests_by_task_key[
                     dep_key
                 ] = ProvenanceDigest.from_value_hash(value_hash)
@@ -344,6 +341,7 @@ class TaskState:
         # Lastly, set up cache accessors.
         if self.should_persist:
             if bootstrap is None:
+                # TODO TaskKey.entity_name does not exist, so this will crash.
                 name = self.task_keys[0].entity_name
                 raise AssertionError(
                     oneline(
@@ -437,7 +435,7 @@ class TaskState:
         task_state = copy.copy(self)
 
         # Clear up memoized cache to avoid sending it through IPC.
-        task_state._results_by_name = None
+        task_state._results_by_dnode = None
         # Clear up fields not needed in subprocess, for computing or for cache lookup.
         task_state.provider = None
         task_state.case_key = None
