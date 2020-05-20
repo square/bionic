@@ -1,7 +1,6 @@
 import pytest
 
 import getpass
-import logging
 import random
 
 from multiprocessing.managers import SyncManager
@@ -10,8 +9,7 @@ from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 
 import bionic as bn
 from bionic.decorators import persist
-from bionic.deriver import TaskKeyLogger
-from bionic.optdep import import_optional_dependency
+from bionic.util import SynchronizedSet
 
 
 @pytest.fixture(scope="session")
@@ -28,6 +26,7 @@ def process_manager(parallel_processing_enabled, request):
         pass
 
     MyManager.register("ResettingCounter", ResettingCounter)
+    MyManager.register("SynchronizedSet", SynchronizedSet)
     manager = MyManager()
     manager.start()
     request.addfinalizer(manager.shutdown)

@@ -3,7 +3,6 @@ Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 """
 
-import logging
 import os
 import shutil
 import warnings
@@ -12,7 +11,7 @@ from importlib import reload
 from textwrap import dedent
 from uuid import uuid4
 
-from multiprocessing import Manager
+from multiprocessing.managers import BaseManager
 
 import pyrsistent as pyrs
 import pandas as pd
@@ -33,7 +32,7 @@ from .provider import (
     multi_index_from_case_keys,
     AttrUpdateProvider,
 )
-from .deriver import EntityDeriver, TaskKeyLogger
+from .deriver import EntityDeriver
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .util import (
@@ -43,6 +42,7 @@ from .util import (
     copy_to_gcs,
     FileCopier,
     oneline,
+    SynchronizedSet,
 )
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
@@ -1726,7 +1726,14 @@ def create_default_flow_state():
         if not core__parallel_processing__enabled:
             return None
 
-        return Manager()
+        class MyManager(BaseManager):
+            pass
+
+        MyManager.register("SynchronizedSet", SynchronizedSet)
+
+        manager = MyManager()
+        manager.start()
+        return manager
 
     @builder
     @decorators.immediate

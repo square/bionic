@@ -7,14 +7,13 @@ from concurrent.futures import wait, FIRST_COMPLETED
 from enum import Enum, auto
 
 import attr
-import threading
 
 from .datatypes import ResultGroup
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .exception import AttributeValidationError
 from .optdep import import_optional_dependency
 from .task_state import TaskState
-from .util import oneline
+from .util import oneline, SynchronizedSet
 
 import logging
 
@@ -380,41 +379,19 @@ class TaskKeyLogger:
     def __init__(self, bootstrap):
         self._level = logging.INFO if bootstrap is not None else logging.DEBUG
 
-        class TaskKeySet:
-            """
-            Keeps track of task keys, for both parallel and serial processing. It also
-            exposes a method that returns whether the task key has been seen before and
-            adds it if requested.
-            """
-
-            def __init__(self, manager):
-                if manager is not None:
-                    self.task_keys = manager.dict()
-                    self.lock = manager.Lock()
-                else:
-                    self.task_keys = {}
-                    self.lock = threading.Lock()
-
-            def try_to_add(self, task_key):
-                with self.lock:
-                    if task_key in self.task_keys:
-                        return False
-                    self.task_keys[task_key] = True
-                    return True
-
-            def contains(self, task_key):
-                return task_key in self.task_keys
-
         manager = bootstrap.process_manager if bootstrap is not None else None
-        self._task_key_set = TaskKeySet(manager)
+        if manager is not None:
+            self._already_logged_task_key_set = manager.SynchronizedSet()
+        else:
+            self._already_logged_task_key_set = SynchronizedSet()
 
     def _log(self, template, task_key, is_resolved=True):
         if not is_resolved:
-            can_log = not self._task_key_set.contains(task_key)
+            should_log = not self._already_logged_task_key_set.contains(task_key)
         else:
-            can_log = self._task_key_set.try_to_add(task_key)
+            should_log = self._already_logged_task_key_set.add(task_key)
 
-        if can_log:
+        if should_log:
             logger.log(self._level, template, task_key)
 
     def log_accessed_from_memory(self, task_key):
