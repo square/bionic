@@ -1014,3 +1014,27 @@ def test_changes_per_run_and_not_memoize(builder):
 
     with pytest.raises(AttributeValidationError):
         builder.build().get("x_plus_one")
+
+
+def test_updating_cache_works_only_with_immediate(builder):
+    persistent_cache = builder.build().get("core__persistent_cache")
+
+    @builder
+    @bn.immediate
+    def core__persistent_cache():
+        return persistent_cache
+
+    @builder
+    def x():
+        return 1
+
+    assert builder.build().get("x") == 1
+
+    @builder  # noqa: F811
+    def core__persistent_cache():
+        return persistent_cache
+
+    # Since we didn't use @immediate, this should fail, because it will attempt to
+    # persist the cache entity using a cache, which leads to a circular dependency.
+    with pytest.raises(AttributeValidationError):
+        builder.build().get("x")
