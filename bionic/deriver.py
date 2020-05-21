@@ -144,8 +144,7 @@ class EntityDeriver:
             versioning_policy=self._bootstrap_singleton_entity(
                 "core__versioning_policy"
             ),
-            process_manager=self._bootstrap_singleton_entity("core__process_manager"),
-            process_executor=self._bootstrap_singleton_entity("core__process_executor"),
+            executor=self._bootstrap_singleton_entity("core__executor"),
         )
 
     def _prevalidate_base_dnodes(self):
@@ -341,8 +340,8 @@ class EntityDeriver:
         task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
         task_runner.run(requested_task_states)
 
-        if self._bootstrap is not None and self._bootstrap.process_executor is not None:
-            self._bootstrap.process_executor.flush_logs()
+        if self._bootstrap is not None and self._bootstrap.executor is not None:
+            self._bootstrap.executor.flush_logs()
 
         for state in requested_task_states:
             assert state.is_complete, state
@@ -364,8 +363,7 @@ class Bootstrap:
 
     persistent_cache = attr.ib()
     versioning_policy = attr.ib()
-    process_manager = attr.ib()
-    process_executor = attr.ib()
+    executor = attr.ib()
 
 
 class TaskKeyLogger:
@@ -379,9 +377,9 @@ class TaskKeyLogger:
     def __init__(self, bootstrap):
         self._level = logging.INFO if bootstrap is not None else logging.DEBUG
 
-        manager = bootstrap.process_manager if bootstrap is not None else None
-        if manager is not None:
-            self._already_logged_task_key_set = manager.SynchronizedSet()
+        executor = bootstrap.executor if bootstrap is not None else None
+        if executor is not None:
+            self._already_logged_task_key_set = executor.create_synchronized_set()
         else:
             self._already_logged_task_key_set = SynchronizedSet()
 
@@ -506,7 +504,7 @@ class TaskCompletionRunner:
             # This is a bootstrap entity.
             self._bootstrap is None
             # Complete the task state serially.
-            or self._bootstrap.process_executor is None
+            or self._bootstrap.executor is None
             # This is a non-serializable entity that needs to be returned.
             or (
                 not state.should_persist
@@ -524,7 +522,7 @@ class TaskCompletionRunner:
         elif state.should_persist:
             # TODO: Logging support for multiple processes not done yet.
             new_state_for_subprocess = state.strip_state_for_subprocess()
-            future = self._bootstrap.process_executor.submit(
+            future = self._bootstrap.executor.submit(
                 new_state_for_subprocess.complete, self.task_key_logger
             )
             self._mark_entry_in_progress(entry, future)

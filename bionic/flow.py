@@ -11,8 +11,6 @@ from importlib import reload
 from textwrap import dedent
 from uuid import uuid4
 
-from multiprocessing.managers import BaseManager
-
 import pyrsistent as pyrs
 import pandas as pd
 
@@ -42,7 +40,6 @@ from .util import (
     copy_to_gcs,
     FileCopier,
     oneline,
-    SynchronizedSet,
 )
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
@@ -1722,33 +1719,10 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__process_manager(core__parallel_processing__enabled):
+    def core__executor(core__parallel_processing__enabled):
         if not core__parallel_processing__enabled:
             return None
 
-        class MyManager(BaseManager):
-            pass
-
-        MyManager.register("SynchronizedSet", SynchronizedSet)
-
-        manager = MyManager()
-        manager.start()
-        return manager
-
-    @builder
-    @decorators.immediate
-    def core__process_executor(
-        core__parallel_processing__enabled, core__process_manager
-    ):
-        if not core__parallel_processing__enabled:
-            return None
-
-        if core__process_manager is None:
-            message = """Expected core__process_manager to have a value,
-            cannot be None when core__parallel_processing__enabled is True.
-            """
-            raise ValueError(oneline(message))
-
-        return get_reusable_executor(core__process_manager)
+        return get_reusable_executor()
 
     return builder._state.mark_all_entities_default()
