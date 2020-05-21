@@ -23,7 +23,7 @@ from pyarrow import parquet, Table
 import pandas as pd
 
 from .decoration import decorator_updating_accumulator
-from .exception import AttributeValidationError, UnsupportedSerializedValueError
+from .exception import UnsupportedSerializedValueError
 from .optdep import import_optional_dependency
 from .util import (
     read_hashable_bytes_from_file_or_dir,

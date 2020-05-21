@@ -10,7 +10,7 @@ import attr
 
 from .datatypes import ResultGroup
 from .descriptors.parsing import entity_dnode_from_descriptor
-from .exception import AttributeValidationError, UndefinedEntityError
+from .exception import AttributeValidationError
 from .optdep import import_optional_dependency
 from .task_state import TaskState
 from .util import oneline
