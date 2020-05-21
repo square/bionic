@@ -1716,13 +1716,16 @@ def create_default_flow_state():
         )
 
     builder.assign("core__parallel_processing__enabled", False)
+    # The executor uses max available CPUs when set to None.
+    builder.assign("core__parallel_processing__worker_count", None)
 
     @builder
     @decorators.immediate
-    def core__executor(core__parallel_processing__enabled):
+    def core__executor(
+        core__parallel_processing__enabled, core__parallel_processing__worker_count,
+    ):
         if not core__parallel_processing__enabled:
             return None
-
-        return get_reusable_executor()
+        return get_reusable_executor(core__parallel_processing__worker_count)
 
     return builder._state.mark_all_entities_default()

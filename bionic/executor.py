@@ -10,6 +10,7 @@ import queue
 import sys
 import threading
 import traceback
+import warnings
 
 from multiprocessing.managers import SyncManager
 
@@ -19,16 +20,30 @@ from .util import oneline, SynchronizedSet
 _executor = None
 
 
-def get_reusable_executor():
+def get_reusable_executor(worker_count):
     global _executor
 
-    # TODO: For now, executor is always the same. But once the worker
-    # count is configurable, we should try and update the loky executor
-    # and log a warn if the executor changed.
     if _executor is None:
-        _executor = Executor()
+        _executor = Executor(worker_count)
+    else:
+        prev_worker_count = _executor.worker_count
+        process_pool_resized = _executor.init_or_resize_process_pool(worker_count)
+        if process_pool_resized:
+            warning = f"""
+            The number of workers in the global Loky process pool has
+            changed from {_format_worker_count(prev_worker_count)} to
+            {_format_worker_count(worker_count)}. Because this pool is
+            global, all parallel jobs will now run with the new number
+            of workers, even in Bionic flows that were configured with
+            the old number.
+            """
+            warnings.warn(oneline(warning))
 
     return _executor
+
+
+def _format_worker_count(worker_count):
+    return worker_count if worker_count is not None else "the default value"
 
 
 class Executor:
@@ -38,7 +53,9 @@ class Executor:
     logging to work seamlessly.
     """
 
-    def __init__(self):
+    def __init__(self, worker_count):
+        self.worker_count = worker_count
+
         class MyManager(SyncManager):
             pass
 
@@ -50,18 +67,37 @@ class Executor:
         self._logging_receiver = LoggingReceiver(self._logging_queue)
         self._logging_receiver.start()
 
+        self._process_pool_exec = None
+        self.init_or_resize_process_pool(worker_count)
+
+    def init_or_resize_process_pool(self, worker_count):
+        """
+        If the process pool is not initialized yet, initializes it and
+        returns True.
+
+        If already initialized, resizes the process pool if the
+        worker_count is different than the worker count used previously
+        and returns whether the process pool was resized.
+        """
+
+        # When already initialized and worker count didn't change,
+        # no need to resize the process pool.
+        if self._process_pool_exec is not None and worker_count == self.worker_count:
+            return False
+
+        self.worker_count = worker_count
+
         # Loky uses cloudpickle by default. We should investigate further what would
         # it take to make is use pickle and wrap the functions that are non-picklable
         # using `loky.wrap_non_picklable_objects`.
         loky = import_optional_dependency("loky", purpose="parallel processing")
 
-        # TODO: Use a config / cpu cores instead of using a hardcoded value.
-        # Same applies to the test executor.
         self._process_pool_exec = loky.get_reusable_executor(
-            max_workers=2,
+            max_workers=worker_count,
             initializer=logging_initializer,
             initargs=(self._logging_queue,),
         )
+        return True
 
     def flush_logs(self):
         self._logging_receiver.flush()
