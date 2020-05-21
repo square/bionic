@@ -9,49 +9,42 @@ from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 
 import bionic as bn
 from bionic.decorators import persist
-from bionic.deriver import TaskKeyLogger
-from bionic.optdep import import_optional_dependency
+from bionic.util import SynchronizedSet
 
 
 @pytest.fixture(scope="session")
-def process_executor(request):
-    if not request.config.getoption("--parallel"):
-        return None
-
-    loky = import_optional_dependency("loky", purpose="parallel processing")
-    return loky.get_reusable_executor(max_workers=2)
+def parallel_processing_enabled(request):
+    return request.config.getoption("--parallel")
 
 
 @pytest.fixture(scope="session")
-def process_manager(request):
-    if not request.config.getoption("--parallel"):
+def process_manager(parallel_processing_enabled, request):
+    if not parallel_processing_enabled:
         return None
 
     class MyManager(SyncManager):
         pass
 
     MyManager.register("ResettingCounter", ResettingCounter)
-    MyManager.register("TaskKeyLogger", TaskKeyLogger)
+    MyManager.register("SynchronizedSet", SynchronizedSet)
     manager = MyManager()
     manager.start()
+    request.addfinalizer(manager.shutdown)
+
     return manager
 
 
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture(scope="function")
-def builder(process_executor, process_manager, tmp_path):
+def builder(parallel_processing_enabled, process_manager, tmp_path):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
+    builder.set("core__parallel_processing__enabled", parallel_processing_enabled)
 
     # We can't use builder.set here because that uses ValueProvider which tries to
     # tokenize the value by writing / pickling it. We go around that issue by making
     # them use FunctionProvider.
-    @builder
-    @persist(False)
-    def core__process_executor():
-        return process_executor
-
     @builder
     @persist(False)
     def core__process_manager():

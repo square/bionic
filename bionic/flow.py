@@ -26,13 +26,13 @@ from .exception import (
     IncompatibleEntityError,
     UnsetEntityError,
 )
-from .optdep import import_optional_dependency
+from .executor import get_reusable_executor
 from .provider import (
     ValueProvider,
     multi_index_from_case_keys,
     AttrUpdateProvider,
 )
-from .deriver import EntityDeriver, TaskKeyLogger
+from .deriver import EntityDeriver
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .util import (
@@ -42,6 +42,7 @@ from .util import (
     copy_to_gcs,
     FileCopier,
     oneline,
+    SynchronizedSet,
 )
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
@@ -1721,20 +1722,6 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__process_executor(core__parallel_processing__enabled):
-        if not core__parallel_processing__enabled:
-            return None
-
-        # Loky uses cloudpickle by default. We should investigate further what would
-        # it take to make is use pickle and wrap the functions that are non-picklable
-        # using `loky.wrap_non_picklable_objects`.
-        loky = import_optional_dependency("loky", purpose="parallel processing")
-        # TODO: Use a config / cpu cores instead of using a hardcoded value.
-        # Same applies to the test executor.
-        return loky.get_reusable_executor(max_workers=2)
-
-    @builder
-    @decorators.immediate
     def core__process_manager(core__parallel_processing__enabled):
         if not core__parallel_processing__enabled:
             return None
@@ -1742,10 +1729,26 @@ def create_default_flow_state():
         class MyManager(BaseManager):
             pass
 
-        MyManager.register("TaskKeyLogger", TaskKeyLogger)
+        MyManager.register("SynchronizedSet", SynchronizedSet)
 
         manager = MyManager()
         manager.start()
         return manager
+
+    @builder
+    @decorators.immediate
+    def core__process_executor(
+        core__parallel_processing__enabled, core__process_manager
+    ):
+        if not core__parallel_processing__enabled:
+            return None
+
+        if core__process_manager is None:
+            message = """Expected core__process_manager to have a value,
+            cannot be None when core__parallel_processing__enabled is True.
+            """
+            raise ValueError(oneline(message))
+
+        return get_reusable_executor(core__process_manager)
 
     return builder._state.mark_all_entities_default()

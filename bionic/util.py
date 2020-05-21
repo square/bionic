@@ -7,6 +7,7 @@ from hashlib import sha256
 from binascii import hexlify
 import re
 import subprocess
+import threading
 import warnings
 import shutil
 
@@ -413,3 +414,29 @@ def init_basic_logging(level=logging.INFO):
         format="%(asctime)s %(levelname)s %(name)16s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+
+class SynchronizedSet:
+    """
+    A set-like class that only exposes add() and contains() method.
+    The add() operation returns whether a new value was added and is
+    atomic.
+    """
+
+    def __init__(self):
+        self.values = set()
+        self.lock = threading.Lock()
+
+    def add(self, value):
+        """
+        Adds the value and returns True if the value isn't present in the
+        set. Returns False if the set already contains the value.
+        """
+        with self.lock:
+            if self.contains(value):
+                return False
+            self.values.add(value)
+            return True
+
+    def contains(self, value):
+        return value in self.values

@@ -19,8 +19,7 @@ def log_checker(caplog):
     return LogChecker(caplog)
 
 
-@pytest.mark.no_parallel
-def test_logging_details(builder, log_checker):
+def test_logging_details(builder, log_checker, parallel_processing_enabled):
     """
     Test the details of the log messages we emit. Since these messages are currently the
     best way to get visibility into what Bionic is doing, we have much more detailed
@@ -43,7 +42,6 @@ def test_logging_details(builder, log_checker):
 
     flow = builder.build()
     assert flow.get("x_plus_one") == 2
-
     log_checker.expect(
         "Accessed   x(x=1) from definition",
         "Computing  x_plus_one(x=1) ...",
@@ -51,32 +49,57 @@ def test_logging_details(builder, log_checker):
     )
 
     assert flow.get("x_plus_two") == 3
-    log_checker.expect(
-        "Accessed   x_plus_one(x=1) from in-memory cache",
-        "Computing  x_plus_two(x=1) ...",
-        "Computed   x_plus_two(x=1)",
-    )
+
+    if parallel_processing_enabled:
+        # This is different from serial processing because we don't pass
+        # in-memory cache to the subprocesses. The subprocess loads the
+        # entities from disk cache instead.
+        log_checker.expect(
+            "Loaded     x_plus_one(x=1) from disk cache",
+            "Computing  x_plus_two(x=1) ...",
+            "Computed   x_plus_two(x=1)",
+        )
+    else:
+        log_checker.expect(
+            "Accessed   x_plus_one(x=1) from in-memory cache",
+            "Computing  x_plus_two(x=1) ...",
+            "Computed   x_plus_two(x=1)",
+        )
 
     flow = builder.build()
     assert flow.get("x_plus_one") == 2
-    log_checker.expect(
+    if parallel_processing_enabled:
+        # This is different from serial processing because we don't access
+        # the definitions for simple lookup objects in parallel processing
+        # unless we use the objects for computation. Here, since we load
+        # x_plus_one from disk cache, we don't access the definition for x.
+        # To clarify: we do access it for looking at the cache, but it's
+        # taken from case key where it is loaded by default and is not
+        # counted as definition access in the flow.
+        log_checker.expect("Loaded     x_plus_one(x=1) from disk cache")
+    else:
         # We need to access x in order to determine whether x_plus_one can be
         # loaded from disk.
-        "Accessed   x(x=1) from definition",
-        "Loaded     x_plus_one(x=1) from disk cache",
-    )
+        log_checker.expect(
+            "Accessed   x(x=1) from definition",
+            "Loaded     x_plus_one(x=1) from disk cache",
+        )
 
     flow = builder.build()
     assert flow.get("x_plus_two") == 3
-    log_checker.expect(
-        # We need to access x in order to determine whether x_plus_two can be
-        # loaded from disk.
-        "Accessed   x(x=1) from definition",
-        # However, we don't log anything for x_plus_one, since we only load its
-        # hash, not its actual value. A little weird, but probably not worth
-        # worrying too much about.
-        "Loaded     x_plus_two(x=1) from disk cache",
-    )
+    if parallel_processing_enabled:
+        # Same comment here wrt serial processing as last check.
+        log_checker.expect("Loaded     x_plus_two(x=1) from disk cache")
+    else:
+        log_checker.expect(
+            # We need to access x in order to determine whether x_plus_two can be
+            # loaded from disk.
+            "Accessed   x(x=1) from definition",
+            # However, we don't log anything for x_plus_one, since we only load its
+            # hash, not its actual value. A little weird, but probably not worth
+            # worrying too much about.
+            "Loaded     x_plus_two(x=1) from disk cache",
+        )
 
     flow = flow.setting("x_plus_one", 3)
     assert flow.get("x_plus_two") == 4
