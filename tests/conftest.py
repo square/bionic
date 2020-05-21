@@ -8,13 +8,21 @@ from multiprocessing.managers import SyncManager
 from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 
 import bionic as bn
-from bionic.decorators import persist
-from bionic.util import SynchronizedSet
 
 
 @pytest.fixture(scope="session")
 def parallel_processing_enabled(request):
     return request.config.getoption("--parallel")
+
+
+# We provide this at the top level because we want everyone using FlowBuilder
+# to use a temporary directory rather than the default one.
+@pytest.fixture(scope="function")
+def builder(parallel_processing_enabled, tmp_path):
+    builder = bn.FlowBuilder("test")
+    builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
+    builder.set("core__parallel_processing__enabled", parallel_processing_enabled)
+    return builder
 
 
 @pytest.fixture(scope="session")
@@ -26,31 +34,10 @@ def process_manager(parallel_processing_enabled, request):
         pass
 
     MyManager.register("ResettingCounter", ResettingCounter)
-    MyManager.register("SynchronizedSet", SynchronizedSet)
     manager = MyManager()
     manager.start()
     request.addfinalizer(manager.shutdown)
-
     return manager
-
-
-# We provide this at the top level because we want everyone using FlowBuilder
-# to use a temporary directory rather than the default one.
-@pytest.fixture(scope="function")
-def builder(parallel_processing_enabled, process_manager, tmp_path):
-    builder = bn.FlowBuilder("test")
-    builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
-    builder.set("core__parallel_processing__enabled", parallel_processing_enabled)
-
-    # We can't use builder.set here because that uses ValueProvider which tries to
-    # tokenize the value by writing / pickling it. We go around that issue by making
-    # them use FunctionProvider.
-    @builder
-    @persist(False)
-    def core__process_manager():
-        return process_manager
-
-    return builder
 
 
 @pytest.fixture

@@ -11,34 +11,42 @@ import sys
 import threading
 import traceback
 
+from multiprocessing.managers import SyncManager
+
 from .optdep import import_optional_dependency
-from .util import oneline
+from .util import oneline, SynchronizedSet
 
 _executor = None
 
 
-def get_reusable_executor(process_manager):
+def get_reusable_executor():
     global _executor
 
     # TODO: For now, executor is always the same. But once the worker
     # count is configurable, we should try and update the loky executor
     # and log a warn if the executor changed.
     if _executor is None:
-        _executor = Executor(process_manager)
+        _executor = Executor()
 
     return _executor
 
 
 class Executor:
     """
-    Encapsulates all objects related to parallel processing sans manager
-    in one place. It wraps the Loky parallel processing executor in a way
-    that allows logging to work seamlessly.
+    Encapsulates all objects related to parallel processing in one place.
+    It wraps the Loky parallel processing executor in a way that allows
+    logging to work seamlessly.
     """
 
-    # TODO move process manager into the executor class.
-    def __init__(self, process_manager):
-        self._logging_queue = process_manager.Queue(-1)
+    def __init__(self):
+        class MyManager(SyncManager):
+            pass
+
+        MyManager.register("SynchronizedSet", SynchronizedSet)
+        self.process_manager = MyManager()
+        self.process_manager.start()
+
+        self._logging_queue = self.process_manager.Queue(-1)
         self._logging_receiver = LoggingReceiver(self._logging_queue)
         self._logging_receiver.start()
 
@@ -60,6 +68,9 @@ class Executor:
 
     def submit(self, fn, *args, **kwargs):
         return self._process_pool_exec.submit(fn, *args, **kwargs)
+
+    def create_synchronized_set(self):
+        return self.process_manager.SynchronizedSet()
 
 
 def logging_initializer(logging_queue):
