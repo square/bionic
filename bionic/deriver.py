@@ -8,10 +8,13 @@ from enum import Enum, auto
 
 import attr
 
-from .datatypes import ResultGroup
+from .datatypes import ResultGroup, EntityDefinition
 from .descriptors.parsing import entity_dnode_from_descriptor
-from .exception import AttributeValidationError
+from .descriptors import ast
+from .exception import AttributeValidationError, UndefinedEntityError
 from .optdep import import_optional_dependency
+from .protocols import TupleProtocol
+from .provider import TupleConstructionProvider, TupleDeconstructionProvider
 from .task_state import TaskState
 from .util import oneline, SynchronizedSet
 
@@ -38,6 +41,10 @@ class EntityDeriver:
         self._flow_state = flow_state
         self._flow_instance_uuid = flow_instance_uuid
 
+        # For many dnodes, we can precompute the appropriate provider ahead of time.
+        # This is set by _register_static_providers().
+        self._static_providers_by_dnode = None
+
         # These are used to cache DescriptorInfo and TaskState objects, respectively.
         self._saved_dinfos_by_dnode = {}
         self._saved_task_states_by_key = {}
@@ -49,11 +56,16 @@ class EntityDeriver:
         # entities.
         self._bootstrap = None
 
+    # TODO We should adjust the wording of the docstring below or refactor this a
+    # little. It's not necessary for *the user* to call this method, but it is necessary
+    # for it to get called before calling _compute_result_group_for_dnode(), which is
+    # why derive() calls it.
     def get_ready(self):
         """
         Make sure this Deriver is ready to derive().  Calling this is not
         necessary but allows errors to surface earlier.
         """
+        self._register_static_providers()
         self._prevalidate_base_dnodes()
         self._set_up_bootstrap()
 
@@ -81,24 +93,30 @@ class EntityDeriver:
         """
         nx = import_optional_dependency("networkx", purpose="constructing the flow DAG")
 
-        def should_include_entity_name(name):
-            return include_core or not self.entity_is_internal(entity_name)
+        def should_include_dnode(dnode):
+            if include_core:
+                return True
+            if isinstance(dnode, ast.EntityNode):
+                return not self.entity_is_internal(dnode.to_entity_name())
+            return True
 
         self.get_ready()
 
         graph = nx.DiGraph()
 
-        for dnode in self._get_base_dnodes():
-            tasks = self._get_or_create_dinfo_for_dnode(dnode).tasks
-
-            entity_name = dnode.to_descriptor()
-            if not should_include_entity_name(entity_name):
+        dnodes_to_add_to_graph = list(self._get_base_dnodes())
+        dnodes_already_added = set()
+        while dnodes_to_add_to_graph:
+            dnode = dnodes_to_add_to_graph.pop()
+            if dnode in dnodes_already_added:
                 continue
 
-            if len(tasks) == 1:
-                name_template = "{entity_name}"
-            else:
-                name_template = "{entity_name}[{task_ix}]"
+            if not should_include_dnode(dnode):
+                continue
+
+            tasks = self._get_or_create_dinfo_for_dnode(dnode).tasks
+            descriptor = dnode.to_descriptor()
+            doc = self._obtain_entity_def_for_dnode(dnode).doc
 
             for task_ix, task in enumerate(
                 sorted(tasks, key=lambda task: task.keys[0].case_key)
@@ -106,22 +124,26 @@ class EntityDeriver:
                 task_key = task.key_for_dnode(dnode)
                 state = self._get_or_create_task_state_for_key(task_key)
 
-                node_name = name_template.format(
-                    entity_name=entity_name, task_ix=task_ix
-                )
+                if len(tasks) == 1:
+                    node_name = descriptor
+                else:
+                    node_name = f"{dnode.to_descriptor(near_commas=True)}[{task_ix}]"
 
                 graph.add_node(
                     task_key,
                     name=node_name,
-                    entity_name=entity_name,
+                    descriptor=descriptor,
                     case_key=task_key.case_key,
                     task_ix=task_ix,
-                    doc=self._flow_state.get_entity_def(entity_name).doc,
+                    doc=doc,
                 )
 
                 for dep_state in state.dep_states:
                     for dep_task_key in dep_state.task.keys:
                         graph.add_edge(dep_task_key, task_key)
+                        dnodes_to_add_to_graph.append(dep_task_key.dnode)
+
+            dnodes_already_added.add(dnode)
 
         return graph
 
@@ -130,6 +152,46 @@ class EntityDeriver:
         return entity_name.startswith("core__")
 
     # --- Private helpers.
+
+    def _register_static_providers(self):
+        """
+        Precomputes an appropriate provider for each the following descriptor nodes:
+
+        1. Any descriptor explicitly provided by a user-supplied function.
+        2. Any descriptor which can be obtained by decomposing one of the first types of
+        descriptors. (E.g., if a user function provides the descriptor "x, (y, z)",
+        we will also precompute a provider for "x"; "y, z"; "y"; and "z".)
+
+        This includes every entity descriptor that can be computed. The remaining
+        descriptors are all tuples, so it's easy to generate providers for them
+        just-in-time because they're composed from other descriptors. (For example,
+        in the example above, it's easy to make a provider for "x, y" because we know
+        that "x" and "y" must be precomputed. However, finding a provider
+        just-in-time for "z" would require a backtracking search, which is why we
+        precompute it instead.)
+
+        The just-in-time computation happens in _obtain_provider_for_dnode().
+        """
+
+        if self._static_providers_by_dnode is not None:
+            return
+
+        static_providers_by_dnode = {}
+
+        def register_provider(provider):
+            for dnode in provider.attrs.dnodes:
+                assert dnode not in static_providers_by_dnode
+                static_providers_by_dnode[dnode] = provider
+
+                if isinstance(dnode, ast.TupleNode):
+                    for child_dnode in dnode.children:
+                        child_provider = TupleDeconstructionProvider(child_dnode, dnode)
+                        register_provider(child_provider)
+
+        for provider in set(self._flow_state.providers_by_name.values()):
+            register_provider(provider)
+
+        self._static_providers_by_dnode = static_providers_by_dnode
 
     def _set_up_bootstrap(self):
         """
@@ -180,15 +242,69 @@ class EntityDeriver:
     def _get_base_dnodes(self):
         """
         Returns the list of descriptor nodes needed to compute all user-defined entities
-        and internal entities. (At the time of writing, this includes every
-        valid descriptor, but in the future there will be an infinite number
-        of valid descriptors.)
+        and internal entities.
         """
 
         return [
             entity_dnode_from_descriptor(entity_name)
-            for entity_name in self._flow_state.providers_by_name.keys()
+            for entity_name in self._flow_state.entity_defs_by_name.keys()
         ]
+
+    def _obtain_provider_for_dnode(self, dnode):
+        """
+        Returns a Provider object for a given descriptor node -- either by finding
+        a statically precomputed provider, or automatically generating one.
+        """
+
+        assert self._static_providers_by_dnode is not None
+        if dnode in self._static_providers_by_dnode:
+            return self._static_providers_by_dnode[dnode]
+
+        if isinstance(dnode, ast.EntityNode):
+            entity_name = dnode.to_entity_name()
+            if entity_name in self._flow_state.entity_defs_by_name:
+                message = f"""
+                Unexpected failed to find a static provider for defined entity
+                {entity_name!r};
+                this should be impossible!
+                """
+                raise AssertionError(oneline(message))
+
+            raise UndefinedEntityError.for_name(entity_name)
+
+        elif isinstance(dnode, ast.TupleNode):
+            return TupleConstructionProvider(dnode)
+
+        else:
+            raise AssertionError(
+                f"Unexpected dnode type {type(dnode)!r} for dnode {dnode!r}"
+            )
+
+    def _obtain_entity_def_for_dnode(self, dnode):
+        """
+        Returns an EntityDefinition object for a given descriptor node. If the node is
+        an entity, this returns the definition specified by the user; if the node is a
+        tuple, we generate a synthetic definition.
+        """
+
+        if isinstance(dnode, ast.EntityNode):
+            return self._flow_state.get_entity_def(dnode.to_descriptor())
+
+        elif isinstance(dnode, ast.TupleNode):
+            # TODO Since we're using this to describe things something that's not an
+            # entity, we should rename `EntityDefinition` to something more general.
+            return EntityDefinition(
+                name=dnode.to_descriptor(),
+                protocol=TupleProtocol(len(dnode.children)),
+                doc=f"A Python tuple with {len(dnode.children)} values.",
+                can_memoize=True,
+                can_persist=False,
+            )
+
+        else:
+            raise AssertionError(
+                f"Unexpected dnode type {type(dnode)!r} for dnode {dnode!r}"
+            )
 
     def _get_or_create_dinfo_for_dnode(self, dnode):
         "Computes (and memoizes) a DescriptorInfo object for a descriptor node."
@@ -196,8 +312,7 @@ class EntityDeriver:
         if dnode in self._saved_dinfos_by_dnode:
             return self._saved_dinfos_by_dnode[dnode]
 
-        entity_name = dnode.to_entity_name()
-        provider = self._flow_state.get_provider(entity_name)
+        provider = self._obtain_provider_for_dnode(dnode)
 
         dep_dnodes = provider.get_dependency_dnodes()
         dep_dinfos = [
@@ -245,22 +360,25 @@ class EntityDeriver:
         dinfo = self._get_or_create_dinfo_for_dnode(dnode)
         task = dinfo.tasks_by_key[task_key]
 
-        entity_names = [task_key.dnode.to_entity_name() for task_key in task.keys]
-
         dep_states = [
             self._get_or_create_task_state_for_key(dep_key) for dep_key in task.dep_keys
         ]
-        # All keys in this task should point to the same provider, so the set below
+
+        # TODO We could have cached this in the DescriptorInfo object, but for now it's
+        # not expensive to just recompute it, so we'll just do that. However, we could
+        # also remove the need for this altogether: at this point the only thing a
+        # TaskState needs the provider for is to look up function metadata
+        # (code_fingerprint and changes_per_run), so we could extract that into a
+        # separate class and attach it either to the TaskState or to the Task itself.
+        provider = self._obtain_provider_for_dnode(dnode)
+
+        # All keys in this task should have the same case key, so the set below
         # should have exactly one element.
-        (provider,) = set(
-            self._flow_state.get_provider(entity_name) for entity_name in entity_names
-        )
-        # And all the task keys should have the same case key.
         (case_key,) = set(task_key.case_key for task_key in task.keys)
 
-        entity_defs_by_name = {
-            entity_name: self._flow_state.get_entity_def(entity_name)
-            for entity_name in entity_names
+        entity_defs_by_dnode = {
+            task_key.dnode: self._obtain_entity_def_for_dnode(task_key.dnode)
+            for task_key in task.keys
         }
 
         task_state = TaskState(
@@ -268,7 +386,7 @@ class EntityDeriver:
             dep_states=dep_states,
             case_key=case_key,
             provider=provider,
-            entity_defs_by_name=entity_defs_by_name,
+            entity_defs_by_dnode=entity_defs_by_dnode,
         )
 
         # Check that the provider configuration is valid.
@@ -276,7 +394,7 @@ class EntityDeriver:
             # TODO This message should say something like:
             #    "Entity with name ..." or "Entities with names ..."
             message = f"""
-            Entity with names {entity_names!r} uses @changes_per_run with
+            Entity with names {provider.entity_names!r} uses @changes_per_run with
             @memoize(False), which is not allowed. @changes_per_run computes once in
             a flow instance and memoizes the value. Memoization cannot be disabled
             for this entity.

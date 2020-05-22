@@ -13,20 +13,23 @@ class TaskState:
     intermediate state and the deriving logic.
     """
 
-    def __init__(self, task, dep_states, case_key, provider, entity_defs_by_name):
+    def __init__(self, task, dep_states, case_key, provider, entity_defs_by_dnode):
+        assert len(entity_defs_by_dnode) == len(task.keys)
+
         self.task = task
         self.dep_states = dep_states
         self.case_key = case_key
         self.provider = provider
-        self.entity_defs_by_name = entity_defs_by_name
+        self.entity_defs_by_dnode = entity_defs_by_dnode
 
         # In theory different entities for a single task could have different cache
-        # settings, but I'm not sure it can happen in practice (given the way grouped
-        # entities are created). At any rate, once we have tuple descriptors, each task
-        # state will only be responsible for a single entity and this won't be an issue.
+        # settings, but I'm not sure it can happen in practice (given the way
+        # grouped entities are created). At any rate, once we have tuple
+        # descriptors, each task state will only be responsible for a single entity
+        # and this won't be an issue.
         can_persist, can_memoize = single_unique_element(
             (entity_def.can_persist, entity_def.can_memoize)
-            for entity_def in entity_defs_by_name.values()
+            for entity_def in entity_defs_by_dnode.values()
         )
 
         # Cached values.
@@ -330,9 +333,7 @@ class TaskState:
         self._queries = [
             Query(
                 task_key=task_key,
-                protocol=self.entity_defs_by_name[
-                    task_key.dnode.to_entity_name()
-                ].protocol,
+                protocol=self.entity_defs_by_dnode[task_key.dnode].protocol,
                 provenance=self._provenance,
             )
             for task_key in self.task_keys
@@ -437,6 +438,7 @@ class TaskState:
         task_state._results_by_dnode = None
         # Clear up fields not needed in subprocess, for computing or for cache lookup.
         task_state.provider = None
+        task_state.entity_defs_by_dnode = None
         task_state.case_key = None
         task_state._provenance = None
 

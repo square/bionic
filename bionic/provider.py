@@ -25,6 +25,7 @@ from .datatypes import (
 )
 from .exception import EntityComputationError, IncompatibleEntityError
 from .descriptors.parsing import entity_dnode_from_descriptor
+from .descriptors import ast
 from .bytecode import canonical_bytecode_bytes_from_func
 from .util import groups_dict, hash_to_hex, oneline
 from .optdep import import_optional_dependency
@@ -110,6 +111,7 @@ class ValueProvider(BaseProvider):
             assert not provider._has_any_values
 
             (dnode,) = provider.attrs.dnodes
+            assert isinstance(dnode, ast.EntityNode)
             names.append(dnode.to_entity_name())
 
         return ValueProvider(names)
@@ -234,32 +236,20 @@ class ValueProvider(BaseProvider):
         return self._value_tuples_by_case_key[case_key]
 
 
-class FunctionProvider(BaseProvider):
-    def __init__(self, func):
-        name = func.__name__
-        dnode = entity_dnode_from_descriptor(name)
-        super(FunctionProvider, self).__init__(attrs=ProviderAttributes(dnodes=[dnode]))
+class BaseDerivedProvider(BaseProvider):
+    def __init__(self, out_dnode, dep_dnodes):
+        super(BaseDerivedProvider, self).__init__(
+            attrs=ProviderAttributes(dnodes=[out_dnode])
+        )
 
-        self._func = func
-        self.name = name
-        self.dnode = dnode
-
-        argspec = inspect.getfullargspec(func)
-
-        if argspec.varargs:
-            raise ValueError("Functions with varargs are not supported")
-        if argspec.varkw:
-            raise ValueError("Functions with keyword args are not supported")
-        self._dep_names = list(argspec.args)
-        self._dep_dnodes = [
-            entity_dnode_from_descriptor(dep_name) for dep_name in self._dep_names
-        ]
+        self._out_dnode = out_dnode
+        self._dep_dnodes = dep_dnodes
 
     def get_dependency_dnodes(self):
         return self._dep_dnodes
 
     def get_source_func(self):
-        return self._func
+        return self.compute_values_from_deps
 
     def get_key_space(self, dep_key_spaces_by_dnode):
         return CaseKeySpace.union_all(list(dep_key_spaces_by_dnode.values()))
@@ -273,7 +263,7 @@ class FunctionProvider(BaseProvider):
 
         return [
             Task(
-                keys=[TaskKey(dnode=self.dnode, case_key=case_key)],
+                keys=[TaskKey(dnode=self._out_dnode, case_key=case_key)],
                 dep_keys=[
                     TaskKey(
                         dnode=dep_dnode,
@@ -281,12 +271,40 @@ class FunctionProvider(BaseProvider):
                     )
                     for dep_dnode in self._dep_dnodes
                 ],
-                compute_func=self._apply,
+                compute_func=self.compute_values_from_deps,
             )
             for case_key in out_case_keys
         ]
 
-    def _apply(self, dep_values):
+    def compute_values_from_deps(self, dep_values):
+        raise NotImplementedError()
+
+
+class FunctionProvider(BaseDerivedProvider):
+    def __init__(self, func):
+        name = func.__name__
+        out_dnode = entity_dnode_from_descriptor(name)
+
+        argspec = inspect.getfullargspec(func)
+        if argspec.varargs:
+            raise ValueError("Functions with varargs are not supported")
+        if argspec.varkw:
+            raise ValueError("Functions with keyword args are not supported")
+        dep_names = list(argspec.args)
+        dep_dnodes = [entity_dnode_from_descriptor(dep_name) for dep_name in dep_names]
+
+        super(FunctionProvider, self).__init__(
+            out_dnode=out_dnode, dep_dnodes=dep_dnodes
+        )
+
+        self._func = func
+        self._dep_names = dep_names
+        self._dep_dnodes = dep_dnodes
+
+    def get_source_func(self):
+        return self._func
+
+    def compute_values_from_deps(self, dep_values):
         try:
             value = self._func(*dep_values)
         except Exception as e:
@@ -839,6 +857,171 @@ class PyplotProvider(WrappingProvider):
 
         outer_tasks = [wrap_task(task) for task in inner_tasks]
         return outer_tasks
+
+
+class NewOutputDescriptorProvider(WrappingProvider):
+    """
+    Wraps a provider and renames its output descriptor. This is generally used to
+    take a provider based on a user function, whose output descriptor is a simple
+    Python name, and change the output to a more complex descriptor.
+
+    Used to implement the ``@returns`` decorator.
+    """
+
+    def __init__(self, wrapped_provider, out_dnode):
+        super(NewOutputDescriptorProvider, self).__init__(wrapped_provider)
+
+        # TODO Ideally we would disallow any kind of double-renaming, not just this
+        # special case.
+        orig_dnodes = wrapped_provider.attrs.dnodes
+        if len(orig_dnodes) != 1:
+            # Note that once we have tuple descriptors, we'll never have more than one
+            # output dnode, so we'll be able to remove this.
+            orig_descriptors = [dnode.to_descriptor() for dnode in orig_dnodes]
+            raise ValueError(
+                oneline(
+                    f"""
+                Can't change output for a provider that already has multiple
+                names; need exactly one name but got {tuple(orig_descriptors)!r}"""
+                )
+            )
+
+        self.out_dnode = out_dnode
+
+        self.attrs = copy(wrapped_provider.attrs)
+        self.attrs.dnodes = [out_dnode]
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        def wrap_task(task):
+            (task_key,) = task.keys
+            return Task(
+                keys=[TaskKey(dnode=self.out_dnode, case_key=task_key.case_key,)],
+                dep_keys=task.dep_keys,
+                compute_func=task.compute,
+            )
+
+        inner_tasks = self.wrapped_provider.get_tasks(
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+        )
+        return [wrap_task(task) for task in inner_tasks]
+
+
+class ArgDescriptorSubstitutionProvider(WrappingProvider):
+    """
+    Wraps a provider and renames some of its task dependencies. This is generally used
+    to take a provider based on a user function, whose dependencies are all simple
+    Python names, and map some of those dependencies to more complex descriptors.
+
+    Used to implement the ``@accepts`` decorator.
+
+    Parameters
+    ----------
+
+    outer_dnodes_by_inner: dict from DescriptorNode to DescriptorNode
+        A mapping from one set of descriptor nodes to another. The keys are the
+        "inner" nodes, which correspond dependency descriptors expected by the wrapped
+        provider tasks. The values are the "outer" nodes, corresponding to dependency
+        descriptors exposed by this provider.
+    """
+
+    def __init__(self, wrapped_provider, outer_dnodes_by_inner):
+        super(ArgDescriptorSubstitutionProvider, self).__init__(wrapped_provider)
+
+        self._subst_outer_dnodes_by_inner = outer_dnodes_by_inner
+        self._subst_inner_dnodes_by_outer = {
+            outer_dnode: inner_dnode
+            for inner_dnode, outer_dnode in outer_dnodes_by_inner.items()
+        }
+
+    def get_dependency_dnodes(self):
+        return [
+            self._outer_dnode_from_inner(inner_dnode)
+            for inner_dnode in self.wrapped_provider.get_dependency_dnodes()
+        ]
+
+    def get_key_space(self, dep_key_spaces_by_dnode):
+        outer_dkss = dep_key_spaces_by_dnode
+        inner_dkss = {
+            inner_dnode: outer_dkss[self._outer_dnode_from_inner(inner_dnode)]
+            for inner_dnode in self.wrapped_provider.get_dependency_dnodes()
+        }
+        return self.wrapped_provider.get_key_space(inner_dkss)
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        outer_dkss = dep_key_spaces_by_dnode
+        inner_dkss = {
+            inner_dnode: outer_dkss[self._outer_dnode_from_inner(inner_dnode)]
+            for inner_dnode in self.wrapped_provider.get_dependency_dnodes()
+        }
+
+        outer_dktls = dep_task_key_lists_by_dnode
+        inner_dktls = {
+            inner_dnode: outer_dktls[self._outer_dnode_from_inner(inner_dnode)]
+            for inner_dnode in self.wrapped_provider.get_dependency_dnodes()
+        }
+
+        def wrap_task(task):
+            inner_dep_keys = task.dep_keys
+            outer_dep_keys = [
+                TaskKey(
+                    dnode=self._outer_dnode_from_inner(inner_dep_key.dnode),
+                    case_key=inner_dep_key.case_key,
+                )
+                for inner_dep_key in inner_dep_keys
+            ]
+            return Task(
+                keys=task.keys, dep_keys=outer_dep_keys, compute_func=task.compute,
+            )
+
+        inner_tasks = self.wrapped_provider.get_tasks(inner_dkss, inner_dktls)
+        return [wrap_task(task) for task in inner_tasks]
+
+    def _outer_dnode_from_inner(self, inner_dnode):
+        return self._subst_outer_dnodes_by_inner.get(inner_dnode, inner_dnode)
+
+    def _inner_dnode_from_outer(self, outer_dnode):
+        return self._subst_inner_dnodes_by_outer.get(outer_dnode, outer_dnode)
+
+
+class TupleConstructionProvider(BaseDerivedProvider):
+    """
+    A provider for the task of constructing a tuple out of individual elements. This is
+    used to automatically satisfy arbitrary tuple descriptors required by other tasks.
+    """
+
+    def __init__(self, out_dnode):
+        assert isinstance(out_dnode, ast.TupleNode)
+
+        super(TupleConstructionProvider, self).__init__(
+            out_dnode=out_dnode, dep_dnodes=out_dnode.children,
+        )
+
+    def compute_values_from_deps(self, dep_values):
+        return [tuple(dep_values)]
+
+
+class TupleDeconstructionProvider(BaseDerivedProvider):
+    """
+    A provider for the task of extracting an individual element from a tuple. This is
+    used to automatically satisfy descriptor dependencies which are generated as part
+    of larger tuples. For example, if one user function returns a tuple ``X, Y`` and
+    another function requires ``X``, this provider will be used to generate a task that
+    takes ``X, Y`` and returns ``X``.
+    """
+
+    def __init__(self, out_dnode, dep_dnode):
+        assert isinstance(dep_dnode, ast.TupleNode)
+        assert out_dnode in dep_dnode.children
+
+        super(TupleDeconstructionProvider, self).__init__(
+            out_dnode=out_dnode, dep_dnodes=[dep_dnode],
+        )
+
+        self._element_ix = dep_dnode.children.index(out_dnode)
+
+    def compute_values_from_deps(self, dep_values):
+        (input_tuple,) = dep_values
+        return [input_tuple[self._element_ix]]
 
 
 # -- Helpers for managing case keys.

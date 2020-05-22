@@ -12,12 +12,15 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 
 from .datatypes import CodeVersion
 from .decoration import decorator_updating_accumulator
+from .descriptors.parsing import dnode_from_descriptor, entity_dnode_from_descriptor
 from .provider import (
     GatherProvider,
     AttrUpdateProvider,
     PyplotProvider,
     RenamingProvider,
     NameSplittingProvider,
+    ArgDescriptorSubstitutionProvider,
+    NewOutputDescriptorProvider,
 )
 from . import interpret
 
@@ -384,6 +387,54 @@ def pyplot(name=None, savefig_kwargs=None):
 
     return decorator_updating_accumulator(
         lambda acc: acc.wrap_provider(PyplotProvider, name, savefig_kwargs)
+    )
+
+
+def accepts(**descriptors_by_arg_name):
+    """
+    Indicates that some of the decorated function's arguments should be supplied
+    according to certain descriptors. Each keyword argument to this decorator
+    corresponds to an argument of the decorated function -- that argument's value
+    will correspond to the descriptor passed to the decorator.
+
+    For example:
+
+        @builder
+        @accepts(pair="x, y")
+        def f(pair, z):
+
+    `f` will be called with two arguments: the first (`pair`) will be a tuple
+    containing the values of entities `x` and `y`, and the second (`z`) will just be
+    the value of entity `z`.
+
+    This decorator is currently experimental and does not have any additional
+    user-facing documentation. It may change in non-backwards-compatible ways.
+    """
+
+    outer_dnodes_by_inner = {
+        entity_dnode_from_descriptor(arg_name): dnode_from_descriptor(descriptor)
+        for arg_name, descriptor in descriptors_by_arg_name.items()
+    }
+
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(
+            ArgDescriptorSubstitutionProvider, outer_dnodes_by_inner
+        )
+    )
+
+
+def returns(out_descriptor):
+    """
+    Indicates that the decorated function returns a value corresponding to the provided
+    descriptor.
+
+    This decorator is currently experimental and does not have any additional
+    user-facing documentation. It may change in non-backwards-compatible ways.
+    """
+
+    out_dnode = dnode_from_descriptor(out_descriptor)
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(NewOutputDescriptorProvider, out_dnode)
     )
 
 

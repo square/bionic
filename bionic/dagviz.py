@@ -93,12 +93,12 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False, name=None):
 
     node_lists_by_cluster = defaultdict(list)
     for node in graph.nodes():
-        entity_name = graph.nodes[node]["entity_name"]
-        node_lists_by_cluster[entity_name].append(node)
+        descriptor = graph.nodes[node]["descriptor"]
+        node_lists_by_cluster[descriptor].append(node)
 
-    entity_names = list(set(graph.nodes[node]["entity_name"] for node in graph.nodes()))
-    color_strs_by_entity_name = hpluv_color_dict(
-        entity_names, saturation=99, lightness=90
+    descriptors = list(set(graph.nodes[node]["descriptor"] for node in graph.nodes()))
+    color_strs_by_descriptor = hpluv_color_dict(
+        descriptors, saturation=99, lightness=90
     )
 
     def name_from_node(node):
@@ -115,16 +115,16 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False, name=None):
         subdot = pydot.Cluster(cluster, style="invis")
 
         for node in sorted_nodes:
-            entity_name = graph.nodes[node]["entity_name"]
-            entity_doc = doc_from_node(node)
+            descriptor = graph.nodes[node]["descriptor"]
+            doc = doc_from_node(node)
             dot_node = pydot.Node(
                 name_from_node(node),
                 style="filled",
-                fillcolor=color_strs_by_entity_name[entity_name],
+                fillcolor=color_strs_by_descriptor[descriptor],
                 shape="box",
             )
-            if entity_doc:
-                tooltip = rewrap_docstring(entity_doc)
+            if doc:
+                tooltip = rewrap_docstring(doc)
                 dot_node.set("tooltip", tooltip)
             subdot.add_node(dot_node)
 
