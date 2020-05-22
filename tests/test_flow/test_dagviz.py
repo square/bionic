@@ -57,7 +57,7 @@ def nodes_by_name_from_dot(dot):
 
 
 def test_dag_size(flow_graph):
-    assert len(flow_graph.nodes) == 8
+    assert len(flow_graph.nodes) == 10
 
 
 def test_dot_properties(flow_dot):
@@ -68,6 +68,8 @@ def test_dot_properties(flow_dot):
         '"first_name[0]"',
         '"first_name[1]"',
         "last_name",
+        '"(full_name, initials)[0]"',
+        '"(full_name, initials)[1]"',
         '"full_name[0]"',
         '"full_name[1]"',
         '"initials[0]"',
@@ -79,6 +81,10 @@ def test_dot_properties(flow_dot):
     assert nodes["all_names"].get_tooltip() == "Comma-separated list of names."
     assert nodes['"initials[0]"'].get_tooltip() == "Just the initials."
     assert nodes['"initials[1]"'].get_tooltip() == "Just the initials."
+    assert (
+        nodes['"(full_name, initials)[0]"'].get_tooltip()
+        == "A Python tuple with 2 values."
+    )
 
     assert nodes["last_name"].get_fillcolor() != nodes["all_names"].get_fillcolor()
     assert (

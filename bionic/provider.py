@@ -136,18 +136,25 @@ class ValueProvider(BaseProvider):
         return ValueProvider(names)
 
     def __init__(self, names):
-        dnodes = [entity_dnode_from_descriptor(name) for name in names]
+        # TODO Move this special-casing out of this class -- perhaps into the Flow code,
+        # or perhaps breaking out these cases into subclasses.
+        entity_dnodes = [entity_dnode_from_descriptor(name) for name in names]
+        if len(entity_dnodes) == 1:
+            (dnode,) = entity_dnodes
+            output_is_tuple = False
+        else:
+            dnode = ast.TupleNode(entity_dnodes)
+            output_is_tuple = True
+
         super(ValueProvider, self).__init__(
-            attrs=ProviderAttributes(
-                dnodes=dnodes,
-                changes_per_run=False,
-            ),
+            attrs=ProviderAttributes(dnodes=[dnode], changes_per_run=False),
         )
 
         self.key_space = CaseKeySpace(names)
         self._has_any_values = False
         self._value_tuples_by_case_key = {}
         self._token_tuples_by_case_key = {}
+        self._output_is_tuple = output_is_tuple
 
     def add_case(self, case_key, values, tokens):
         provider = self._copy()
@@ -222,16 +229,12 @@ class ValueProvider(BaseProvider):
         assert not dep_key_spaces_by_dnode
         assert not dep_task_key_lists_by_dnode
 
+        (out_dnode,) = self.attrs.dnodes
+
         if self.has_any_cases():
             return [
                 Task(
-                    keys=[
-                        TaskKey(
-                            dnode=entity_dnode_from_descriptor(name),
-                            case_key=case_key,
-                        )
-                        for name in self.entity_names
-                    ],
+                    keys=[TaskKey(dnode=out_dnode, case_key=case_key)],
                     dep_keys=[],
                     compute_func=functools.partial(
                         self._compute,
@@ -249,12 +252,11 @@ class ValueProvider(BaseProvider):
                 Task(
                     keys=[
                         TaskKey(
-                            dnode=entity_dnode_from_descriptor(name),
+                            dnode=out_dnode,
                             case_key=CaseKey(
                                 [(name, None) for name in self.entity_names]
                             ),
                         )
-                        for name in self.entity_names
                     ],
                     dep_keys=[],
                     compute_func=None,
@@ -262,7 +264,10 @@ class ValueProvider(BaseProvider):
             ]
 
     def _compute(self, dep_values, case_key):
-        return self._value_tuples_by_case_key[case_key]
+        if self._output_is_tuple:
+            return [self._value_tuples_by_case_key[case_key]]
+        else:
+            return [self._value_tuples_by_case_key[case_key][0]]
 
 
 class BaseDerivedProvider(BaseProvider):
@@ -446,85 +451,6 @@ class RenamingProvider(WrappingProvider):
             dep_key_spaces_by_dnode,
             dep_task_key_lists_by_dnode,
         )
-        return [wrap_task(task) for task in inner_tasks]
-
-
-class NameSplittingProvider(WrappingProvider):
-    def __init__(self, wrapped_provider, names):
-
-        super(NameSplittingProvider, self).__init__(wrapped_provider)
-
-        orig_dnodes = wrapped_provider.attrs.dnodes
-        if len(orig_dnodes) != 1:
-            orig_descriptors = [dnode.to_descriptor() for dnode in orig_dnodes]
-            raise ValueError(
-                oneline(
-                    f"""
-                Can't change a provider's number of names multiple times;
-                need exactly one name but got {tuple(orig_descriptors)!r}"""
-                )
-            )
-
-        dnodes = [entity_dnode_from_descriptor(name) for name in names]
-
-        self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.dnodes = dnodes
-
-    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode,
-            dep_task_key_lists_by_dnode,
-        )
-
-        def wrap_task(task):
-            assert len(task.keys) == 1
-            (task_key,) = task.keys
-
-            def wrapped_compute_func(dep_values):
-                (value_seq,) = task.compute(dep_values)
-
-                try:
-                    value_seq_len = len(value_seq)
-                except TypeError:
-                    descriptors = [dnode.to_descriptor() for dnode in self.attrs.dnodes]
-                    raise EntityValueError(
-                        oneline(
-                            f"""
-                        Expected provider
-                        {self.wrapped_provider.attrs.dnodes[0].to_descriptor()!r} to
-                        return a sequence of {len(descriptors)} outputs named
-                        {descriptors!r};
-                        got a non-sequence output {value_seq!r}"""
-                        )
-                    )
-
-                if value_seq_len != len(self.attrs.dnodes):
-                    descriptors = [dnode.to_descriptor() for dnode in self.attrs.dnodes]
-                    raise EntityValueError(
-                        oneline(
-                            f"""
-                        Expected provider
-                        {self.wrapped_provider.attrs.dnodes[0].to_descriptor()!r} to
-                        return {len(descriptors)} outputs named
-                        {descriptors!r};
-                        got {len(value_seq)} outputs {tuple(value_seq)!r}"""
-                        )
-                    )
-
-                return tuple(value_seq)
-
-            return Task(
-                keys=[
-                    TaskKey(
-                        dnode=dnode,
-                        case_key=task_key.case_key,
-                    )
-                    for dnode in self.attrs.dnodes
-                ],
-                dep_keys=task.dep_keys,
-                compute_func=wrapped_compute_func,
-            )
-
         return [wrap_task(task) for task in inner_tasks]
 
 
