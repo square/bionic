@@ -21,8 +21,7 @@ class ReadCountingProtocol(bn.protocols.PicklableProtocol):
 # It would be nice to move the builder setup into fixtures, but since we need
 # to access the bound functions as well (to check the number of times they were
 # called), it's easiest to just have one long test.
-@pytest.mark.no_parallel
-def test_caching_and_invalidation(builder, make_counter):
+def test_caching_and_invalidation(builder, make_counter, parallel_processing_enabled):
     # Set up the builder with singleton values.
 
     builder.assign("x", 2)
@@ -60,10 +59,19 @@ def test_caching_and_invalidation(builder, make_counter):
 
     assert flow.get("yz") == 12
     assert flow.get("yz") == 12
+    assert xy_counter.times_called() == 0
     assert yz_counter.times_called() == 1
 
     assert flow.get("xy_plus_yz") == 18
     assert flow.get("xy_plus_yz") == 18
+    assert xy_counter.times_called() == 0
+    if parallel_processing_enabled:
+        # This is different from serial processing because we don't pass
+        # in-memory cache to the subprocesses. The subprocess computes
+        # non-persisted entities instead.
+        assert yz_counter.times_called() == 1
+    else:
+        assert yz_counter.times_called() == 0
     assert xy_plus_yz_counter.times_called() == 1
 
     # Rebuild the flow (resetting the in-memory cache) and confirm that
@@ -74,10 +82,13 @@ def test_caching_and_invalidation(builder, make_counter):
     assert xy_counter.times_called() == 0
 
     assert flow.get("yz") == 12
+    assert xy_counter.times_called() == 0
     # Note yz is not cached.
     assert yz_counter.times_called() == 1
 
     assert flow.get("xy_plus_yz") == 18
+    assert xy_counter.times_called() == 0
+    assert yz_counter.times_called() == 0
     assert xy_plus_yz_counter.times_called() == 0
 
     # Change the value of z, and confirm that yz and xy_plus_yz are recomputed.
@@ -87,10 +98,16 @@ def test_caching_and_invalidation(builder, make_counter):
     assert xy_counter.times_called() == 0
 
     assert flow.get("yz") == -12
+    assert xy_counter.times_called() == 0
     assert yz_counter.times_called() == 1
 
     assert flow.get("xy_plus_yz") == -6
     assert flow.get("xy_plus_yz") == -6
+    assert xy_counter.times_called() == 0
+    if parallel_processing_enabled:
+        assert yz_counter.times_called() == 1
+    else:
+        assert yz_counter.times_called() == 0
     assert xy_plus_yz_counter.times_called() == 1
 
     # Update x and y to have multiple values, and confirm that xy and
@@ -111,7 +128,10 @@ def test_caching_and_invalidation(builder, make_counter):
         2 * 6 + 6 * 4,
     }  # noqa: E226
     assert xy_counter.times_called() == 0
-    assert yz_counter.times_called() == 0
+    if parallel_processing_enabled:
+        assert yz_counter.times_called() == 3
+    else:
+        assert yz_counter.times_called() == 0
     assert xy_plus_yz_counter.times_called() == 3
 
     flow = builder.build().setting("x", values=[2, -2]).setting("y", values=[3, 6])
@@ -149,6 +169,11 @@ def test_caching_and_invalidation(builder, make_counter):
         2 * 6 + 6 * 4,
         2 * 9 + 9 * 4,
     }  # noqa: E226
+    assert xy_counter.times_called() == 0
+    if parallel_processing_enabled:
+        assert yz_counter.times_called() == 2
+    else:
+        assert yz_counter.times_called() == 0
     assert xy_plus_yz_counter.times_called() == 2
 
     # This is mainly just to check that the cache wrapper returns a sane set of
@@ -175,8 +200,10 @@ def test_versioning(builder, make_counter):
 
     builder.delete("f")
 
+    # flake8 behavior changed with python 3.8 version.
+    # https://gitlab.com/pycqa/flake8/-/issues/583
     @builder  # noqa: F811
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
 
@@ -187,7 +214,7 @@ def test_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
 
@@ -198,7 +225,7 @@ def test_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -209,7 +236,7 @@ def test_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1, minor=1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -218,7 +245,7 @@ def test_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1, minor=1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
 
@@ -229,7 +256,7 @@ def test_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=2)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
 
@@ -258,7 +285,7 @@ def test_indirect_versioning(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return 4
 
@@ -268,7 +295,7 @@ def test_indirect_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return 4
 
@@ -278,7 +305,7 @@ def test_indirect_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
 
@@ -288,7 +315,7 @@ def test_indirect_versioning(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1, minor=1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
 
@@ -329,7 +356,7 @@ def test_versioning_assist(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
 
@@ -340,7 +367,7 @@ def test_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
 
@@ -351,7 +378,7 @@ def test_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -362,7 +389,7 @@ def test_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1, minor=1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -371,7 +398,7 @@ def test_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1, minor=1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
 
@@ -382,7 +409,7 @@ def test_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=2)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
 
@@ -413,7 +440,7 @@ def test_indirect_versioning_assist(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return 4
 
@@ -422,7 +449,7 @@ def test_indirect_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return 4
 
@@ -432,7 +459,7 @@ def test_indirect_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
 
@@ -441,7 +468,7 @@ def test_indirect_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1, minor=1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
 
@@ -482,7 +509,7 @@ def test_versioning_auto(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
 
@@ -493,7 +520,7 @@ def test_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
 
@@ -504,7 +531,7 @@ def test_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -515,7 +542,7 @@ def test_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1, minor=1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -524,7 +551,7 @@ def test_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1, minor=1)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
 
@@ -535,7 +562,7 @@ def test_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=2)
-    def f(x, y):
+    def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
 
@@ -566,7 +593,7 @@ def test_indirect_versioning_auto(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return 4
 
@@ -576,7 +603,7 @@ def test_indirect_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return 4
 
@@ -588,7 +615,7 @@ def test_indirect_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
 
@@ -600,7 +627,7 @@ def test_indirect_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(1, minor=1)
-    def y():
+    def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
 
@@ -887,8 +914,9 @@ def test_unset_and_not_persisted(builder):
     assert builder.build().get("x_plus_one", list) == []
 
 
-@pytest.mark.no_parallel
-def test_changes_per_run_and_not_persist(builder, make_counter):
+def test_changes_per_run_and_not_persist(
+    builder, make_counter, parallel_processing_enabled
+):
     builder.assign("x", 5)
 
     x_plus_one_counter = make_counter()
@@ -923,11 +951,19 @@ def test_changes_per_run_and_not_persist(builder, make_counter):
         return x_plus_three + 1
 
     flow = builder.build()
+    assert flow.get("x_plus_one") == 6
     assert flow.get("x_plus_four") == 9
-    assert x_plus_one_counter.times_called() == 1
+    if parallel_processing_enabled:
+        # This is different from serial processing because we don't pass
+        # in-memory cache to the subprocesses. The subprocess computes
+        # non-persisted entities instead.
+        assert x_plus_one_counter.times_called() == 2
+    else:
+        assert x_plus_one_counter.times_called() == 1
     assert x_plus_two_counter.times_called() == 1
     assert x_plus_three_counter.times_called() == 1
     assert x_plus_four_counter.times_called() == 1
+
     # In the same flow, a nondeterministic entity is not recomputed.
     assert flow.get("x_plus_one") == 6
     assert flow.get("x_plus_four") == 9
@@ -953,8 +989,9 @@ def test_changes_per_run_and_not_persist(builder, make_counter):
     assert x_plus_four_counter.times_called() == 0
 
 
-@pytest.mark.no_parallel
-def test_changes_per_run_and_persist(builder, make_counter):
+def test_changes_per_run_and_persist(
+    builder, make_counter, parallel_processing_enabled
+):
     builder.assign("x", 5)
 
     x_plus_one_counter = make_counter()
@@ -981,6 +1018,7 @@ def test_changes_per_run_and_persist(builder, make_counter):
         return x_plus_two + 1
 
     flow = builder.build()
+    assert flow.get("x_plus_one") == 6
     assert flow.get("x_plus_three") == 8
     assert x_plus_one_counter.times_called() == 1
     assert x_plus_two_counter.times_called() == 1
@@ -996,8 +1034,14 @@ def test_changes_per_run_and_persist(builder, make_counter):
     assert flow.get("x_plus_three") == 8
     # x_plus_one changes per run and should be recomputed between runs.
     assert x_plus_one_counter.times_called() == 1
-    # Since the value does not persist, x_plus_two is recomputed.
-    assert x_plus_two_counter.times_called() == 1
+    if parallel_processing_enabled:
+        # When processed in parallel, we don't compute every entity in
+        # the subprocess. Subprocess computes a non-persisted entity
+        # only if it is required to compute any other entity.
+        assert x_plus_two_counter.times_called() == 0
+    else:
+        # Since the value does not persist, x_plus_two is recomputed.
+        assert x_plus_two_counter.times_called() == 1
     # Since value of x_plus_one didn't change even though it changes per run,
     # x_plus_three is not computed.
     assert x_plus_three_counter.times_called() == 0
@@ -1031,7 +1075,7 @@ def test_updating_cache_works_only_with_immediate(builder):
     assert builder.build().get("x") == 1
 
     @builder  # noqa: F811
-    def core__persistent_cache():
+    def core__persistent_cache():  # noqa: F811
         return persistent_cache
 
     # Since we didn't use @immediate, this should fail, because it will attempt to
