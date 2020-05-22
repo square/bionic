@@ -1340,36 +1340,19 @@ def test_non_memoized_value_is_garbage_collected(builder, make_tracked_class):
     assert builder.build().get("x_plus_two") == 3
 
 
-# TODO Once we unify @outputs with tuples, we can remove this parametrization and just
-# use @outputs.
-@pytest.mark.parametrize("use_tuples", [True, False])
-def test_non_memoized_values_are_garbage_collected(
-    builder, make_tracked_class, use_tuples
-):
+def test_non_memoized_values_are_garbage_collected(builder, make_tracked_class):
     Tracked = make_tracked_class()
-
-    if use_tuples:
-        output_decorator = bn.returns("tracked_x, tracked_y")
-    else:
-        output_decorator = bn.outputs("tracked_x", "tracked_y")
 
     @builder
     @bn.memoize(False)
     @Tracked.protocol
-    @output_decorator
+    @bn.outputs("tracked_x", "tracked_y")
     def _():
         return Tracked(1), Tracked(-1)
 
     @builder
     def x_plus_one(tracked_x):
-        if use_tuples:
-            assert Tracked.n_instances_in_memory == 1
-        else:
-            # Because of how multi-output functions are memoized, both tracked_x and
-            # tracked_y are stored in memory together. In the future it would be good
-            # to optimize this so they can be stored separately, in which case we can
-            # change this from 2 to 1.
-            assert Tracked.n_instances_in_memory == 2
+        assert Tracked.n_instances_in_memory == 1
         return tracked_x.value + 1
 
     @builder

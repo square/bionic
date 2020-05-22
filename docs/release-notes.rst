@@ -96,6 +96,13 @@ Deprecated Features
   crashes on Mac OS when using multiprocessing. Versions 3.1.x and 3.3+ are still
   supported.
 
+Improvements
+............
+
+- When a function returns multiple entities (using the :func:`@outputs
+  <bionic.outputs>` decorator), it now appears in Bionic's DAG visualization as a
+  separate node, with the individual entity nodes depending on it.
+
 Bug Fixes
 .........
 
