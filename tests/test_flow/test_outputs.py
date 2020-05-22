@@ -103,6 +103,15 @@ def test_outputs_default_protocols(builder):
     pdt.assert_frame_equal(flow.get("df"), expected_df)
 
 
+def test_singleton_outputs(builder):
+    @builder
+    @bn.outputs("a")
+    def one_output():
+        return (2,)
+
+    assert builder.build().get("a") == 2
+
+
 def test_wrong_number_of_outputs(builder):
     @builder
     @bn.outputs("a", "b")
