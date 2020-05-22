@@ -6,15 +6,13 @@ import pytest
 from xml.etree import ElementTree as ET
 import pydot
 import networkx as nx
-import bionic
-import bionic.dagviz as dagviz
 from PIL import Image
+
+from bionic import dagviz
 
 
 @pytest.fixture
-def flow():
-    """Create FlowImage fixture for testing"""
-    builder = bionic.FlowBuilder("hello_world")
+def flow(builder):
     builder.assign("greeting", "hello world", doc="a friendly greeting")
     return builder.build()
 
@@ -24,9 +22,12 @@ def flow_image(flow):
     return flow.render_dag()
 
 
-def get_pydot_attributes(index, dot):
-    """Helper function to get attributes from pydot graph given index"""
-    return dot.get_subgraphs()[index].get_nodes()[0].get_attributes()
+def nodes_by_name_from_dot(dot):
+    return {
+        node.get_name(): node
+        for subgraph in dot.get_subgraphs()
+        for node in subgraph.get_nodes()
+    }
 
 
 def test_save_flowimage_file_path(tmp_path, flow_image):
@@ -81,7 +82,8 @@ def test_doc_propagated_to_tooltip(flow):
     G = flow._deriver.export_dag(False)
     dot = dagviz.dot_from_graph(G)
     assert isinstance(dot, pydot.Dot)
-    assert get_pydot_attributes(0, dot)["tooltip"] == "a friendly greeting"
+    greeting_node = nodes_by_name_from_dot(dot)["greeting"]
+    assert greeting_node.get_tooltip() == "a friendly greeting"
 
 
 def test_missing_doc_empty_tooltip():
@@ -89,5 +91,5 @@ def test_missing_doc_empty_tooltip():
     G = nx.DiGraph()
     G.add_node(0, name="foo", task_ix=0, entity_name="buzz")
     dot = dagviz.dot_from_graph(G)
-    # assert tooltip is missing
-    assert not hasattr(get_pydot_attributes(0, dot), "tooltip")
+    greeting_node = nodes_by_name_from_dot(dot)["foo"]
+    assert greeting_node.get_tooltip() is None
