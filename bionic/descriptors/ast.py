@@ -17,10 +17,12 @@ need to be serialized or presented to a human.
 """
 
 from abc import ABC, abstractmethod
+from functools import total_ordering
 
 import attr
 
 
+@total_ordering
 class DescriptorNode(ABC):
     """
     Abstract base class representing a parsed descriptor.
@@ -56,8 +58,27 @@ class DescriptorNode(ABC):
         """
         pass
 
+    # In order to allow different node types to be compared, we define equality and
+    # ordering based on the string value of the descriptor. (It should always be the
+    # case that different descriptors have different string values.)
 
-@attr.s(frozen=True)
+    def __eq__(self, other):
+        return self.to_descriptor() == other.to_descriptor()
+
+    def __hash__(self):
+        return hash(self.to_descriptor())
+
+    def __lt__(self, other):
+        return self.to_descriptor() < other.to_descriptor()
+
+
+# Since equality, hashing, and comparison methods are implemented in the base
+# DescriptorNode class, we don't want `attrs` to implement them for us. (Setting
+# `eq=False` is sufficient to avoid both the equality and hashing methods.)
+node_attrs = attr.s(frozen=True, eq=False, order=False)
+
+
+@node_attrs
 class EntityNode(DescriptorNode):
     """
     A descriptor node corresponding to a simple entity name.
@@ -75,7 +96,7 @@ class EntityNode(DescriptorNode):
         return [self.name]
 
 
-@attr.s(frozen=True)
+@node_attrs
 class TupleNode(DescriptorNode):
     """
     A descriptor node corresponding a tuple of descriptors.

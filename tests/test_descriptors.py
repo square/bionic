@@ -161,3 +161,18 @@ def test_dnode_hashing(dnodes):
         assert dnode not in dnode_dict
         dnode_dict[dnode] = dnode
         assert dnode_dict[dnode] == dnode
+
+
+def test_dnode_sorting(dnodes):
+    def descs_from_dnodes(dnodes):
+        return [dnode.to_descriptor() for dnode in dnodes]
+
+    assert descs_from_dnodes(sorted(dnodes)) == sorted(descs_from_dnodes(dnodes))
+
+
+def test_dnode_equality_and_hashing_are_not_by_identity():
+    dnode1 = E("x")
+    dnode2 = E("x")
+    assert id(dnode1) != id(dnode2)
+    assert dnode1 == dnode2
+    assert hash(dnode1) == hash(dnode2)
