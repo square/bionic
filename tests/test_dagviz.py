@@ -4,18 +4,31 @@ Tests for dagviz and FlowImage class.
 
 import pytest
 from xml.etree import ElementTree as ET
-import pydot
-import networkx as nx
-import bionic
-import bionic.dagviz as dagviz
 from PIL import Image
+
+import bionic as bn
+from bionic import dagviz
 
 
 @pytest.fixture
-def flow():
-    """Create FlowImage fixture for testing"""
-    builder = bionic.FlowBuilder("hello_world")
-    builder.assign("greeting", "hello world", doc="a friendly greeting")
+def flow(builder):
+    builder.assign("first_name", values=["Alice", "Bob"])
+    builder.assign("last_name", "Smith")
+
+    @builder
+    @bn.outputs("full_name", "initials")
+    @bn.docs(
+        """The full name.""", """Just the initials.""",
+    )
+    def _(first_name, last_name):
+        return f"{first_name} {last_name}", f"{first_name[0]}{last_name[0]}"
+
+    @builder
+    @bn.gather(over="full_name")
+    def all_names(gather_df):
+        """Comma-separated list of names."""
+        return ", ".join(gather_df["full_name"])
+
     return builder.build()
 
 
@@ -24,9 +37,53 @@ def flow_image(flow):
     return flow.render_dag()
 
 
-def get_pydot_attributes(index, dot):
-    """Helper function to get attributes from pydot graph given index"""
-    return dot.get_subgraphs()[index].get_nodes()[0].get_attributes()
+@pytest.fixture
+def flow_graph(flow):
+    return flow._deriver.export_dag()
+
+
+@pytest.fixture
+def flow_dot(flow_graph):
+    return dagviz.dot_from_graph(flow_graph)
+
+
+def nodes_by_name_from_dot(dot):
+    return {
+        node.get_name(): node
+        for subgraph in dot.get_subgraphs()
+        for node in subgraph.get_nodes()
+    }
+
+
+def test_dag_size(flow_graph):
+    assert len(flow_graph.nodes) == 8
+
+
+def test_dot_properties(flow_dot):
+    nodes = nodes_by_name_from_dot(flow_dot)
+    assert set(nodes.keys()) == {
+        # pydot puts quotes around the name if it contains square brackets. (However,
+        # these quotes are not visible when the graph is rendered as an image.)
+        '"first_name[0]"',
+        '"first_name[1]"',
+        "last_name",
+        '"full_name[0]"',
+        '"full_name[1]"',
+        '"initials[0]"',
+        '"initials[1]"',
+        "all_names",
+    }
+
+    assert nodes["last_name"].get_tooltip() is None
+    assert nodes["all_names"].get_tooltip() == "Comma-separated list of names."
+    assert nodes['"initials[0]"'].get_tooltip() == "Just the initials."
+    assert nodes['"initials[1]"'].get_tooltip() == "Just the initials."
+
+    assert nodes["last_name"].get_fillcolor() != nodes["all_names"].get_fillcolor()
+    assert (
+        nodes['"first_name[0]"'].get_fillcolor()
+        == nodes['"first_name[1]"'].get_fillcolor()
+    )
 
 
 def test_save_flowimage_file_path(tmp_path, flow_image):
@@ -74,20 +131,3 @@ def test_save_flowimage_file_object_svg(tmp_path, flow_image):
                 output_text
             )
         )
-
-
-def test_doc_propagated_to_tooltip(flow):
-    """Check that docs are propagated to tooltips"""
-    G = flow._deriver.export_dag(False)
-    dot = dagviz.dot_from_graph(G)
-    assert isinstance(dot, pydot.Dot)
-    assert get_pydot_attributes(0, dot)["tooltip"] == "a friendly greeting"
-
-
-def test_missing_doc_empty_tooltip():
-    """When doc is missing, tooltip is missing"""
-    G = nx.DiGraph()
-    G.add_node(0, name="foo", task_ix=0, entity_name="buzz")
-    dot = dagviz.dot_from_graph(G)
-    # assert tooltip is missing
-    assert not hasattr(get_pydot_attributes(0, dot), "tooltip")
