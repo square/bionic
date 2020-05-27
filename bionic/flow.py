@@ -458,7 +458,7 @@ class FlowBuilder:
         )
         state = state.create_provider(name)
         for value in values:
-            case_key = CaseKey([(name, value, protocol.tokenize(value))])
+            case_key = CaseKey([(name, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
 
         self._state = state
@@ -496,7 +496,7 @@ class FlowBuilder:
             # TODO We can remove this validation, since it also happens in add_case
             # below.
             protocol.validate(value)
-            case_key = CaseKey([(name, value, protocol.tokenize(value))])
+            case_key = CaseKey([(name, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
 
         self._state = state
@@ -580,7 +580,7 @@ class FlowBuilder:
         state = state.group_names_together(names)
 
         values = []
-        case_nvt_tuples = []
+        name_token_pairs = []
         for name, value in name_value_pairs:
             protocol = state.get_entity_def(name).protocol
             # TODO Both the validation and tokenization are also happening in
@@ -589,9 +589,9 @@ class FlowBuilder:
             token = protocol.tokenize(value)
 
             values.append(value)
-            case_nvt_tuples.append((name, value, token))
+            name_token_pairs.append((name, token))
 
-        case_key = CaseKey(case_nvt_tuples)
+        case_key = CaseKey(name_token_pairs)
 
         state = state.add_case(case_key, names, values)
 

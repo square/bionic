@@ -180,49 +180,40 @@ class CaseKeySpace(ImmutableSequence):
 
 
 @attr.s(frozen=True)
-class MissingCaseKeyValue:
-    pass
+class MissingCaseKeyToken:
+    def __str__(self):
+        return "<MISSING>"
 
 
 class CaseKey(ImmutableMapping):
     """
-    A collection of name-value pairs that uniquely identifies a case.
+    A collection of name-token pairs that uniquely identifies a case.
     """
 
     # This is a sentinel value used to indicate that no value is available. We can't use
-    # None because None is itself a valid value.
+    # None because None is itself a valid token for None Value.
     # Normally I would prefer to represent missing-ness out-of-band by making the
     # `missing_names` field the source of truth here, but the relational methods like
     # `project` are cleaner when we use a sentinel value.
-    MISSING = MissingCaseKeyValue()
+    MISSING = MissingCaseKeyToken()
 
-    def __init__(self, name_value_token_triples):
-        values_by_name = {
-            name: value for name, value, token in name_value_token_triples
-        }
-        tokens_by_name = {
-            name: token for name, value, token in name_value_token_triples
-        }
+    def __init__(self, name_token_pairs):
+        tokens_by_name = {name: token for name, token in name_token_pairs}
 
         super(CaseKey, self).__init__(tokens_by_name)
-        self._nvt_triples = name_value_token_triples
-        self.values = values_by_name
+        self._name_token_pairs = name_token_pairs
         self.tokens = tokens_by_name
-        self.space = CaseKeySpace(list(values_by_name.keys()))
+        self.space = CaseKeySpace(list(tokens_by_name.keys()))
         self.missing_names = [
-            name
-            for name, value, token in name_value_token_triples
-            # We don't want to say `value == MISSING` because `value` might override the
-            # `==` operator to mean something different (like a Pandas DataFrame does).
-            if type(value) is MissingCaseKeyValue
+            name for name, token in name_token_pairs if token == self.MISSING
         ]
         self.has_missing_values = len(self.missing_names) > 0
 
     def project(self, key_space):
         return CaseKey(
             [
-                (name, value, token)
-                for name, value, token in self._nvt_triples
+                (name, token)
+                for name, token in self._name_token_pairs
                 if name in key_space
             ]
         )
@@ -230,26 +221,22 @@ class CaseKey(ImmutableMapping):
     def drop(self, key_space):
         return CaseKey(
             [
-                (name, value, token)
-                for name, value, token in self._nvt_triples
+                (name, token)
+                for name, token in self._name_token_pairs
                 if name not in key_space
             ]
         )
 
     def merge(self, other):
-        vt_pairs_by_name = {
-            name: (value, token) for name, value, token in self._nvt_triples
-        }
+        tokens_by_name = {name: token for name, token in self._name_token_pairs}
 
-        for name, value, token in other._nvt_triples:
-            if name in vt_pairs_by_name:
-                assert token == vt_pairs_by_name[name][1]
+        for name, token in other._name_token_pairs:
+            if name in tokens_by_name:
+                assert token == tokens_by_name[name]
             else:
-                vt_pairs_by_name[name] = value, token
+                tokens_by_name[name] = token
 
-        return CaseKey(
-            [(name, value, token) for name, (value, token) in vt_pairs_by_name.items()]
-        )
+        return CaseKey([(name, token) for name, token in tokens_by_name.items()])
 
     def __repr__(self):
         args_str = ", ".join(f"{name}={token}" for name, token in self.items())

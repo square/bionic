@@ -224,10 +224,7 @@ class ValueProvider(BaseProvider):
                         TaskKey(
                             dnode=entity_dnode_from_descriptor(name),
                             case_key=CaseKey(
-                                [
-                                    (name, CaseKey.MISSING, "<MISSING>")
-                                    for name in self.entity_names
-                                ]
+                                [(name, CaseKey.MISSING) for name in self.entity_names]
                             ),
                         )
                         for name in self.entity_names
