@@ -218,7 +218,7 @@ class FlowState(pyrs.PClass):
             protocol = self.get_entity_def(name).protocol
             protocol.validate(value)
             tokens.append(protocol.tokenize(value))
-        provider = provider.add_case(case_key, values, tokens)
+        provider = provider.add_case(case_key, names, values, tokens)
 
         return self._set_provider(provider).touch()
 
@@ -1231,9 +1231,21 @@ class Flow:
             return set(values)
         elif collection is pd.Series or collection == "series":
             if len(result_group.key_space) > 0:
+                providers_by_name = {
+                    entity_name: self._state.get_provider(entity_name)
+                    for entity_name in result_group.key_space
+                }
+                for entity_name, provider in providers_by_name.items():
+                    if not isinstance(provider, ValueProvider):
+                        message = f"""
+                        Provider for the entity {entity_name} was expected to be
+                        a ValueProvider but wasn't. This should be impossible.
+                        """
+                        raise AssertionError(oneline(message))
                 index = multi_index_from_case_keys(
                     case_keys=[result.query.case_key for result in result_group],
                     ordered_key_names=list(result_group.key_space),
+                    providers_by_name=providers_by_name,
                 )
             else:
                 index = None

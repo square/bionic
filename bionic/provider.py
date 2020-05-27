@@ -10,6 +10,7 @@ rethink.
 import inspect
 from copy import copy
 import functools
+from collections import defaultdict
 from io import BytesIO
 
 import attr
@@ -124,10 +125,11 @@ class ValueProvider(BaseProvider):
         self._has_any_values = False
         self._value_tuples_by_case_key = {}
         self._token_tuples_by_case_key = {}
+        self._values_by_name_token_tuple = defaultdict(lambda: defaultdict())
 
-    def add_case(self, case_key, values, tokens):
+    def add_case(self, case_key, names, values, tokens):
         provider = self._copy()
-        provider._add_case_in_place(case_key, values, tokens)
+        provider._add_case_in_place(case_key, names, values, tokens)
         return provider
 
     def _copy(self):
@@ -142,7 +144,7 @@ class ValueProvider(BaseProvider):
 
     # This mutates the provider, so it should only be called on a fresh copy, as in
     # add_case().
-    def _add_case_in_place(self, case_key, values, tokens):
+    def _add_case_in_place(self, case_key, names, values, tokens):
         if self._has_any_values:
             if case_key.space != self.key_space:
                 raise IncompatibleEntityError(
@@ -168,6 +170,9 @@ class ValueProvider(BaseProvider):
 
         self._value_tuples_by_case_key[case_key] = tuple(values)
         self._token_tuples_by_case_key[case_key] = tuple(tokens)
+
+        for name, token, value in zip(names, tokens, values):
+            self._values_by_name_token_tuple[name][token] = value
 
     def has_any_cases(self):
         return self._has_any_values
@@ -234,6 +239,9 @@ class ValueProvider(BaseProvider):
 
     def _compute(self, dep_values, case_key):
         return self._value_tuples_by_case_key[case_key]
+
+    def value_for_name_and_token(self, name, token):
+        return self._values_by_name_token_tuple[name][token]
 
 
 class FunctionProvider(BaseProvider):
@@ -915,12 +923,18 @@ class HashableWrapper:
         return f"HashableWrapper({self._value!r})"
 
 
-def multi_index_from_case_keys(case_keys, ordered_key_names):
+def multi_index_from_case_keys(case_keys, ordered_key_names, providers_by_name):
     assert len(ordered_key_names) > 0
+
     return pd.MultiIndex.from_tuples(
         tuples=[
             tuple(
-                HashableWrapper(case_key.values[name], case_key.tokens[name])
+                HashableWrapper(
+                    value=providers_by_name[name].value_for_name_and_token(
+                        name, case_key.tokens[name]
+                    ),
+                    token=case_key.tokens[name],
+                )
                 for name in ordered_key_names
             )
             for case_key in case_keys
