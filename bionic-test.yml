@@ -1,0 +1,36 @@
+name: CI
+
+on: push
+
+jobs:
+  build:
+
+    # Consider running on macos-latest as well.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # TODO: Run tests on python 3.8 as well.
+        python-version: [3.6, 3.7]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        sudo apt-get install graphviz
+        pip install --upgrade --upgrade-strategy eager '.[dev]'
+        # This prints out all installed package versions, which may help for debugging
+        # build failures.
+        pip freeze
+    - name: Lint with flake8 and black
+      run: |
+        flake8
+        black --check .
+    - name: Test with pytest
+      run: |
+        pytest --slow
+        pytest --slow --parallel
