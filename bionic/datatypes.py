@@ -179,23 +179,10 @@ class CaseKeySpace(ImmutableSequence):
         return f'CaseKeySpace({", ".join(repr(name) for name in self)})'
 
 
-@attr.s(frozen=True)
-class MissingCaseKeyToken:
-    def __str__(self):
-        return "<MISSING>"
-
-
 class CaseKey(ImmutableMapping):
     """
     A collection of name-token pairs that uniquely identifies a case.
     """
-
-    # This is a sentinel value used to indicate that no value is available. We can't use
-    # None because None is itself a valid token for None Value.
-    # Normally I would prefer to represent missing-ness out-of-band by making the
-    # `missing_names` field the source of truth here, but the relational methods like
-    # `project` are cleaner when we use a sentinel value.
-    MISSING = MissingCaseKeyToken()
 
     def __init__(self, name_token_pairs):
         tokens_by_name = {name: token for name, token in name_token_pairs}
@@ -205,7 +192,13 @@ class CaseKey(ImmutableMapping):
         self.tokens = tokens_by_name
         self.space = CaseKeySpace(list(tokens_by_name.keys()))
         self.missing_names = [
-            name for name, token in name_token_pairs if token == self.MISSING
+            # None is a sentinel value used to indicate that no value is available.
+            # Normally I would prefer to represent missing-ness out-of-band by making the
+            # `missing_names` field the source of truth here, but the relational methods like
+            # `project` are cleaner when we use a sentinel value.
+            name
+            for name, token in name_token_pairs
+            if token is None
         ]
         self.has_missing_values = len(self.missing_names) > 0
 

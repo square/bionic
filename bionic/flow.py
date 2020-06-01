@@ -6,6 +6,7 @@ construction and execution APIs (respectively).
 import os
 import shutil
 import warnings
+from collections import defaultdict
 from pathlib import Path, PosixPath
 from importlib import reload
 from textwrap import dedent
@@ -27,7 +28,7 @@ from .exception import (
 from .executor import get_reusable_executor
 from .provider import (
     ValueProvider,
-    multi_index_from_case_keys,
+    HashableWrapper,
     AttrUpdateProvider,
 )
 from .deriver import EntityDeriver
@@ -218,7 +219,7 @@ class FlowState(pyrs.PClass):
             protocol = self.get_entity_def(name).protocol
             protocol.validate(value)
             tokens.append(protocol.tokenize(value))
-        provider = provider.add_case(case_key, names, values, tokens)
+        provider = provider.add_case(case_key, values, tokens)
 
         return self._set_provider(provider).touch()
 
@@ -1230,22 +1231,42 @@ class Flow:
         elif collection is set or collection == "set":
             return set(values)
         elif collection is pd.Series or collection == "series":
-            if len(result_group.key_space) > 0:
-                providers_by_name = {
-                    entity_name: self._state.get_provider(entity_name)
-                    for entity_name in result_group.key_space
-                }
-                for entity_name, provider in providers_by_name.items():
-                    if not isinstance(provider, ValueProvider):
-                        message = f"""
-                        Provider for the entity {entity_name} was expected to be
-                        a ValueProvider but wasn't. This should be impossible.
-                        """
-                        raise AssertionError(oneline(message))
-                index = multi_index_from_case_keys(
-                    case_keys=[result.query.case_key for result in result_group],
-                    ordered_key_names=list(result_group.key_space),
-                    providers_by_name=providers_by_name,
+            key_space = list(result_group.key_space)
+            if len(key_space) > 0:
+                ancestor_values_by_case_key_by_name = defaultdict(dict)
+                ancestor_key_space_by_name = {}
+                for ancestor_name in key_space:
+                    ancestor_result_group = self._deriver.derive(
+                        entity_dnode_from_descriptor(ancestor_name)
+                    )
+                    ancestor_key_space_by_name[
+                        ancestor_name
+                    ] = ancestor_result_group.key_space
+                    for ancestor_result in ancestor_result_group:
+                        ancestor_case_key = ancestor_result.query.case_key
+                        ancestor_values_by_case_key_by_name[ancestor_name][
+                            ancestor_case_key
+                        ] = ancestor_result.value
+
+                orig_case_keys = [result.query.case_key for result in result_group]
+                index = pd.MultiIndex.from_tuples(
+                    tuples=[
+                        tuple(
+                            HashableWrapper(
+                                value=ancestor_values_by_case_key_by_name[
+                                    ancestor_name
+                                ][
+                                    orig_case_key.project(
+                                        ancestor_key_space_by_name[ancestor_name]
+                                    )
+                                ],
+                                token=orig_case_key.tokens[ancestor_name],
+                            )
+                            for ancestor_name in key_space
+                        )
+                        for orig_case_key in orig_case_keys
+                    ],
+                    names=list(key_space),
                 )
             else:
                 index = None
