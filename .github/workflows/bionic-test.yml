@@ -32,4 +32,3 @@ jobs:
     - name: Test with pytest
       run: |
         pytest --slow
-        pytest --slow --parallel

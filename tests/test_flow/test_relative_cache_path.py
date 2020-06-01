@@ -1,10 +1,8 @@
 import os
-import pytest
 import shutil
 
 
-@pytest.fixture
-def builder(builder):
+def test_move_cache_files(builder, tmp_path):
     builder.assign("x", 2)
     builder.assign("y", 3)
 
@@ -12,10 +10,6 @@ def builder(builder):
     def xy(x, y):
         return x * y
 
-    return builder
-
-
-def test_move_cache_files(builder, tmp_path):
     cur_dir = os.path.join(tmp_path, "current")
     new_dir = os.path.join(tmp_path, "new")
 
