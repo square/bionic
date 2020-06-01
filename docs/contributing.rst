@@ -90,9 +90,10 @@ submitting a pull request:
 Continuous Integration
 ----------------------
 
-We use `Travis <https://travis-ci.com/>`_ to run our tests and style checks
-on every branch pushed to GitHub. If you submit a pull request, you should
-see the results show up automatically in the "checks" section.
+We use `GitHub Actions <https://github.com/features/actions>`_ to run our
+tests and style checks on every branch pushed to GitHub. If you submit a pull
+request, you should see the results show up automatically in the "checks"
+section.
 
 Updating the Documentation
 --------------------------
