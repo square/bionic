@@ -112,7 +112,7 @@ def test_versioning(gcs_builder, make_counter):
     assert flow.setting("x", 4).get("xy") == 12
 
     @builder  # noqa: F811
-    def xy(x, y):
+    def xy(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -127,7 +127,7 @@ def test_versioning(gcs_builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(minor=1)
-    def xy(x, y):
+    def xy(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
 
@@ -146,7 +146,7 @@ def test_versioning(gcs_builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1)
-    def xy(x, y):
+    def xy(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
 
@@ -189,7 +189,7 @@ def test_indirect_versioning(gcs_builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1)
-    def xy(x, y):
+    def xy(x, y):  # noqa: F811
         call_counter.mark()
         return int(float(x)) ** y
 
@@ -199,7 +199,7 @@ def test_indirect_versioning(gcs_builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=1, minor=1)
-    def xy(x, y):
+    def xy(x, y):  # noqa: F811
         call_counter.mark()
         return int(float(y)) ** x
 
@@ -210,7 +210,7 @@ def test_indirect_versioning(gcs_builder, make_counter):
 
     @builder  # noqa: F811
     @bn.version(major=2)
-    def xy(x, y):
+    def xy(x, y):  # noqa: F811
         call_counter.mark()
         return y ** x
 
