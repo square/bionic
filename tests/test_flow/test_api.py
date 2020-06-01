@@ -321,7 +321,7 @@ def test_merge(builder):
     builder3.declare("b")
 
     @builder3  # noqa: F811
-    def h(a, b):
+    def h(a, b):  # noqa: F811
         return a * b
 
     builder.merge(builder3.build(), keep="new")

@@ -136,7 +136,7 @@ def merge_tester(builder):
 
     @fb  # noqa: F811
     @bn.outputs("x", "y")
-    def x(x_y):
+    def x(x_y):  # noqa: F811
         return x_y
 
     tester.add("DerivedJoint", fb.build())
@@ -165,7 +165,7 @@ def merge_tester(builder):
 
     @fb  # noqa: F811
     @bn.persist(False)
-    def x(root_x):
+    def x(root_x):  # noqa: F811
         return root_x ** 2
 
     tester.add("DS", fb.build())
@@ -176,7 +176,7 @@ def merge_tester(builder):
     @fb  # noqa: F811
     @bn.outputs("x", "y")
     @bn.persist(False)
-    def x(x_y):
+    def x(x_y):  # noqa: F811
         return x_y
 
     tester.add("DJ", fb.build())
