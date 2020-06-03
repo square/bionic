@@ -6,6 +6,7 @@ construction and execution APIs (respectively).
 import os
 import shutil
 import warnings
+from collections import defaultdict
 from pathlib import Path, PosixPath
 from importlib import reload
 from textwrap import dedent
@@ -27,7 +28,7 @@ from .exception import (
 from .executor import get_reusable_executor
 from .provider import (
     ValueProvider,
-    multi_index_from_case_keys,
+    HashableWrapper,
     AttrUpdateProvider,
 )
 from .deriver import EntityDeriver
@@ -458,7 +459,7 @@ class FlowBuilder:
         )
         state = state.create_provider(name)
         for value in values:
-            case_key = CaseKey([(name, value, protocol.tokenize(value))])
+            case_key = CaseKey([(name, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
 
         self._state = state
@@ -496,7 +497,7 @@ class FlowBuilder:
             # TODO We can remove this validation, since it also happens in add_case
             # below.
             protocol.validate(value)
-            case_key = CaseKey([(name, value, protocol.tokenize(value))])
+            case_key = CaseKey([(name, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
 
         self._state = state
@@ -580,7 +581,7 @@ class FlowBuilder:
         state = state.group_names_together(names)
 
         values = []
-        case_nvt_tuples = []
+        name_token_pairs = []
         for name, value in name_value_pairs:
             protocol = state.get_entity_def(name).protocol
             # TODO Both the validation and tokenization are also happening in
@@ -589,9 +590,9 @@ class FlowBuilder:
             token = protocol.tokenize(value)
 
             values.append(value)
-            case_nvt_tuples.append((name, value, token))
+            name_token_pairs.append((name, token))
 
-        case_key = CaseKey(case_nvt_tuples)
+        case_key = CaseKey(name_token_pairs)
 
         state = state.add_case(case_key, names, values)
 
@@ -1230,10 +1231,42 @@ class Flow:
         elif collection is set or collection == "set":
             return set(values)
         elif collection is pd.Series or collection == "series":
-            if len(result_group.key_space) > 0:
-                index = multi_index_from_case_keys(
-                    case_keys=[result.query.case_key for result in result_group],
-                    ordered_key_names=list(result_group.key_space),
+            key_space = list(result_group.key_space)
+            if len(key_space) > 0:
+                ancestor_values_by_case_key_by_name = defaultdict(dict)
+                ancestor_key_space_by_name = {}
+                for ancestor_name in key_space:
+                    ancestor_result_group = self._deriver.derive(
+                        entity_dnode_from_descriptor(ancestor_name)
+                    )
+                    ancestor_key_space_by_name[
+                        ancestor_name
+                    ] = ancestor_result_group.key_space
+                    for ancestor_result in ancestor_result_group:
+                        ancestor_case_key = ancestor_result.query.case_key
+                        ancestor_values_by_case_key_by_name[ancestor_name][
+                            ancestor_case_key
+                        ] = ancestor_result.value
+
+                orig_case_keys = [result.query.case_key for result in result_group]
+                index = pd.MultiIndex.from_tuples(
+                    tuples=[
+                        tuple(
+                            HashableWrapper(
+                                value=ancestor_values_by_case_key_by_name[
+                                    ancestor_name
+                                ][
+                                    orig_case_key.project(
+                                        ancestor_key_space_by_name[ancestor_name]
+                                    )
+                                ],
+                                token=orig_case_key.tokens[ancestor_name],
+                            )
+                            for ancestor_name in key_space
+                        )
+                        for orig_case_key in orig_case_keys
+                    ],
+                    names=list(key_space),
                 )
             else:
                 index = None

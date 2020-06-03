@@ -211,7 +211,8 @@ class ValueProvider(BaseProvider):
                 for case_key in self._value_tuples_by_case_key.keys()
             ]
 
-        # If we have no cases, we instead return a single "missing value" task.
+        # If we have no cases, we instead return a single "missing value" task represented
+        # by a None token.
         else:
             return [
                 Task(
@@ -219,10 +220,7 @@ class ValueProvider(BaseProvider):
                         TaskKey(
                             dnode=entity_dnode_from_descriptor(name),
                             case_key=CaseKey(
-                                [
-                                    (name, CaseKey.MISSING, "<MISSING>")
-                                    for name in self.entity_names
-                                ]
+                                [(name, None) for name in self.entity_names]
                             ),
                         )
                         for name in self.entity_names
@@ -913,20 +911,6 @@ class HashableWrapper:
 
     def __repr__(self):
         return f"HashableWrapper({self._value!r})"
-
-
-def multi_index_from_case_keys(case_keys, ordered_key_names):
-    assert len(ordered_key_names) > 0
-    return pd.MultiIndex.from_tuples(
-        tuples=[
-            tuple(
-                HashableWrapper(case_key.values[name], case_key.tokens[name])
-                for name in ordered_key_names
-            )
-            for case_key in case_keys
-        ],
-        names=ordered_key_names,
-    )
 
 
 @attr.s
