@@ -1,5 +1,6 @@
 include README.md
 include LICENSE.txt
+include CHANGELOG.md
 graft bionic
 graft tests
 graft example

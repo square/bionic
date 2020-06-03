@@ -59,4 +59,5 @@ Documentation Contents
     api/index.rst
     get-help
     contributing
+    changelog
     future
