@@ -145,6 +145,9 @@ class EntityDeriver:
                 "core__versioning_policy"
             ),
             executor=self._bootstrap_singleton_entity("core__executor"),
+            executor_worker_count=self._bootstrap_singleton_entity(
+                "core__parallel_processing__worker_count"
+            ),
         )
 
     def _prevalidate_base_dnodes(self):
@@ -337,6 +340,9 @@ class EntityDeriver:
             self._get_or_create_task_state_for_key(task.keys[0]) for task in dinfo.tasks
         ]
 
+        if self._bootstrap is not None:
+            self._bootstrap.resize_executor()
+
         task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
         task_runner.run(requested_task_states)
 
@@ -364,6 +370,11 @@ class Bootstrap:
     persistent_cache = attr.ib()
     versioning_policy = attr.ib()
     executor = attr.ib()
+    executor_worker_count = attr.ib()
+
+    def resize_executor(self):
+        if self.executor is not None:
+            self.executor.init_or_resize_process_pool(self.executor_worker_count)
 
 
 class TaskKeyLogger:

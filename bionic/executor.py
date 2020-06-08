@@ -10,7 +10,6 @@ import queue
 import sys
 import threading
 import traceback
-import warnings
 
 from multiprocessing.managers import SyncManager
 
@@ -26,18 +25,7 @@ def get_reusable_executor(worker_count):
     if _executor is None:
         _executor = Executor(worker_count)
     else:
-        prev_worker_count = _executor.worker_count
-        process_pool_resized = _executor.init_or_resize_process_pool(worker_count)
-        if process_pool_resized:
-            warning = f"""
-            The number of workers in the global Loky process pool has
-            changed from {_format_worker_count(prev_worker_count)} to
-            {_format_worker_count(worker_count)}. Because this pool is
-            global, all parallel jobs will now run with the new number
-            of workers, even in Bionic flows that were configured with
-            the old number.
-            """
-            warnings.warn(oneline(warning))
+        _executor.init_or_resize_process_pool(worker_count)
 
     return _executor
 
