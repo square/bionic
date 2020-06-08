@@ -8,6 +8,10 @@ from bionic.exception import AttributeValidationError, CodeVersioningError
 import bionic as bn
 
 
+# This is detected by pytest and applied to all the tests in this module.
+pytestmark = pytest.mark.run_with_all_execution_modes_by_default
+
+
 class ReadCountingProtocol(bn.protocols.PicklableProtocol):
     def __init__(self):
         self.times_read_called = 0
