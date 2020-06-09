@@ -371,6 +371,7 @@ def test_get_multiple(preset_flow):
     assert flow.get("q", set) == {5}
 
 
+@pytest.mark.run_with_all_execution_modes_by_default
 def test_get_collections(preset_flow):
     flow = preset_flow
 
@@ -684,8 +685,8 @@ def test_unpicklable_non_persisted_entity(builder):
     assert builder.build().get("uses_lock")
 
 
-@pytest.mark.no_parallel
-def test_entity_serialization_exception(builder):
+@pytest.mark.run_with_all_execution_modes_by_default
+def test_entity_serialization_exception(builder, parallel_processing_enabled):
     @builder
     def unpicklable_value():
         def f():
@@ -697,27 +698,14 @@ def test_entity_serialization_exception(builder):
         builder.build().get("unpicklable_value")
     except EntitySerializationError as e:
         # AttributeError is what happens when we try to pickle a function.
-        assert isinstance(e.__cause__, AttributeError)
+        if parallel_processing_enabled:
+            assert "\nAttributeError:" in e.__cause__.tb
+        else:
+            assert isinstance(e.__cause__, AttributeError)
 
 
-@pytest.mark.only_parallel
-def test_entity_serialization_exception_parallel(builder):
-    @builder
-    def unpicklable_value():
-        def f():
-            return 1
-
-        return f
-
-    try:
-        builder.build().get("unpicklable_value")
-    except EntitySerializationError as e:
-        # AttributeError is what happens when we try to pickle a function.
-        assert "\nAttributeError:" in e.__cause__.tb
-
-
-@pytest.mark.no_parallel
-def test_entity_computation_exception(builder):
+@pytest.mark.run_with_all_execution_modes_by_default
+def test_entity_computation_exception(builder, parallel_processing_enabled):
     @builder
     def uncomputable_value():
         return 1 / 0
@@ -725,19 +713,10 @@ def test_entity_computation_exception(builder):
     try:
         builder.build().get("uncomputable_value")
     except EntityComputationError as e:
-        assert isinstance(e.__cause__, ZeroDivisionError)
-
-
-@pytest.mark.only_parallel
-def test_entity_computation_exception_parallel(builder):
-    @builder
-    def uncomputable_value():
-        return 1 / 0
-
-    try:
-        builder.build().get("uncomputable_value")
-    except EntityComputationError as e:
-        assert "\nZeroDivisionError:" in e.__cause__.tb
+        if parallel_processing_enabled:
+            assert "\nZeroDivisionError:" in e.__cause__.tb
+        else:
+            assert isinstance(e.__cause__, ZeroDivisionError)
 
 
 def test_multiple_compute_attempts(builder):

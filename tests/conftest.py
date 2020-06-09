@@ -3,6 +3,7 @@ import pytest
 import getpass
 import random
 
+from enum import Enum
 from multiprocessing.managers import SyncManager
 
 from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
@@ -10,14 +11,23 @@ from .helpers import gsutil_path_exists, gsutil_wipe_path, ResettingCounter
 import bionic as bn
 
 
-@pytest.fixture(scope="session")
+class ExecutionMode(Enum):
+    PARALLEL = "PARALLEL"
+    SERIAL = "SERIAL"
+
+
+# Parameterizing a fixture adds the parameter in the test name at the end,
+# like test_name[PARALLEL] and test_name[SERIAL]. This is super helpful while
+# debugging and much clearer than parameterizing `parallel_processing_enabled`
+# which suffixes [TRUE] / [FALSE].
+@pytest.fixture(params=[ExecutionMode.PARALLEL, ExecutionMode.SERIAL])
 def parallel_processing_enabled(request):
-    return request.config.getoption("--parallel")
+    return request.param == ExecutionMode.PARALLEL
 
 
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
-@pytest.fixture(scope="function")
+@pytest.fixture
 def builder(parallel_processing_enabled, tmp_path):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
@@ -26,10 +36,7 @@ def builder(parallel_processing_enabled, tmp_path):
 
 
 @pytest.fixture(scope="session")
-def process_manager(parallel_processing_enabled, request):
-    if not parallel_processing_enabled:
-        return None
-
+def multiprocessing_manager(request):
     class MyManager(SyncManager):
         pass
 
@@ -38,6 +45,13 @@ def process_manager(parallel_processing_enabled, request):
     manager.start()
     request.addfinalizer(manager.shutdown)
     return manager
+
+
+@pytest.fixture
+def process_manager(parallel_processing_enabled, multiprocessing_manager):
+    if not parallel_processing_enabled:
+        return None
+    return multiprocessing_manager
 
 
 @pytest.fixture
@@ -70,10 +84,10 @@ def pytest_addoption(parser):
         "--bucket", action="store", help="URL to GCS bucket to use for tests"
     )
     parser.addoption(
-        "--parallel",
+        "--all-execution-modes",
         action="store_true",
         default=False,
-        help="uses parallel processing",
+        help="also run all tests with parallel execution mode",
     )
 
 
@@ -82,10 +96,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "needs_gcs: mark test as requiring GCS to run")
     config.addinivalue_line(
         "markers",
-        "no_parallel: mark test as not supported by parallel processing to run",
-    )
-    config.addinivalue_line(
-        "markers", "only_parallel: mark test as requiring parallel processing to run"
+        "run_with_all_execution_modes_by_default: mark test to always run all execution modes",
     )
 
 
@@ -102,18 +113,16 @@ def pytest_collection_modifyitems(config, items):
             if "needs_gcs" in item.keywords:
                 item.add_marker(skip_gcs)
 
-    if config.getoption("--parallel"):
-        skip_no_parallel = pytest.mark.skip(
-            reason="only runs when --parallel is not set"
+    if not config.getoption("--all-execution-modes"):
+        skip_execution_mode = pytest.mark.skip(
+            reason="only runs when --all-execution-modes is set"
         )
         for item in items:
-            if "no_parallel" in item.keywords:
-                item.add_marker(skip_no_parallel)
-    else:
-        skip_only_parallel = pytest.mark.skip(reason="only runs when --parallel is set")
-        for item in items:
-            if "only_parallel" in item.keywords:
-                item.add_marker(skip_only_parallel)
+            if (
+                any("ExecutionMode.PARALLEL" in keyword for keyword in item.keywords)
+                and "run_with_all_execution_modes_by_default" not in item.keywords
+            ):
+                item.add_marker(skip_execution_mode)
 
 
 @pytest.fixture(scope="session")
@@ -147,4 +156,9 @@ def session_tmp_gcs_url_prefix(gcs_url_stem):
 def tmp_gcs_url_prefix(session_tmp_gcs_url_prefix, request):
     """A temporary "directory" on GCS for a single test."""
 
-    return session_tmp_gcs_url_prefix + request.node.name + "/"
+    # `gsutil` doesn't support wildcard characters which are `[]` here.
+    # This is an open issue with gsutil but till it's fixed, we are going
+    # to change the node name to not have any wildcard characters.
+    # https://github.com/GoogleCloudPlatform/gsutil/issues/290
+    node_name = request.node.name.replace("[", "_").replace("]", "")
+    return session_tmp_gcs_url_prefix + node_name + "/"

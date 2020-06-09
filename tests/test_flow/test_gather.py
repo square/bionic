@@ -400,6 +400,7 @@ def test_rename_frame(preset_builder):
     }
 
 
+@pytest.mark.run_with_all_execution_modes_by_default
 def test_multiple_gathers(preset_builder):
     builder = preset_builder
 
@@ -431,6 +432,7 @@ def test_multiple_gathers__unset_x(preset_builder):
     assert builder.build().get("summary", list) == []
 
 
+@pytest.mark.run_with_all_execution_modes_by_default
 def test_multiple_gathers__unset_y(preset_builder):
     builder = preset_builder
 
@@ -483,6 +485,7 @@ def test_multiple_gathers__unset_w(preset_builder):
     }
 
 
+@pytest.mark.run_with_all_execution_modes_by_default
 def test_multiple_gathers_complex(preset_builder):
     builder = preset_builder
 
