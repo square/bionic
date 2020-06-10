@@ -1086,3 +1086,17 @@ def test_updating_cache_works_only_with_immediate(builder):
     # persist the cache entity using a cache, which leads to a circular dependency.
     with pytest.raises(AttributeValidationError):
         builder.build().get("x")
+
+
+def test_multiple_outputs_all_persisted_at_once(builder, make_counter):
+    call_counter = make_counter()
+
+    @builder
+    @bn.outputs("x", "y")
+    @count_calls(call_counter)
+    def x_y():
+        return 1, 2
+
+    assert builder.build().get("x") == 1
+    assert builder.build().get("y") == 2
+    assert call_counter.times_called() == 1
