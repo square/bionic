@@ -25,7 +25,7 @@ from .exception import (
     IncompatibleEntityError,
     UnsetEntityError,
 )
-from .executor import get_reusable_executor
+from .executor import Executor
 from .provider import (
     ValueProvider,
     HashableWrapper,
@@ -1759,6 +1759,6 @@ def create_default_flow_state():
     ):
         if not core__parallel_processing__enabled:
             return None
-        return get_reusable_executor(core__parallel_processing__worker_count)
+        return Executor(core__parallel_processing__worker_count)
 
     return builder._state.mark_all_entities_default()
