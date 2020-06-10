@@ -922,6 +922,34 @@ class ArgDescriptorSubstitutionProvider(WrappingProvider):
         "inner" nodes, which correspond dependency descriptors expected by the wrapped
         provider tasks. The values are the "outer" nodes, corresponding to dependency
         descriptors exposed by this provider.
+
+    Example
+    -------
+
+    .. code-block:: python
+
+        @builder
+        @bn.accepts(x_y="x, y")
+        def x_plus_y(x_y):
+            x, y = x_y
+            return x + y
+
+    In this case, ``x, y`` is the "outer" descriptor (exposed to Bionic's
+    infrastructure), and ``x_y`` is the "inner" descriptor (visible to the wrapped
+    function but not corresponding to any actual entity). This diagram may clarify the
+    relationship between "inner" and "outer":
+
+    ::
+
+         -----------------this_provider--------------------
+         |                                                |
+         |           -- wrapped_provider --               |
+         |           |                    |               |
+        x, y   ->   x_y        ->     x_plus_y   ->   x_plus_y
+         |           |                    |               |
+         |           ----------------------               |
+         |                                                |
+         -------------------------------------------------|
     """
 
     def __init__(self, wrapped_provider, outer_dnodes_by_inner):
