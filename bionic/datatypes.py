@@ -82,6 +82,7 @@ class Query:
     task_key = attr.ib()
     protocol = attr.ib()
     provenance = attr.ib()
+    tmp_persistence = attr.ib()
 
     @property
     def dnode(self):
@@ -92,7 +93,7 @@ class Query:
         return self.task_key.case_key
 
     def __repr__(self):
-        return f"Query({self.task_key}, {self.provenance!r})"
+        return f"Query({self.task_key}, {self.provenance!r}, {self.tmp_persistance!r})"
 
 
 @attr.s(frozen=True)

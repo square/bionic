@@ -335,6 +335,7 @@ class TaskState:
                 task_key=task_key,
                 protocol=self.entity_defs_by_dnode[task_key.dnode].protocol,
                 provenance=self._provenance,
+                tmp_persistence=False,
             )
             for task_key in self.task_keys
         ]

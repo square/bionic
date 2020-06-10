@@ -1694,6 +1694,11 @@ def create_default_flow_state():
     ):
         return os.path.join(core__persistent_cache__global_dir, core__flow_name)
 
+    @builder
+    @decorators.immediate
+    def core__persistent_cache__flow_tmp_dir(core__persistent_cache__flow_dir):
+        return os.path.join(core__persistent_cache__flow_dir, "tmp")
+
     builder.assign("core__persistent_cache__gcs__bucket_name", None)
     builder.assign("core__persistent_cache__gcs__enabled", False)
 
@@ -1721,8 +1726,16 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__persistent_cache__local_store(core__persistent_cache__flow_dir,):
+    def core__persistent_cache__local_store(core__persistent_cache__flow_dir):
         local_flow_dir = core__persistent_cache__flow_dir
+        return LocalStore(local_flow_dir)
+
+    # TODO Partition tmp cache storage with flow uuid. This helps avoid conflict when
+    # cache is shared between 2 instances running at the same time, which can happen.
+    @builder
+    @decorators.immediate
+    def core__persistent_cache__local_tmp_store(core__persistent_cache__flow_tmp_dir):
+        local_flow_dir = core__persistent_cache__flow_tmp_dir
         return LocalStore(local_flow_dir)
 
     @builder
@@ -1744,10 +1757,13 @@ def create_default_flow_state():
     @builder
     @decorators.immediate
     def core__persistent_cache(
-        core__persistent_cache__local_store, core__persistent_cache__cloud_store,
+        core__persistent_cache__local_store,
+        core__persistent_cache__local_tmp_store,
+        core__persistent_cache__cloud_store,
     ):
         return PersistentCache(
             local_store=core__persistent_cache__local_store,
+            local_tmp_store=core__persistent_cache__local_tmp_store,
             cloud_store=core__persistent_cache__cloud_store,
         )
 

@@ -83,8 +83,9 @@ class PersistentCache:
     we might want to split these responsibilities out.
     """
 
-    def __init__(self, local_store, cloud_store):
+    def __init__(self, local_store, local_tmp_store, cloud_store):
         self._local_store = local_store
+        self._local_tmp_store = local_tmp_store
         self._cloud_store = cloud_store
 
     def get_accessor(self, query):
@@ -102,7 +103,10 @@ class CacheAccessor:
         self.query = query
         self.value_filename_stem = valid_filename_from_query(self.query) + "."
 
-        self._local = parent_cache._local_store
+        if query.tmp_persistence:
+            self._local = parent_cache._local_tmp_store
+        else:
+            self._local = parent_cache._local_store
         self._cloud = parent_cache._cloud_store
 
         # These values are memoized to avoid roundtrips.
