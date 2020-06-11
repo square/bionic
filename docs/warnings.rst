@@ -9,16 +9,16 @@ Bionic is still in an early stage of development.  It also uses several
 concepts which haven't been well-explored in this domain -- for example, the
 way we create and gather multiple entity values.  We might discover that we've
 created the wrong abstractions and need to adjust the API in a
-non-backwards-compatible way.  To avoid being disrupted by breaking changes,
-we recommend pinning a specific version of Bionic in your ``requirements.txt``
-file:
+non-backwards-compatible way. (We explain our policy on this `here
+<release-notes.rst#versioning-scheme>`_.) To be completely protected against breaking
+changes, you can pin a specific version of Bionic in your ``requirements.txt`` file:
 
 .. parsed-literal::
 
     bionic==\ |version|
 
-Similarly, since Bionic hasn't seen a lot of real-world use, there will
-undoubtedly be some bugs -- you can get help with them `here <get-help.rst>`_.
+Bionic is widely used at Square, but so far hasn't received much testing in the outside
+world. If you discover any new bugs, you can get help with them `here <get-help.rst>`_.
 
 Avoid Global State
 ------------------

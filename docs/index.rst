@@ -60,3 +60,4 @@ Documentation Contents
     get-help
     contributing
     future
+    release-notes
