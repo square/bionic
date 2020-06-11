@@ -1,9 +1,11 @@
 import pytest
 
 import math
+import threading
 
 from ..helpers import RoundingProtocol, count_calls
 from bionic.exception import AttributeValidationError, CodeVersioningError
+from bionic.protocols import PicklableProtocol
 
 import bionic as bn
 
@@ -185,6 +187,28 @@ def test_caching_and_invalidation(builder, make_counter, parallel_processing_ena
     key_names = flow.get("xy_plus_yz", "series").index.names
     for name in ["x", "y"]:
         assert name in key_names
+
+
+def test_user_values_persistence(builder):
+    class WriteTenProtocol(PicklableProtocol):
+        """Always writes 10 as the value"""
+
+        def write(self, value, path):
+            super(WriteTenProtocol, self).write(10, path)
+
+    # Assign x an unpicklable value. The test should still pass as y will
+    # use the protocol.
+    # This should also pass parallel execution mode as it won't pass the
+    # real value to the subprocesses and use the protocol serialized value
+    # instead.
+    builder.assign("x", threading.Lock(), protocol=WriteTenProtocol())
+
+    @builder
+    def y(x):
+        return x
+
+    assert builder.build().get("x") == 10
+    assert builder.build().get("y") == 10
 
 
 def test_versioning(builder, make_counter):

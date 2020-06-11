@@ -18,7 +18,13 @@ import pandas as pd
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
 from .cache import LocalStore, GcsCloudStore, PersistentCache
-from .datatypes import CaseKey, EntityDefinition, VersioningPolicy, ResultGroup
+from .datatypes import (
+    CaseKey,
+    EntityDefinition,
+    VersioningPolicy,
+    ResultGroup,
+    entity_is_internal,
+)
 from .exception import (
     UndefinedEntityError,
     AlreadyDefinedEntityError,
@@ -927,6 +933,7 @@ class FlowBuilder:
             {len(docs)} docs {tuple(docs)!r}"""
             raise ValueError(oneline(message))
 
+        # FIX ME: make sure can persist is not true for core entity.
         can_persist = acc.can_persist
         if can_persist is None:
             can_persist = True
@@ -1070,7 +1077,7 @@ class Flow:
         return [
             name
             for name in self._state.providers_by_name.keys()
-            if include_core or not self._deriver.entity_is_internal(name)
+            if include_core or not entity_is_internal(name)
         ]
 
     def entity_protocol(self, name):
