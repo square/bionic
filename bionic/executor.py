@@ -10,40 +10,11 @@ import queue
 import sys
 import threading
 import traceback
-import warnings
 
 from multiprocessing.managers import SyncManager
 
 from .optdep import import_optional_dependency
 from .util import oneline, SynchronizedSet
-
-_executor = None
-
-
-def get_reusable_executor(worker_count):
-    global _executor
-
-    if _executor is None:
-        _executor = Executor(worker_count)
-    else:
-        prev_worker_count = _executor.worker_count
-        process_pool_resized = _executor.init_or_resize_process_pool(worker_count)
-        if process_pool_resized:
-            warning = f"""
-            The number of workers in the global Loky process pool has
-            changed from {_format_worker_count(prev_worker_count)} to
-            {_format_worker_count(worker_count)}. Because this pool is
-            global, all parallel jobs will now run with the new number
-            of workers, even in Bionic flows that were configured with
-            the old number.
-            """
-            warnings.warn(oneline(warning))
-
-    return _executor
-
-
-def _format_worker_count(worker_count):
-    return worker_count if worker_count is not None else "the default value"
 
 
 class Executor:
@@ -55,58 +26,77 @@ class Executor:
 
     def __init__(self, worker_count):
         self.worker_count = worker_count
-
-        class MyManager(SyncManager):
-            pass
-
-        MyManager.register("SynchronizedSet", SynchronizedSet)
-        self.process_manager = MyManager()
-        self.process_manager.start()
-
-        self._logging_queue = self.process_manager.Queue(-1)
-        self._logging_receiver = LoggingReceiver(self._logging_queue)
-        self._logging_receiver.start()
-
+        self._manager = get_singleton_manager()
         self._process_pool_exec = None
-        self.init_or_resize_process_pool(worker_count)
+        self._init_or_resize_process_pool()
 
-    def init_or_resize_process_pool(self, worker_count):
+    def _init_or_resize_process_pool(self):
         """
-        If the process pool is not initialized yet, initializes it and
-        returns True.
-
-        If already initialized, resizes the process pool if the
-        worker_count is different than the worker count used previously
-        and returns whether the process pool was resized.
+        Initializes the process pool if not initialized yet. If  already initialized,
+        since the process pool is a singleton in Loky, it attempts to register it again
+        which resizes the executor if the worker count changed.
         """
-
-        # When already initialized and worker count didn't change,
-        # no need to resize the process pool.
-        if self._process_pool_exec is not None and worker_count == self.worker_count:
-            return False
-
-        self.worker_count = worker_count
 
         # Loky uses cloudpickle by default. We should investigate further what would
         # it take to make is use pickle and wrap the functions that are non-picklable
         # using `loky.wrap_non_picklable_objects`.
         loky = import_optional_dependency("loky", purpose="parallel processing")
 
+        # This call to resize the executor is cheap when worker count doesn't change.
+        # Loky simply compares the arguments sent before and now. Since they match when
+        # worker count doesn't change, it returns the underlying executor without doing
+        # any kind of resizing (which might take time if the executor is running any tasks).
         self._process_pool_exec = loky.get_reusable_executor(
-            max_workers=worker_count,
+            max_workers=self.worker_count,
             initializer=logging_initializer,
-            initargs=(self._logging_queue,),
+            initargs=(self._manager.logging_queue,),
         )
-        return True
+
+    def flush_logs(self):
+        self._manager.flush_logs()
+
+    def submit(self, fn, *args, **kwargs):
+        self._init_or_resize_process_pool()
+        return self._process_pool_exec.submit(fn, *args, **kwargs)
+
+    def create_synchronized_set(self):
+        return self._manager.create_synchronized_set()
+
+
+_manager = None
+
+
+def get_singleton_manager():
+    global _manager
+    if _manager is None:
+        _manager = ExternalProcessLoggingManager()
+    return _manager
+
+
+class ExternalProcessLoggingManager:
+    """
+    Contains the process manager and logger used by the executor. This class
+    should be a singleton as it spins up a new process for process manager
+    and a new thread for receiving logs.
+    """
+
+    def __init__(self):
+        class ProcessManager(SyncManager):
+            pass
+
+        ProcessManager.register("SynchronizedSet", SynchronizedSet)
+        self._process_manager = ProcessManager()
+        self._process_manager.start()
+
+        self.logging_queue = self._process_manager.Queue(-1)
+        self._logging_receiver = LoggingReceiver(self.logging_queue)
+        self._logging_receiver.start()
 
     def flush_logs(self):
         self._logging_receiver.flush()
 
-    def submit(self, fn, *args, **kwargs):
-        return self._process_pool_exec.submit(fn, *args, **kwargs)
-
     def create_synchronized_set(self):
-        return self.process_manager.SynchronizedSet()
+        return self._process_manager.SynchronizedSet()
 
 
 def logging_initializer(logging_queue):
