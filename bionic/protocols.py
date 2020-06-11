@@ -698,3 +698,29 @@ class GeoPandasProtocol(BaseProtocol):
     def validate(self, value):
         assert gpd is not None
         assert isinstance(value, gpd.GeoDataFrame)
+
+
+class TupleProtocol(BaseProtocol):
+    """
+    Describes values that are Python tuples of a fixed length. This is used mainly
+    by Bionic's infrastructure for values corresponding to tuple descriptors.
+
+    This protocol does not support serializing or deserializing values.
+    """
+
+    def __init__(self, length):
+        super(TupleProtocol, self).__init__()
+
+        self._expected_length = length
+
+    def validate(self, value):
+        try:
+            items = tuple(value)
+        except TypeError as e:
+            raise AssertionError(str(e))
+        if len(items) != self._expected_length:
+            message = f"""
+            Expected a sequence with length {self._expected_length};
+            instead, got {len(items)} values: {items!r}
+            """
+            raise AssertionError(oneline(message))

@@ -10,6 +10,8 @@ from .decorators import (  # noqa: F401
     pyplot,
     immediate,
     changes_per_run,
+    accepts,
+    returns,
 )
 
 from . import protocol  # noqa: F401

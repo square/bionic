@@ -332,10 +332,11 @@ class CacheAccessor:
         try:
             self.query.protocol.write(value, value_path)
         except Exception as e:
+            # TODO Should we rename this to just SerializationError?
             raise EntitySerializationError(
                 oneline(
                     f"""
-                Value of entity {self.query.dnode.to_entity_name()!r}
+                Value of descriptor {self.query.dnode.to_descriptor()!r}
                 could not be serialized to disk
                 """
                 )

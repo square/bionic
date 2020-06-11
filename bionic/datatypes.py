@@ -34,7 +34,7 @@ class TaskKey:
 
     def __str__(self):
         args_str = ", ".join(f"{name}={value}" for name, value in self.case_key.items())
-        return f"{self.dnode.to_entity_name()}({args_str})"
+        return f"{self.dnode.to_descriptor(near_commas=True)}({args_str})"
 
 
 @attr.s(frozen=True)

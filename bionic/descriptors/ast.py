@@ -119,4 +119,4 @@ class TupleNode(DescriptorNode):
         return desc
 
     def all_entity_names(self):
-        return [name for child in self.children for name in child.entity_names()]
+        return [name for child in self.children for name in child.all_entity_names()]
