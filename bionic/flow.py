@@ -44,6 +44,9 @@ from .util import (
 )
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
+    # Every GeoPandas DataFrame is also a Pandas DataFrame, so we need to do the
+    # GeoPandas check first.
+    protos.GeoPandasProtocol(),
     protos.ParquetDataFrameProtocol(),
     protos.ImageProtocol(),
     protos.NumPyProtocol(),

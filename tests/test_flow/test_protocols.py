@@ -31,12 +31,20 @@ PICKLABLE_VALUES = [
 ]
 
 
+# A passthrough decorator that can be used in place of a protocol
+# decorator to allow testing default protocol. This decorator is just a
+# convenience wrapper to use pytest parameterization.
+def passthrough(f):
+    return f
+
+
 @pytest.mark.parametrize("value", PICKLABLE_VALUES)
-def test_picklable_value(builder, make_counter, value):
+@pytest.mark.parametrize("protocol", [bn.protocol.picklable, passthrough])
+def test_picklable_value(builder, make_counter, protocol, value):
     counter = make_counter()
 
     @builder
-    @bn.protocol.picklable
+    @protocol
     @count_calls(counter)
     def picklable_value():
         return value
@@ -226,7 +234,8 @@ def test_dataframe_with_categorical_works_with_feather(builder):
     pdt.assert_frame_equal(builder.build().get("df"), df_value)
 
 
-def test_simple_dask_dataframe(builder, make_counter):
+@pytest.mark.parametrize("protocol", [bn.protocol.dask, passthrough])
+def test_simple_dask_dataframe(builder, make_counter, protocol):
     df_value = df_from_csv_str(
         """
     color,number
@@ -240,7 +249,7 @@ def test_simple_dask_dataframe(builder, make_counter):
     counter = make_counter()
 
     @builder
-    @bn.protocol.dask
+    @protocol
     @count_calls(counter)
     def df():
         return dask_df
@@ -336,9 +345,10 @@ def test_dask_dataframe_index_cols(builder):
         builder.build().get("counts_df")
 
 
-def test_image_protocol(builder):
+@pytest.mark.parametrize("protocol", [bn.protocol.image, passthrough])
+def test_image_protocol(builder, protocol):
     @builder
-    @bn.protocol.image
+    @protocol
     def blue_rect():
         return Image.new("RGB", (4, 2), color="blue")
 
@@ -348,9 +358,10 @@ def test_image_protocol(builder):
     assert hexlify(image.tobytes()) == (b"0000ff" * 8)
 
 
-def test_numpy_protocol_1d(builder):
+@pytest.mark.parametrize("protocol", [bn.protocol.numpy, passthrough])
+def test_numpy_protocol_1d(builder, protocol):
     @builder
-    @bn.protocol.numpy
+    @protocol
     def np_array_1d():
         return np.arange(100)
 
@@ -585,9 +596,10 @@ def test_combined_protocol(builder):
         flow.get("must_be_one_or_two")
 
 
-def test_geodataframe_protocol(builder):
+@pytest.mark.parametrize("protocol", [bn.protocol.geodataframe, passthrough])
+def test_geodataframe_protocol(builder, protocol):
     @builder
-    @bn.protocol.geodataframe
+    @protocol
     def basic_geopandas_df():
         return geopandas.read_file(geopandas.datasets.get_path("nybb"))
 

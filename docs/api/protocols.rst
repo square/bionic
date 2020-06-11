@@ -85,6 +85,7 @@ Built-In Protocol Decorators
 .. autofunction:: bionic.protocol.dillable
 .. autofunction:: bionic.protocol.enum
 .. autofunction:: bionic.protocol.frame
+.. autofunction:: bionic.protocol.geodataframe
 .. autofunction:: bionic.protocol.image
 .. autofunction:: bionic.protocol.numpy
 .. autofunction:: bionic.protocol.path
