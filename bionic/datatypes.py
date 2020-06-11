@@ -7,6 +7,11 @@ import attr
 from .util import ImmutableSequence, ImmutableMapping
 
 
+def entity_is_internal(entity_name):
+    "Indicates if an entity is built-in to Bionic rather than user-defined."
+    return entity_name.startswith("core__")
+
+
 @attr.s(frozen=True)
 class EntityDefinition:
     """
@@ -19,8 +24,15 @@ class EntityDefinition:
     name = attr.ib()
     protocol = attr.ib()
     doc = attr.ib()
-    can_persist = attr.ib(default=True)
     can_memoize = attr.ib(default=True)
+    can_persist = attr.ib()
+
+    # NB: Order of the attributes matter when using `self` in default values.
+    # Please read the warning in documentation for more detail.
+    # https://www.attrs.org/en/stable/init.html#defaults
+    @can_persist.default
+    def _internal_entities_dont_persist(self):
+        return not entity_is_internal(self.name)
 
 
 @attr.s(frozen=True)

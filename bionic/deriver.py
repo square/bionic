@@ -8,7 +8,7 @@ from enum import Enum, auto
 
 import attr
 
-from .datatypes import ResultGroup, EntityDefinition
+from .datatypes import ResultGroup, EntityDefinition, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .exception import AttributeValidationError, UndefinedEntityError
@@ -97,7 +97,7 @@ class EntityDeriver:
             if include_core:
                 return True
             if isinstance(dnode, ast.EntityNode):
-                return not self.entity_is_internal(dnode.to_entity_name())
+                return not entity_is_internal(dnode.to_entity_name())
             return True
 
         self.get_ready()
@@ -146,10 +146,6 @@ class EntityDeriver:
             dnodes_already_added.add(dnode)
 
         return graph
-
-    def entity_is_internal(self, entity_name):
-        "Indicates if an entity is built-in to Bionic rather than user-defined."
-        return entity_name.startswith("core__")
 
     # --- Private helpers.
 
@@ -603,6 +599,10 @@ class TaskCompletionRunner:
 
             self._process_entry(entry)
 
+        if self._bootstrap is not None:
+            # FIX ME Delete tmp cache.
+            pass
+
         assert len(self._pending_entries) == 0
         assert len(self._in_progress_entries) == 0
         assert len(self._get_all_blocked_entries()) == 0
@@ -628,11 +628,11 @@ class TaskCompletionRunner:
                 not state.should_persist
                 and entry.state.task.keys[0] in self._requested_task_keys
             )
+            # This is a simple lookup entry that should only be persisted in the main
+            # process. Simple lookup entries can have custom serialization in their
+            # protcol that should be used instead of cloudpickle.
+            or state.task.is_simple_lookup
         ):
-            # TODO: Right now, non-persisted entities include simple lookup values
-            # which we should not be really sending using IPC. We should read/write
-            # a tmp file for this instead to use protocol for serialization instead of
-            # using cloudpickle.
             state.complete(self.task_key_logger)
             self._mark_entry_completed(entry)
 

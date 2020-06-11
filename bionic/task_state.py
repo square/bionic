@@ -35,11 +35,7 @@ class TaskState:
         # Cached values.
         self.task_keys = task.keys
         self.should_memoize = can_memoize
-        self.should_persist = (
-            can_persist
-            and not self.task.is_simple_lookup
-            and not self.output_would_be_missing()
-        )
+        self.should_persist = can_persist and not self.output_would_be_missing()
 
         # These are set by initialize().
         self._is_initialized = False
@@ -335,7 +331,7 @@ class TaskState:
                 task_key=task_key,
                 protocol=self.entity_defs_by_dnode[task_key.dnode].protocol,
                 provenance=self._provenance,
-                tmp_persistence=False,
+                tmp_persistence=self.task.is_simple_lookup,
             )
             for task_key in self.task_keys
         ]
