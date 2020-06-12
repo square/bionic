@@ -5,9 +5,17 @@ on: push
 jobs:
   build:
 
-    # Consider running on macos-latest as well.
+    # TODO Consider running on macos-latest as well.
     runs-on: ubuntu-latest
+    # Just in case we start having to pay for our CI compute costs, it's probably wise
+    # to have a time limit.
+    timeout-minutes: 60
     strategy:
+      # Keep running all test configurations, even if one of them fails. This is helpful
+      # because if one configuration fails, it's useful to see whether the other ones
+      # fail too. (This helps diagnose tests that are flaky or specific to one Python
+      # version.)
+      fail-fast: false
       matrix:
         python-version: [3.6, 3.7, 3.8]
 
