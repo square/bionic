@@ -668,7 +668,8 @@ class GeoPandasProtocol(BaseProtocol):
     """
     Decorator indicating that an entity's values always have the
     ``geopandas.geodataframe.GeoDataFrame`` type.
-    These values will be serialized to a .shp directory.
+
+    These values will be serialized to SHP files.
     """
 
     def get_fixed_file_extension(self):

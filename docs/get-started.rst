@@ -72,6 +72,8 @@ full       ``pip install 'bionic[full]'``       every non-development feature
 ---------- ------------------------------------ --------------------------------
 gcp        ``pip install 'bionic[gcp]'``        caching to GCS
 ---------- ------------------------------------ --------------------------------
+geopandas  ``pip install 'bionic[geopandas]'``  the ``@geodataframe`` decorator
+---------- ------------------------------------ --------------------------------
 image      ``pip install 'bionic[image]'``      automatic de/serialization of
                                                 ``PIL.Image`` objects
 ---------- ------------------------------------ --------------------------------

@@ -393,7 +393,7 @@ return different results whenever the database's contents change.  In
 cases like this, it's not appropriate to reuse the function's previous cached
 values; we want Bionic to recompute the value each time.
 
-You can tell Bionic that a function is non-deterministic by applying the 
+You can tell Bionic that a function is non-deterministic by applying the
 :meth:`@changes_per_run <bionic.changes_per_run>` decorator:
 
 .. code-block:: python
@@ -539,13 +539,22 @@ Most Python objects can be serialized with Python's built-in `pickle
 <https://docs.python.org/3/library/pickle.html>`_ module.  However, for some
 object types it's more efficient or more idiomatic to use a different format.
 There are also some types of objects that can't be pickled at all.  Bionic uses
-``pickle`` by default, but handles some types specially: `Pandas
-<https://pandas.pydata.org/>`_ DataFrames are serialized in the `Parquet
-<https://parquet.apache.org/>`_ format, while `Pillow
-<https://pillow.readthedocs.io/en/stable/>`_ Images are serialized as `PNG
-<https://en.wikipedia.org/wiki/Portable_Network_Graphics>`_\ s.  You can
-explictly specify a serialization strategy for an entity by attaching a
-`Protocol`_ to its definition.
+``pickle`` by default, but handles some types specially:
+
+- `Pandas <https://pandas.pydata.org/>`_ DataFrames are serialized as
+  `Parquet <https://parquet.apache.org/>`_ files.
+- `NumPy <https://numpy.org/>`_ Arrays are serialized as `NPY
+  <https://numpy.org/devdocs/reference/generated/numpy.lib.format.html#npy-format>`_
+  files.
+- `Pillow <https://pillow.readthedocs.io/en/stable/>`_ Images are serialized
+  as `PNG <https://en.wikipedia.org/wiki/Portable_Network_Graphics>`_ files.
+- `Dask <https://docs.dask.org/>`_ Dataframes are serialized as `Parquet
+  <https://parquet.apache.org/>`_ files.
+- `GeoPandas <https://geopandas.org/>`_ Dataframes are serialized as `SHP
+  <https://en.wikipedia.org/wiki/Shapefile#Shapefile_shape_format_(.shp)>`_ files.
+
+You can can explictly specify a serialization strategy for an entity by
+attaching a `Protocol`_ to its definition.
 
 .. _Protocol: api/protocols.rst
 
