@@ -8,7 +8,7 @@ from enum import Enum, auto
 
 import attr
 
-from .datatypes import ResultGroup, EntityDefinition, entity_is_internal
+from .datatypes import ResultGroup, EntityDefinition
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .exception import AttributeValidationError, UndefinedEntityError
@@ -25,6 +25,11 @@ import logging
 # them into tasks, while providing the option of either handling the output
 # itself or routing it back to the global logging system.
 logger = logging.getLogger(__name__)
+
+
+def entity_is_internal(entity_name):
+    "Indicates if an entity is built-in to Bionic rather than user-defined."
+    return entity_name.startswith("core__")
 
 
 class EntityDeriver:

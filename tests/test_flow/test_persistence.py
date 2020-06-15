@@ -196,11 +196,8 @@ def test_user_values_persistence(builder):
         def write(self, value, path):
             super(WriteTenProtocol, self).write(10, path)
 
-    # Assign x an unpicklable value. The test should still pass as y will
-    # use the protocol.
-    # This should also pass parallel execution mode as it won't pass the
-    # real value to the subprocesses and use the protocol serialized value
-    # instead.
+    # Assign x an unpicklable value. The test should still pass as x will
+    # use the protocol for serialization.
     builder.assign("x", threading.Lock(), protocol=WriteTenProtocol())
 
     @builder
@@ -1102,12 +1099,23 @@ def test_updating_cache_works_only_with_immediate(builder):
 
     assert builder.build().get("x") == 1
 
+    # This should fail because user is trying to persist an internal
+    # entity which is not allowed.
+    with pytest.raises(AttributeValidationError):
+
+        @builder  # noqa: F811
+        @bn.persist(True)
+        def core__persistent_cache():  # noqa: F811
+            return persistent_cache
+
     @builder  # noqa: F811
-    def core__persistent_cache():  # noqa: F811
+    @bn.immediate
+    def core__persistent_cache(x):  # noqa: F811
         return persistent_cache
 
-    # Since we didn't use @immediate, this should fail, because it will attempt to
-    # persist the cache entity using a cache, which leads to a circular dependency.
+    # This should fail because while trying to compute the cache entity,
+    # it will attempt to persist the dependent entity `x` using a cache,
+    # which leads to a circular dependency.
     with pytest.raises(AttributeValidationError):
         builder.build().get("x")
 

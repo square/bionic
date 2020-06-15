@@ -74,7 +74,7 @@ def test_logging_details(builder, log_checker, parallel_processing_enabled):
     # Since we load x_plus_one from disk cache, we don't access the
     # definition for x.
     # To clarify: we do access it for looking at the cache, but it's
-    # taken from case key where it is loaded by default and is not
+    # taken from the case key where it is loaded by default and is not
     # counted as definition access in the flow.
     log_checker.expect("Loaded     x_plus_one(x=1) from disk cache")
 
