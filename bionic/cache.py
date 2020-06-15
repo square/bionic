@@ -899,7 +899,7 @@ def valid_filename_from_query(query):
     return query.dnode.to_descriptor().replace(" ", "-")
 
 
-CACHE_SCHEMA_VERSION = 6
+CACHE_SCHEMA_VERSION = 7
 
 
 class YamlRecordParsingError(Exception):
@@ -1002,8 +1002,6 @@ class Provenance:
             orig_flow_name=code_fingerprint.orig_flow_name,
             code_version_major=code_fingerprint.version.major,
             cache_schema_version=CACHE_SCHEMA_VERSION,
-            # This exists for backwards compatibility with older cache entries.
-            python_major_version=3,
         )
         nonfunctional_code_dict = dict(
             code_version_minor=code_fingerprint.version.minor,
