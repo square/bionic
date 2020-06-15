@@ -30,6 +30,7 @@ from .exception import (
     AlreadyDefinedEntityError,
     IncompatibleEntityError,
     UnsetEntityError,
+    AttributeValidationError,
 )
 from .executor import Executor
 from .provider import (
@@ -47,6 +48,7 @@ from .util import (
     copy_to_gcs,
     FileCopier,
     oneline,
+    single_unique_element,
 )
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
@@ -933,10 +935,19 @@ class FlowBuilder:
             {len(docs)} docs {tuple(docs)!r}"""
             raise ValueError(oneline(message))
 
-        # FIX ME: make sure can persist is not true for core entity.
+        # XXX I highly doubt that users would try to mix internal and non-internal
+        # entities in a single function. This should also go away once we completely
+        # move to tuple descriptor internally.
+        is_internal = single_unique_element(entity_is_internal(name) for name in names)
         can_persist = acc.can_persist
         if can_persist is None:
-            can_persist = True
+            can_persist = not is_internal
+        if is_internal and can_persist:
+            message = f"""
+            Attempted to set @persist to True for at least one of
+            Bionic internal entities: {provider.entity_names!r}.
+            """
+            raise AttributeValidationError(oneline(message))
 
         can_memoize = acc.can_memoize
         if can_memoize is None:
