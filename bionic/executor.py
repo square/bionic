@@ -73,6 +73,13 @@ def get_singleton_manager():
     return _manager
 
 
+class ProcessManager(SyncManager):
+    pass
+
+
+ProcessManager.register("SynchronizedSet", SynchronizedSet)
+
+
 class ExternalProcessLoggingManager:
     """
     Contains the process manager and logger used by the executor. This class
@@ -81,10 +88,6 @@ class ExternalProcessLoggingManager:
     """
 
     def __init__(self):
-        class ProcessManager(SyncManager):
-            pass
-
-        ProcessManager.register("SynchronizedSet", SynchronizedSet)
         self._process_manager = ProcessManager()
         self._process_manager.start()
 
