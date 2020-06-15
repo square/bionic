@@ -85,7 +85,7 @@ class PersistentCache:
 
     def __init__(self, local_store, local_tmp_store, cloud_store):
         self._local_store = local_store
-        self._local_tmp_store = local_tmp_store
+        self.local_tmp_store = local_tmp_store
         self._cloud_store = cloud_store
 
     def get_accessor(self, query):
@@ -104,7 +104,7 @@ class CacheAccessor:
         self.value_filename_stem = valid_filename_from_query(self.query) + "."
 
         if query.tmp_persistence:
-            self._local = parent_cache._local_tmp_store
+            self._local = parent_cache.local_tmp_store
         else:
             self._local = parent_cache._local_store
         self._cloud = parent_cache._cloud_store
@@ -596,11 +596,18 @@ class LocalStore:
         root_path = Path(root_path_str).absolute()
         self._artifact_root_path = root_path / "artifacts"
 
-        inventory_root_path = root_path / "inventory"
-        tmp_root_path = root_path / "tmp"
+        self._inventory_root_path = root_path / "inventory"
+        self._tmp_root_path = root_path / "tmp"
         self.inventory = Inventory(
-            "local disk", "local", LocalFilesystem(inventory_root_path, tmp_root_path)
+            "local disk",
+            "local",
+            LocalFilesystem(self._inventory_root_path, self._tmp_root_path),
         )
+
+    def empty_cache(self):
+        shutil.rmtree(self._artifact_root_path, ignore_errors=True)
+        shutil.rmtree(self._inventory_root_path, ignore_errors=True)
+        shutil.rmtree(self._tmp_root_path, ignore_errors=True)
 
     def generate_unique_dir_path(self, query):
         n_attempts = 0

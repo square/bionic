@@ -1,9 +1,11 @@
 import pytest
 
 import math
+import threading
 
 from ..helpers import RoundingProtocol, count_calls
 from bionic.exception import AttributeValidationError, CodeVersioningError
+from bionic.protocols import PicklableProtocol
 
 import bionic as bn
 
@@ -1111,3 +1113,24 @@ def test_multiple_outputs_all_persisted_at_once(builder, make_counter):
     assert builder.build().get("x") == 1
     assert builder.build().get("y") == 2
     assert call_counter.times_called() == 1
+
+
+def test_tmp_persistence(builder):
+    class WriteTenProtocol(PicklableProtocol):
+        """Always writes 10 as the value"""
+
+        def write(self, value, path):
+            super(WriteTenProtocol, self).write(10, path)
+
+    # Assign x an unpicklable value. The test should still pass as y will
+    # use the protocol.
+    # This should also pass parallel execution mode as it won't pass the
+    # real value to the subprocesses.
+    builder.assign("x", threading.Lock(), protocol=WriteTenProtocol())
+
+    @builder
+    def y(x):
+        return x
+
+    assert builder.build().get("x") == 10
+    assert builder.build().get("y") == 10

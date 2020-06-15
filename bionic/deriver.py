@@ -8,7 +8,7 @@ from enum import Enum, auto
 
 import attr
 
-from .datatypes import ResultGroup, EntityDefinition, entity_is_internal
+from .datatypes import Result, ResultGroup, EntityDefinition, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .exception import AttributeValidationError, UndefinedEntityError
@@ -451,6 +451,10 @@ class EntityDeriver:
             self._get_or_create_task_state_for_key(task.keys[0]) for task in dinfo.tasks
         ]
 
+        # As a fail-safe measure, reset tmp cache in case there was an error in the last
+        # run and left the tmp cache and task states in a bad state.
+        self._reset_tmp_cache()
+
         task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
         task_runner.run(requested_task_states)
 
@@ -460,13 +464,54 @@ class EntityDeriver:
         for state in requested_task_states:
             assert state.is_complete, state
 
-        return ResultGroup(
-            results=[
-                state.get_results_assuming_complete(task_runner.task_key_logger)[dnode]
-                for state in requested_task_states
-            ],
-            key_space=dinfo.key_space,
-        )
+        results = []
+        for state in requested_task_states:
+            result = state.get_results_assuming_complete(task_runner.task_key_logger)[
+                dnode
+            ]
+            # For any tmp persistence results, we don't want to return file paths since
+            # we reset tmp cache right after.
+            if result.query.tmp_persistence:
+                result = Result(
+                    query=result.query,
+                    value=result.value,
+                    value_hash=result.value_hash,
+                    value_is_missing=result.value_is_missing,
+                )
+            results.append(result)
+
+        result_group = ResultGroup(results=results, key_space=dinfo.key_space,)
+
+        # Reset tmp cache since it's not needed anymore.
+        self._reset_tmp_cache()
+
+        return result_group
+
+    def _reset_tmp_cache(self):
+        """
+        Deletes the temporary cache entries and resets all task states that write to the
+        temporary cache.
+        """
+
+        # If bootstrap is not yet initialized, nothing has written to temporary cache yet
+        # and none of the task states that uses temporary persistence would have been
+        # completed.
+        if self._bootstrap is None:
+            return
+
+        for task_state in self._saved_task_states_by_key.values():
+            if not task_state.is_complete:
+                continue
+
+            # This should be safe as we already assume that a single task state cannot
+            # have different cache settings in `TaskState.__init__`.
+            (uses_tmp_persistence,) = set(
+                query.tmp_persistence for query in task_state.queries
+            )
+            if task_state.should_persist and uses_tmp_persistence:
+                task_state.reset()
+
+        self._bootstrap.persistent_cache.local_tmp_store.empty_cache()
 
 
 @attr.s(frozen=True)
@@ -598,10 +643,6 @@ class TaskCompletionRunner:
                 continue
 
             self._process_entry(entry)
-
-        if self._bootstrap is not None:
-            # FIX ME Delete tmp cache.
-            pass
 
         assert len(self._pending_entries) == 0
         assert len(self._in_progress_entries) == 0

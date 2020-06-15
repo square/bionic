@@ -40,7 +40,7 @@ class TaskState:
         # These are set by initialize().
         self._is_initialized = False
         self._provenance = None
-        self._queries = None
+        self.queries = None
         self._cache_accessors = None
 
         # This can be set by complete() or _compute().
@@ -54,6 +54,15 @@ class TaskState:
 
         # A completed task state has it's results computed and cached somewhere for
         # easy retrieval.
+        self.is_complete = False
+
+    def reset(self):
+        self._is_initialized = False
+        self._provenance = None
+        self.queries = None
+        self._cache_accessors = None
+        self._result_value_hashes_by_dnode = None
+        self._results_by_dnode = None
         self.is_complete = False
 
     # TODO: We need a coherent story around incomplete states between parallel
@@ -191,7 +200,7 @@ class TaskState:
         if self.output_would_be_missing():
             results_by_dnode = {}
             result_value_hashes_by_dnode = {}
-            for query in self._queries:
+            for query in self.queries:
                 result = Result(query=query, value=None, value_is_missing=True)
                 results_by_dnode[query.dnode] = result
                 result_value_hashes_by_dnode[query.dnode] = ""
@@ -209,7 +218,7 @@ class TaskState:
         values = task.compute(dep_values)
         assert len(values) == len(self.task_keys)
 
-        for query in self._queries:
+        for query in self.queries:
             if task.is_simple_lookup:
                 task_key_logger.log_accessed_from_definition(query.task_key)
             else:
@@ -217,7 +226,7 @@ class TaskState:
 
         results_by_dnode = {}
         result_value_hashes_by_dnode = {}
-        for ix, (query, value) in enumerate(zip(self._queries, values)):
+        for ix, (query, value) in enumerate(zip(self.queries, values)):
             query.protocol.validate(value)
 
             result = Result(query=query, value=value)
@@ -326,7 +335,7 @@ class TaskState:
         )
 
         # Then set up queries.
-        self._queries = [
+        self.queries = [
             Query(
                 task_key=task_key,
                 protocol=self.entity_defs_by_dnode[task_key.dnode].protocol,
@@ -352,8 +361,7 @@ class TaskState:
                 raise AttributeValidationError(oneline(message))
 
             self._cache_accessors = [
-                bootstrap.persistent_cache.get_accessor(query)
-                for query in self._queries
+                bootstrap.persistent_cache.get_accessor(query) for query in self.queries
             ]
 
             if bootstrap.versioning_policy.check_for_bytecode_errors:
@@ -447,7 +455,7 @@ class TaskState:
         if task_state.is_complete:
             task_state.dep_states = []
             task_state.task = None
-            task_state._queries = None
+            task_state.queries = None
         else:
             task_state.dep_states = [
                 dep_state.strip_state_for_subprocess(new_task_states_by_key)
