@@ -638,7 +638,6 @@ class TaskCompletionRunner:
 
         # Process serializable entity in parallel.
         elif state.should_persist:
-            # TODO: Logging support for multiple processes not done yet.
             new_state_for_subprocess = state.strip_state_for_subprocess()
             future = self._bootstrap.executor.submit(
                 new_state_for_subprocess.complete, self.task_key_logger
