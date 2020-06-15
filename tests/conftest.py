@@ -35,13 +35,22 @@ def builder(parallel_processing_enabled, tmp_path):
     return builder
 
 
+# This is a different multiprocessing manager than the one we use in
+# ExternalProcessLoggingManager. This one is responsible for sharing test
+# objects between processes. Its' only used in make_counter and make_list
+# fixtures. The purpose here is to not pollute the manager that bionic uses.
+# I also don't want to replace the manager that bionic creates with a test
+# one.
+class PytestManager(SyncManager):
+    pass
+
+
+PytestManager.register("ResettingCounter", ResettingCounter)
+
+
 @pytest.fixture(scope="session")
 def multiprocessing_manager(request):
-    class MyManager(SyncManager):
-        pass
-
-    MyManager.register("ResettingCounter", ResettingCounter)
-    manager = MyManager()
+    manager = PytestManager()
     manager.start()
     request.addfinalizer(manager.shutdown)
     return manager
