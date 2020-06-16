@@ -545,6 +545,8 @@ you must have GCP credentials configured.  You should also use ``pip install
 
 .. _gsutil: https://cloud.google.com/storage/docs/gsutil
 
+.. _protocols :
+
 Serialization Protocols
 .......................
 
@@ -755,6 +757,59 @@ values by "case" instead of by entity.
 Other Features
 --------------
 
+.. _parallel-execution:
+
+Parallel Execution
+..................
+
+.. versionadded:: 0.8.0
+
+Requesting an entity value with :meth:`Flow.get <bionic.Flow.get>` can lead to a long
+computation, as Bionic may need to compute that entity's dependencies, and their
+dependencies, and so on. By default, Bionic computes these values one at a time.
+However, it can also be configured to compute them in parallel; depending on the
+structure of your flow, this can be significantly faster.
+
+Parallel execution can be enabled like this:
+
+.. code-block:: python
+
+    builder.set("core__parallel_execution__enabled", True)
+
+When parallel execution is enabled, Bionic starts up several worker processes [#f4]_,
+each of which can work on one value at a time. Of course, a worker can only start
+computing a value once all its dependencies are complete, so the number of processes
+that can be working at once depends on the :ref:`dependency graph <dagviz>`: if there
+aren't many branches in the graph, then most of the processes won't do much work. It
+does take extra time to set up the processes and move information between them, so
+parallel execution is not guaranteed to be faster overall. However, in general, if
+you have many expensive operations which don't depend on each other, enabling
+parallelism will improve performance.
+
+By default, Bionic will create one worker process for each CPU on your machine. This
+is usually a sensible number, but it can also be set directly:
+
+.. code-block:: python
+
+    builder.set("core__parallel_execution__worker_count", 8)
+
+In order to compute an entity value in a separate process, Bionic needs to serialize
+the entity function and transmit it to the other process; thus, all your functions
+need to be serializable by `cloudpickle <https://github.com/cloudpipe/cloudpickle>`_.
+(This shouldn't be a problem unless your function uses some kind of complex global
+variable, which is already a `bad idea <warnings.rst#avoid-global-state>`_.) The
+entity value itself doesn't necessarily need to be picklable; it will be serialized
+using the :ref:`protocol<protocols>` specified for the entity. Finally, entities
+marked with :func:`@persist(False) <bionic.persist>` are assumed to be unserializable
+and will always be computed in the main process rather than being parallelized.
+
+.. [#f4] The pool of workers is managed by
+  `Loky <https://loky.readthedocs.io/en/stable/>`_,
+  which is built on Python's
+  `multiprocessing <https://docs.python.org/3.8/library/multiprocessing.html>`_ module.
+  The pool is global and reusable, so it should only need to be initialized once in
+  the lifetime of the main process.
+
 Plotting
 ........
 
@@ -862,6 +917,8 @@ conflict by using the ``keep`` argument to specify which definitions to keep:
 .. code-block:: python
 
     builder.merge(flow, keep='old')
+
+.. _dagviz :
 
 Visualizing Flows
 .................

@@ -43,8 +43,8 @@ These things don't matter:
 
 .. [#f_alpha] This won't always be the case, of course.
 
-.. [#f_single] This will also be fixed in the `future
-  <future.rst#distributed-computation>`__.
+.. [#f_single] This will also be fixed in the
+   `future <future.rst#distributed-computation>`__.
 
 Key Features
 ------------
@@ -72,8 +72,9 @@ care about into a *flow*.  This has the following benefits:
   files and notebooks -- you can build your flow in a Python file and easily
   use it from a notebook.  This lets you combine the version control and
   reproducibility of files with the rapid iteration environment of notebooks.
-* **Scalable Execution (Work In Progress)**: In future versions of Bionic, entities
-  will be computed in parallel, either on your local machine or on a cluster.
+* **Scalable Execution**: Bionic can automatically distribute tasks over multiple CPUs,
+  so highly parallel dependency graphs can be sped up severalfold with a `one-line
+  code change <concepts.rst#parallel-execution>`_.
 
 Alternatives
 ------------
