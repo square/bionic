@@ -2,8 +2,12 @@ import copy
 
 from .cache import Provenance
 from .datatypes import ProvenanceDigest, Query, Result
-from .exception import AttributeValidationError, CodeVersioningError
+from .exception import CodeVersioningError
 from .util import oneline, single_unique_element
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TaskState:
@@ -22,26 +26,23 @@ class TaskState:
         self.provider = provider
         self.entity_defs_by_dnode = entity_defs_by_dnode
 
+        # Cached values.
+        self.task_keys = task.keys
         # In theory different entities for a single task could have different cache
         # settings, but I'm not sure it can happen in practice (given the way
         # grouped entities are created). At any rate, once we have tuple
         # descriptors, each task state will only be responsible for a single entity
         # and this won't be an issue.
-        can_persist, can_memoize = single_unique_element(
-            (entity_def.can_persist, entity_def.can_memoize)
-            for entity_def in entity_defs_by_dnode.values()
+        self.can_memoize = single_unique_element(
+            entity_def.can_memoize for entity_def in self.entity_defs_by_dnode.values()
         )
-
-        # Cached values.
-        self.task_keys = task.keys
-        self.should_memoize = can_memoize
-        self.should_persist = can_persist and not self.output_would_be_missing()
 
         # These are set by initialize().
         self._is_initialized = False
         self._provenance = None
         self._queries = None
         self._cache_accessors = None
+        self.should_persist = None
 
         # This can be set by complete() or _compute().
         #
@@ -152,7 +153,7 @@ class TaskState:
 
             results_by_dnode[result.query.dnode] = result
 
-        if self.should_memoize:
+        if self.can_memoize:
             self._results_by_dnode = results_by_dnode
 
         return results_by_dnode
@@ -235,7 +236,7 @@ class TaskState:
         # Otherwise, load it lazily later so that if the serialized/deserialized
         # value is not exactly the same as the original, we still
         # always return the same value.
-        if self.should_memoize and not self.should_persist:
+        if self.can_memoize and not self.should_persist:
             self._results_by_dnode = results_by_dnode
 
         # But we cache the hashed values eagerly since they are cheap to load.
@@ -335,21 +336,38 @@ class TaskState:
             for task_key in self.task_keys
         ]
 
+        should_persist = (
+            single_unique_element(
+                entity_def.can_persist
+                for entity_def in self.entity_defs_by_dnode.values()
+            )
+            and not self.output_would_be_missing()
+        )
+        if should_persist and bootstrap is None:
+            descriptors = [
+                task_key.dnode.to_descriptor() for task_key in self.task_keys
+            ]
+            if self.task.is_simple_lookup:
+                disable_message = """
+                applying `@persist(False)` or `@immediate` to the corresponding
+                function"""
+            else:
+                disable_message = """
+                passing `persist=False` when you `declare` / `assign` the entity
+                values"""
+            message = f"""
+            Descriptors {descriptors!r} are set to be persisted but they can't be
+            because core bootstrap entities depend on them.
+            The corresponding values will not be serialized and deserialized,
+            which may cause the values to be subtly different.
+            To avoid this warning, disable persistence for the decorators
+            by {disable_message}."""
+            logging.warn(message)
+            should_persist = False
+        self.should_persist = should_persist
+
         # Lastly, set up cache accessors.
         if self.should_persist:
-            if bootstrap is None:
-                descriptors = [
-                    task_key.dnode.to_descriptor() for task_key in self.task_keys
-                ]
-                message = f"""
-                Attempting to load cached state for descriptors {descriptors!r},
-                but the cache is not available yet because core bootstrap
-                entities depend on this one;
-                you should decorate the corresponding function with
-                `@persist(False)` or `@immediate` to indicate that it can't be
-                cached."""
-                raise AttributeValidationError(oneline(message))
-
             self._cache_accessors = [
                 bootstrap.persistent_cache.get_accessor(query)
                 for query in self._queries

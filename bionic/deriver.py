@@ -391,7 +391,7 @@ class EntityDeriver:
         )
 
         # Check that the provider configuration is valid.
-        if provider.attrs.changes_per_run and not task_state.should_memoize:
+        if provider.attrs.changes_per_run and not task_state.can_memoize:
             # TODO This message should say something like:
             #    "Entity with name ..." or "Entities with names ..."
             message = f"""

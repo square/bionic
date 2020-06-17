@@ -955,10 +955,9 @@ class FlowBuilder:
             {len(docs)} docs {tuple(docs)!r}"""
             raise ValueError(oneline(message))
 
-        internal_names = [name for name in names if entity_is_internal(name)]
         can_persist = acc.can_persist
         if can_persist is None:
-            can_persist = len(internal_names) == 0
+            can_persist = True
 
         can_memoize = acc.can_memoize
         if can_memoize is None:

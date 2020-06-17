@@ -1113,11 +1113,9 @@ def test_updating_cache_works_only_with_immediate(builder):
     def core__persistent_cache(x):  # noqa: F811
         return persistent_cache
 
-    # This should fail because while trying to compute the cache entity,
-    # it will attempt to persist the dependent entity `x` using a cache,
-    # which leads to a circular dependency.
-    with pytest.raises(AttributeValidationError):
-        builder.build().get("x")
+    # Even though `x` is used by an internal entity, we will allow this
+    # by not persisting x.
+    assert builder.build().get("x") == 1
 
 
 def test_multiple_outputs_all_persisted_at_once(builder, make_counter):
