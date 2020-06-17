@@ -1,0 +1,24 @@
+artifact_url: ../../../../artifacts/yz/ce4a737e-4f22-444e-bdfd-de04e6d5bc44/yz.pkl
+descriptor: yz
+provenance:
+  case_key:
+    y: '3'
+    z: '4'
+  code:
+    bytecode_hash: b286606e627de0b01a41ae75d0fbc14c628205249bbd7e9b828161f359190fea
+    functional:
+      cache_schema_version: 7
+      code_version_major: '0'
+      orig_flow_name: null
+    nonfunctional:
+      bytecode_hash: b286606e627de0b01a41ae75d0fbc14c628205249bbd7e9b828161f359190fea
+      code_version_minor: '0'
+  exact_deps_hash: 946fe80a63a12a59f1a5b19e2d7688bc969177757f5c40d45acf2400b1788d2c
+  exact_hash: a4b10d4cf81e439ee905905ffe708b20ae4d62f2ace1340ce219f46511c28d82
+  functional_deps:
+  - descriptor: y
+    hash: d330713dd5
+  - descriptor: z
+    hash: 24dc718705
+  functional_hash: 326f5f8a61ffc67ee13d68210664afc30df65770185426669c4e9b07ecf18395
+value_hash: 6eefc47991

@@ -1,0 +1,19 @@
+artifact_url: ../../../../artifacts/z/d58db102-06e4-405e-b5ab-3af678d6eeae/z.pkl
+descriptor: z
+provenance:
+  case_key:
+    z: '4'
+  code:
+    bytecode_hash: null
+    functional:
+      cache_schema_version: 7
+      code_version_major: '4'
+      orig_flow_name: null
+    nonfunctional:
+      bytecode_hash: null
+      code_version_minor: '0'
+  exact_deps_hash: 72dfcfb0c470ac255cde83fb8fe38de8a128188e03ea5ba5b2a93adbea1062fa
+  exact_hash: 37453133f59391c478059c62eb759746a2bd1d048fb61b69eb01f69742703e47
+  functional_deps: []
+  functional_hash: 44ca7fb2bdc094ce6078a2b56807b91861a706f4df169954db19ea307b1e684e
+value_hash: 24dc718705
