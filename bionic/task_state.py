@@ -68,7 +68,7 @@ class TaskState:
 
 
         Note that the definition is complicated because dependencies that cannot be
-        persisted can potentially be computed again in case of parallel processing.
+        persisted can potentially be computed again in case of parallel execution.
         But we don't want to complete the persisted entities when trying to complete
         this task state. They should already be complete to avoid doing any unnecessary
         state tracking for completing this state.
@@ -284,7 +284,7 @@ class TaskState:
                     )
                 self._result_value_hashes_by_dnode[accessor.query.dnode] = value_hash
 
-        # Lastly, we can mark the process as complete.
+        # Lastly, we can mark the task state as complete.
         self.is_complete = True
 
     def initialize(self, bootstrap, flow_instance_uuid):

@@ -9,13 +9,13 @@ from bionic.optdep import import_optional_dependency
 # TODO use a marker to run parallel execution mode tests.
 # This overrides the fixture defined in conftest.py.
 @pytest.fixture(params=[ExecutionMode.PARALLEL])
-def parallel_processing_enabled(request):
+def parallel_execution_enabled(request):
     return request.param == ExecutionMode.PARALLEL
 
 
 @pytest.fixture
 def loky_executor():
-    loky = import_optional_dependency("loky", purpose="parallel processing")
+    loky = import_optional_dependency("loky", purpose="parallel execution")
     return loky.get_reusable_executor(
         max_workers=None,
         initializer=logging_initializer,
@@ -34,10 +34,10 @@ def test_executor_resizes(builder, loky_executor):
     def z(x):
         return x
 
-    builder.set("core__parallel_processing__worker_count", 2)
+    builder.set("core__parallel_execution__worker_count", 2)
     flow1 = builder.build()
 
-    builder.set("core__parallel_processing__worker_count", 3)
+    builder.set("core__parallel_execution__worker_count", 3)
     flow2 = builder.build()
 
     assert flow1.get("y") == 1

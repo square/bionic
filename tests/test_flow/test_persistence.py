@@ -27,7 +27,7 @@ class ReadCountingProtocol(bn.protocols.PicklableProtocol):
 # It would be nice to move the builder setup into fixtures, but since we need
 # to access the bound functions as well (to check the number of times they were
 # called), it's easiest to just have one long test.
-def test_caching_and_invalidation(builder, make_counter, parallel_processing_enabled):
+def test_caching_and_invalidation(builder, make_counter, parallel_execution_enabled):
     # Set up the builder with singleton values.
 
     builder.assign("x", 2)
@@ -71,8 +71,8 @@ def test_caching_and_invalidation(builder, make_counter, parallel_processing_ena
     assert flow.get("xy_plus_yz") == 18
     assert flow.get("xy_plus_yz") == 18
     assert xy_counter.times_called() == 0
-    if parallel_processing_enabled:
-        # This is different from serial processing because we don't pass
+    if parallel_execution_enabled:
+        # This is different from serial execution because we don't pass
         # in-memory cache to the subprocesses. The subprocess computes
         # non-persisted entities instead.
         assert yz_counter.times_called() == 1
@@ -110,7 +110,7 @@ def test_caching_and_invalidation(builder, make_counter, parallel_processing_ena
     assert flow.get("xy_plus_yz") == -6
     assert flow.get("xy_plus_yz") == -6
     assert xy_counter.times_called() == 0
-    if parallel_processing_enabled:
+    if parallel_execution_enabled:
         assert yz_counter.times_called() == 1
     else:
         assert yz_counter.times_called() == 0
@@ -134,7 +134,7 @@ def test_caching_and_invalidation(builder, make_counter, parallel_processing_ena
         2 * 6 + 6 * 4,
     }  # noqa: E226
     assert xy_counter.times_called() == 0
-    if parallel_processing_enabled:
+    if parallel_execution_enabled:
         assert yz_counter.times_called() == 3
     else:
         assert yz_counter.times_called() == 0
@@ -176,7 +176,7 @@ def test_caching_and_invalidation(builder, make_counter, parallel_processing_ena
         2 * 9 + 9 * 4,
     }  # noqa: E226
     assert xy_counter.times_called() == 0
-    if parallel_processing_enabled:
+    if parallel_execution_enabled:
         assert yz_counter.times_called() == 2
     else:
         assert yz_counter.times_called() == 0
@@ -940,7 +940,7 @@ def test_unset_and_not_persisted(builder):
 
 
 def test_changes_per_run_and_not_persist(
-    builder, make_counter, parallel_processing_enabled
+    builder, make_counter, parallel_execution_enabled
 ):
     builder.assign("x", 5)
 
@@ -978,8 +978,8 @@ def test_changes_per_run_and_not_persist(
     flow = builder.build()
     assert flow.get("x_plus_one") == 6
     assert flow.get("x_plus_four") == 9
-    if parallel_processing_enabled:
-        # This is different from serial processing because we don't pass
+    if parallel_execution_enabled:
+        # This is different from serial execution because we don't pass
         # in-memory cache to the subprocesses. The subprocess computes
         # non-persisted entities instead.
         assert x_plus_one_counter.times_called() == 2
@@ -1014,9 +1014,7 @@ def test_changes_per_run_and_not_persist(
     assert x_plus_four_counter.times_called() == 0
 
 
-def test_changes_per_run_and_persist(
-    builder, make_counter, parallel_processing_enabled
-):
+def test_changes_per_run_and_persist(builder, make_counter, parallel_execution_enabled):
     builder.assign("x", 5)
 
     x_plus_one_counter = make_counter()
@@ -1059,8 +1057,8 @@ def test_changes_per_run_and_persist(
     assert flow.get("x_plus_three") == 8
     # x_plus_one changes per run and should be recomputed between runs.
     assert x_plus_one_counter.times_called() == 1
-    if parallel_processing_enabled:
-        # When processed in parallel, we don't compute every entity in
+    if parallel_execution_enabled:
+        # When executed in parallel, we don't compute every entity in
         # the subprocess. Subprocess computes a non-persisted entity
         # only if it is required to compute any other entity.
         assert x_plus_two_counter.times_called() == 0
