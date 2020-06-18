@@ -458,9 +458,6 @@ class EntityDeriver:
         task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
         task_runner.run(requested_task_states)
 
-        if self._bootstrap is not None and self._bootstrap.executor is not None:
-            self._bootstrap.executor.flush_logs()
-
         for state in requested_task_states:
             assert state.is_complete, state
 
@@ -589,23 +586,31 @@ class TaskCompletionRunner:
         self._requested_task_keys = set()
 
     def run(self, states):
-        for state in states:
-            self._requested_task_keys.update(state.task.keys)
-            entry = self._get_or_create_entry_for_state(state)
-            self._mark_entry_pending(entry)
+        try:
+            if self._bootstrap is not None and self._bootstrap.executor is not None:
+                self._bootstrap.executor.start_logging()
 
-        while self._has_pending_entries():
-            entry = self._activate_next_pending_entry()
+            for state in states:
+                self._requested_task_keys.update(state.task.keys)
+                entry = self._get_or_create_entry_for_state(state)
+                self._mark_entry_pending(entry)
 
-            if len(entry.state.blocking_dep_states()) > 0:
-                self._mark_entry_blocked(entry)
-                continue
+            while self._has_pending_entries():
+                entry = self._activate_next_pending_entry()
 
-            self._process_entry(entry)
+                if len(entry.state.blocking_dep_states()) > 0:
+                    self._mark_entry_blocked(entry)
+                    continue
 
-        assert len(self._pending_entries) == 0
-        assert len(self._in_progress_entries) == 0
-        assert len(self._get_all_blocked_entries()) == 0
+                self._process_entry(entry)
+
+            assert len(self._pending_entries) == 0
+            assert len(self._in_progress_entries) == 0
+            assert len(self._get_all_blocked_entries()) == 0
+
+        finally:
+            if self._bootstrap is not None and self._bootstrap.executor is not None:
+                self._bootstrap.executor.stop_logging()
 
     def _process_entry(self, entry):
         assert entry.stage == EntryStage.ACTIVE
