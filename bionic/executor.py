@@ -52,15 +52,18 @@ class Executor:
             initargs=(self._manager.logging_queue,),
         )
 
-    def flush_logs(self):
-        self._manager.flush_logs()
-
     def submit(self, fn, *args, **kwargs):
         self._init_or_resize_process_pool()
         return self._process_pool_exec.submit(fn, *args, **kwargs)
 
     def create_synchronized_set(self):
         return self._manager.create_synchronized_set()
+
+    def start_logging(self):
+        self._manager.add_logging_listener()
+
+    def stop_logging(self):
+        self._manager.remove_logging_listener()
 
 
 _manager = None
@@ -93,10 +96,12 @@ class ExternalProcessLoggingManager:
 
         self.logging_queue = self._process_manager.Queue(-1)
         self._logging_receiver = LoggingReceiver(self.logging_queue)
-        self._logging_receiver.start()
 
-    def flush_logs(self):
-        self._logging_receiver.flush()
+    def add_logging_listener(self):
+        self._logging_receiver.add_listener()
+
+    def remove_logging_listener(self):
+        self._logging_receiver.flush_logs_and_remove_listener()
 
     def create_synchronized_set(self):
         return self._process_manager.SynchronizedSet()
@@ -137,40 +142,69 @@ def logging_initializer(logging_queue):
 class WorkerProcessLogHandler(logging.Handler):
     def __init__(self, queue):
         super(WorkerProcessLogHandler, self).__init__()
-        self.queue = queue
+        self._queue = queue
 
     def emit(self, record):
         try:
-            self.queue.put_nowait(record)
+            self._queue.put_nowait(record)
         except Exception:
             self.handleError(record)
 
 
 class LoggingReceiver:
     def __init__(self, queue):
-        self.queue = queue
-        self._receive_thread = threading.Thread(target=self._receive)
-        self._receive_thread.daemon = True
-        self._queue_is_empty = threading.Event()
+        self._queue = queue
+        self._event_queue_is_empty = threading.Event()
 
-    def start(self):
+        self._listener_count = 0
+        self._listener_count_lock = threading.Lock()
+        self._event_has_listeners = threading.Event()
+
+        self._receive_thread = threading.Thread(
+            target=self._receive, name="Log-Receiver", daemon=True,
+        )
         self._receive_thread.start()
 
-    def flush(self):
-        lock_acquired = self._queue_is_empty.wait(timeout=5.0)
+    def add_listener(self):
+        self._add_to_listener_count(1)
+
+    def flush_logs_and_remove_listener(self):
+        lock_acquired = self._event_queue_is_empty.wait(timeout=5.0)
         if not lock_acquired:
             logger = logging.getLogger()
             logger.warn("Logger flush timed out. There might be missing log messages.")
 
+        self._add_to_listener_count(-1)
+
+    def _add_to_listener_count(self, delta):
+        with self._listener_count_lock:
+            self._listener_count += delta
+
+            if self._listener_count > 0:
+                self._event_has_listeners.set()
+            else:
+                self._event_has_listeners.clear()
+
     def _receive(self):
         while True:
-            if self.queue.empty():
-                self._queue_is_empty.set()
+            # If we don't have any listeners, we don't want to be checking
+            # the queue. In particular, since this is a daemon thread, it
+            # will keep running up until the process exits, and at that time
+            # the queue object can become unreliable because it's managed by
+            # a SyncManager that depends on a separate process. This listener
+            # check makes sure we're only using the queue during an actual
+            # Flow.get call.
+            # See here for what happens if we don't have this check:
+            # https://github.com/square/bionic/issues/161
+            self._event_has_listeners.wait()
+
+            if self._queue.empty():
+                self._event_queue_is_empty.set()
             else:
-                self._queue_is_empty.clear()
+                self._event_queue_is_empty.clear()
 
             try:
-                record = self.queue.get(timeout=0.05)
+                record = self._queue.get(timeout=0.05)
             except queue.Empty:  # Nothing to receive from the queue.
                 continue
 
