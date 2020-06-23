@@ -19,7 +19,7 @@ class EntityDefinition:
     name = attr.ib()
     protocol = attr.ib()
     doc = attr.ib()
-    can_persist = attr.ib(default=True)
+    can_persist = attr.ib()
     can_memoize = attr.ib(default=True)
 
 

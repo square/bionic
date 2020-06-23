@@ -18,12 +18,18 @@ import pandas as pd
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
 from .cache import LocalStore, GcsCloudStore, PersistentCache
-from .datatypes import CaseKey, EntityDefinition, VersioningPolicy, ResultGroup
+from .datatypes import (
+    CaseKey,
+    EntityDefinition,
+    VersioningPolicy,
+    ResultGroup,
+)
 from .exception import (
     UndefinedEntityError,
     AlreadyDefinedEntityError,
     IncompatibleEntityError,
     UnsetEntityError,
+    AttributeValidationError,
 )
 from .executor import Executor
 from .provider import (
@@ -31,7 +37,7 @@ from .provider import (
     HashableWrapper,
     AttrUpdateProvider,
 )
-from .deriver import EntityDeriver
+from .deriver import EntityDeriver, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .util import (
@@ -98,6 +104,17 @@ class FlowState(pyrs.PClass):
     def define_entity(self, entity_def):
         if entity_def.name in self.entity_defs_by_name:
             raise AlreadyDefinedEntityError(entity_def.name)
+
+        if entity_is_internal(entity_def.name) and entity_def.can_persist:
+            message = f"""
+            Attempted to set @persist to True for Bionic internal
+            entity {entity_def.name!r}.
+            Disable persistence for the decorators by applying
+            `@persist(False)` or `@immediate` to the corresponding
+            function or passing `persist=False` when you
+            `declare` / `assign` the entity values.
+            """
+            raise AttributeValidationError(oneline(message))
 
         return self._set_entity_def(entity_def).touch()
 
@@ -231,13 +248,12 @@ class FlowState(pyrs.PClass):
 
         # Remember the original entity definitions.
         # TODO Here we delete each entity definition and then re-create it. The only
-        # effect this has is to reset the can_persist and can_memoize attributes to
-        # their default values. This shouldn't change any actual behavior, since these
-        # attributes don't matter for ValueProviders. However, I'm keeping the
-        # deletion/creation code in order to keep the entity definition attributes 100%
-        # consistent with their legacy provider equivalents. Once the old provider code
-        # has been removed, we can decide whether to remove the deletion/creation of
-        # the entity definitions.
+        # effect this has is to reset the can_memoize attribute to its default value.
+        # This shouldn't change any actual behavior, since this attribute doesn't
+        # matter for ValueProviders. However, I'm keeping the deletion/creation code
+        # in order to keep the entity definition attributes 100% consistent with their
+        # legacy provider equivalents. Once the old provider code has been removed, we
+        # can decide whether to remove the deletion/creation of the entity definitions.
         original_entity_defs = [
             state.get_entity_def(name)
             for name in names
@@ -257,6 +273,7 @@ class FlowState(pyrs.PClass):
                     name=entity_def.name,
                     protocol=entity_def.protocol,
                     doc=entity_def.doc,
+                    can_persist=entity_def.can_persist,
                 )
             )
             state = state.create_provider(entity_def.name)
@@ -378,7 +395,7 @@ class FlowBuilder:
         self._state = state.touch()
         return flow
 
-    def declare(self, name, protocol=None, doc=None, docstring=None):
+    def declare(self, name, protocol=None, doc=None, docstring=None, persist=True):
         """
         Creates a new entity but does not assign it a value.
 
@@ -394,6 +411,8 @@ class FlowBuilder:
             protocol.
         doc: String, optional
             Description of the new entity.
+        persist: Boolean, optional
+            Whether this entity's values should be cached persistently.
         """
 
         if protocol is None:
@@ -408,11 +427,18 @@ class FlowBuilder:
             doc = docstring
 
         self._state = self._state.define_entity(
-            EntityDefinition(name=name, protocol=protocol, doc=doc)
+            EntityDefinition(name=name, protocol=protocol, doc=doc, can_persist=persist)
         ).create_provider(name)
 
     def assign(
-        self, name, value=None, values=None, protocol=None, doc=None, docstring=None
+        self,
+        name,
+        value=None,
+        values=None,
+        protocol=None,
+        doc=None,
+        docstring=None,
+        persist=True,
     ):
         """
         Creates a new entity and assigns it a value.
@@ -434,6 +460,8 @@ class FlowBuilder:
             protocol.
         doc: String, optional
             Description of the new entity.
+        persist: Boolean, optional
+            Whether this entity's values should be cached persistently.
         """
 
         check_at_most_one_present(value=value, values=values)
@@ -458,7 +486,7 @@ class FlowBuilder:
         state = self._state
 
         state = state.define_entity(
-            EntityDefinition(name=name, protocol=protocol, doc=doc)
+            EntityDefinition(name=name, protocol=protocol, doc=doc, can_persist=persist)
         )
         state = state.create_provider(name)
         for value in values:
@@ -1070,7 +1098,7 @@ class Flow:
         return [
             name
             for name in self._state.providers_by_name.keys()
-            if include_core or not self._deriver.entity_is_internal(name)
+            if include_core or not entity_is_internal(name)
         ]
 
     def entity_protocol(self, name):
@@ -1657,10 +1685,10 @@ class ShortcutProxy:
 def create_default_flow_state():
     builder = FlowBuilder._with_empty_state()
 
-    builder.declare("core__flow_name")
+    builder.declare("core__flow_name", persist=False)
 
-    builder.assign("core__persistent_cache__global_dir", "bndata")
-    builder.assign("core__versioning_mode", "manual")
+    builder.assign("core__persistent_cache__global_dir", "bndata", persist=False)
+    builder.assign("core__versioning_mode", "manual", persist=False)
 
     @builder
     @decorators.immediate
@@ -1694,8 +1722,8 @@ def create_default_flow_state():
     ):
         return os.path.join(core__persistent_cache__global_dir, core__flow_name)
 
-    builder.assign("core__persistent_cache__gcs__bucket_name", None)
-    builder.assign("core__persistent_cache__gcs__enabled", False)
+    builder.assign("core__persistent_cache__gcs__bucket_name", None, persist=False)
+    builder.assign("core__persistent_cache__gcs__enabled", False, persist=False)
 
     @builder
     @decorators.immediate
@@ -1751,9 +1779,9 @@ def create_default_flow_state():
             cloud_store=core__persistent_cache__cloud_store,
         )
 
-    builder.assign("core__parallel_processing__enabled", False)
+    builder.assign("core__parallel_processing__enabled", False, persist=False)
     # The executor uses max available CPUs when set to None.
-    builder.assign("core__parallel_processing__worker_count", None)
+    builder.assign("core__parallel_processing__worker_count", None, persist=False)
 
     @builder
     @decorators.immediate

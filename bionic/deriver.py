@@ -27,6 +27,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def entity_is_internal(entity_name):
+    "Indicates if an entity is built-in to Bionic rather than user-defined."
+    return entity_name.startswith("core__")
+
+
 class EntityDeriver:
     """
     Derives the values of Entities.
@@ -97,7 +102,7 @@ class EntityDeriver:
             if include_core:
                 return True
             if isinstance(dnode, ast.EntityNode):
-                return not self.entity_is_internal(dnode.to_entity_name())
+                return not entity_is_internal(dnode.to_entity_name())
             return True
 
         self.get_ready()
@@ -146,10 +151,6 @@ class EntityDeriver:
             dnodes_already_added.add(dnode)
 
         return graph
-
-    def entity_is_internal(self, entity_name):
-        "Indicates if an entity is built-in to Bionic rather than user-defined."
-        return entity_name.startswith("core__")
 
     # --- Private helpers.
 
@@ -390,7 +391,7 @@ class EntityDeriver:
         )
 
         # Check that the provider configuration is valid.
-        if provider.attrs.changes_per_run and not task_state.should_memoize:
+        if provider.attrs.changes_per_run and not task_state.can_memoize:
             # TODO This message should say something like:
             #    "Entity with name ..." or "Entities with names ..."
             message = f"""
@@ -633,11 +634,11 @@ class TaskCompletionRunner:
                 not state.should_persist
                 and entry.state.task.keys[0] in self._requested_task_keys
             )
+            # This is a simple lookup task that looks up a value in a dictionary.
+            # We can't run this in a separate process because the value may not be
+            # cloudpicklable.
+            or state.task.is_simple_lookup
         ):
-            # TODO: Right now, non-persisted entities include simple lookup values
-            # which we should not be really sending using IPC. We should read/write
-            # a tmp file for this instead to use protocol for serialization instead of
-            # using cloudpickle.
             state.complete(self.task_key_logger)
             self._mark_entry_completed(entry)
 

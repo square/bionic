@@ -1,9 +1,11 @@
 import pytest
 
 import math
+import threading
 
 from ..helpers import RoundingProtocol, count_calls
 from bionic.exception import AttributeValidationError, CodeVersioningError
+from bionic.protocols import PicklableProtocol
 
 import bionic as bn
 
@@ -185,6 +187,25 @@ def test_caching_and_invalidation(builder, make_counter, parallel_processing_ena
     key_names = flow.get("xy_plus_yz", "series").index.names
     for name in ["x", "y"]:
         assert name in key_names
+
+
+def test_user_values_persistence(builder):
+    class WriteTenProtocol(PicklableProtocol):
+        """Always writes 10 as the value"""
+
+        def write(self, value, path):
+            super(WriteTenProtocol, self).write(10, path)
+
+    # Assign x an unpicklable value. The test should still pass as x will
+    # use the protocol for serialization.
+    builder.assign("x", threading.Lock(), protocol=WriteTenProtocol())
+
+    @builder
+    def y(x):
+        return x
+
+    assert builder.build().get("x") == 10
+    assert builder.build().get("y") == 10
 
 
 def test_versioning(builder, make_counter):
@@ -1078,14 +1099,23 @@ def test_updating_cache_works_only_with_immediate(builder):
 
     assert builder.build().get("x") == 1
 
+    # This should fail because user is trying to persist an internal
+    # entity which is not allowed.
+    with pytest.raises(AttributeValidationError):
+
+        @builder  # noqa: F811
+        @bn.persist(True)
+        def core__persistent_cache():  # noqa: F811
+            return persistent_cache
+
     @builder  # noqa: F811
-    def core__persistent_cache():  # noqa: F811
+    @bn.immediate
+    def core__persistent_cache(x):  # noqa: F811
         return persistent_cache
 
-    # Since we didn't use @immediate, this should fail, because it will attempt to
-    # persist the cache entity using a cache, which leads to a circular dependency.
-    with pytest.raises(AttributeValidationError):
-        builder.build().get("x")
+    # Even though `x` is used by an internal entity, we will allow this
+    # by not persisting x.
+    assert builder.build().get("x") == 1
 
 
 def test_multiple_outputs_all_persisted_at_once(builder, make_counter):

@@ -414,35 +414,35 @@ def test_get_collections(preset_flow):
         assert list(p_series_index_df["q"]) == [5]
 
 
-def test_get_modes_persisted(preset_flow, tmp_path):
+@pytest.mark.parametrize("name", ["y", "y_fxn"])
+def test_get_modes_persisted(preset_flow, name, tmp_path):
     flow = preset_flow
-    name = "y_fxn"
 
     for mode in [object, "object"]:
         assert flow.get(name, mode=mode) == 1
 
     for mode in [Path, "path"]:
-        y_fxn_path = flow.get(name, mode=mode)
-        assert pickle.loads(y_fxn_path.read_bytes()) == 1
+        path = flow.get(name, mode=mode)
+        assert pickle.loads(path.read_bytes()) == 1
 
     flow.get(name, mode="FileCopier").copy(destination=tmp_path)
     serialized_fname = name + ".pkl"
     expected_file_path = tmp_path / serialized_fname
     assert pickle.loads(expected_file_path.read_bytes()) == 1
 
-    y_fxn_filename = flow.get(name, mode="filename")
-    assert isinstance(y_fxn_filename, str)
-    assert y_fxn_filename == str(y_fxn_path)
+    filename = flow.get(name, mode="filename")
+    assert isinstance(filename, str)
+    assert filename == str(path)
 
 
-@pytest.mark.parametrize("name", ["y", "y_fxn_no_persist"])
-def test_get_modes_not_persisted(preset_builder, name):
+def test_get_modes_not_persisted(preset_builder):
     @preset_builder
     @bn.persist(False)
     def y_fxn_no_persist(y):
         return y
 
     flow = preset_builder.build()
+    name = "y_fxn_no_persist"
 
     for mode in [object, "object"]:
         assert flow.get(name, mode=mode) == 1
