@@ -1779,17 +1779,17 @@ def create_default_flow_state():
             cloud_store=core__persistent_cache__cloud_store,
         )
 
-    builder.assign("core__parallel_processing__enabled", False, persist=False)
+    builder.assign("core__parallel_execution__enabled", False, persist=False)
     # The executor uses max available CPUs when set to None.
-    builder.assign("core__parallel_processing__worker_count", None, persist=False)
+    builder.assign("core__parallel_execution__worker_count", None, persist=False)
 
     @builder
     @decorators.immediate
     def core__executor(
-        core__parallel_processing__enabled, core__parallel_processing__worker_count,
+        core__parallel_execution__enabled, core__parallel_execution__worker_count,
     ):
-        if not core__parallel_processing__enabled:
+        if not core__parallel_execution__enabled:
             return None
-        return Executor(core__parallel_processing__worker_count)
+        return Executor(core__parallel_execution__worker_count)
 
     return builder._state.mark_all_entities_default()

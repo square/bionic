@@ -1,8 +1,8 @@
 """
-Contains an Executor class which wraps the Loky parallel processing
-executor in a way that allows logging to work seamlessly. Also contains
-Logging classes used by the Executor to make logging work in a parallel
-setting.
+Contains an Executor class which wraps the Loky process pool
+executor in a way that allows logging to work seamlessly. Also
+contains Logging classes used by the Executor to make logging
+work in a parallel setting.
 """
 
 import logging
@@ -19,9 +19,9 @@ from .util import oneline, SynchronizedSet
 
 class Executor:
     """
-    Encapsulates all objects related to parallel processing in one place.
-    It wraps the Loky parallel processing executor in a way that allows
-    logging to work seamlessly.
+    Encapsulates all objects related to parallel execution in one place.
+    It wraps the Loky process pool executor in a way that allows logging
+    to work seamlessly.
     """
 
     def __init__(self, worker_count):
@@ -40,7 +40,7 @@ class Executor:
         # Loky uses cloudpickle by default. We should investigate further what would
         # it take to make is use pickle and wrap the functions that are non-picklable
         # using `loky.wrap_non_picklable_objects`.
-        loky = import_optional_dependency("loky", purpose="parallel processing")
+        loky = import_optional_dependency("loky", purpose="parallel execution")
 
         # This call to resize the executor is cheap when worker count doesn't change.
         # Loky simply compares the arguments sent before and now. Since they match when
@@ -122,7 +122,7 @@ def logging_initializer(logging_queue):
         warning = """
         Root logger in the subprocess seems to be modified and have
         multiple logging handlers. Make any logger changes outside
-        Bionic functions for logging to work correctly when processing
+        Bionic functions for logging to work correctly when executing
         in parallel.
         """
     orig_handlers = logger.handlers

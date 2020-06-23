@@ -18,20 +18,20 @@ class ExecutionMode(Enum):
 
 # Parameterizing a fixture adds the parameter in the test name at the end,
 # like test_name[PARALLEL] and test_name[SERIAL]. This is super helpful while
-# debugging and much clearer than parameterizing `parallel_processing_enabled`
+# debugging and much clearer than parameterizing `parallel_execution_enabled`
 # which suffixes [TRUE] / [FALSE].
 @pytest.fixture(params=[ExecutionMode.PARALLEL, ExecutionMode.SERIAL])
-def parallel_processing_enabled(request):
+def parallel_execution_enabled(request):
     return request.param == ExecutionMode.PARALLEL
 
 
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture
-def builder(parallel_processing_enabled, tmp_path):
+def builder(parallel_execution_enabled, tmp_path):
     builder = bn.FlowBuilder("test")
     builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
-    builder.set("core__parallel_processing__enabled", parallel_processing_enabled)
+    builder.set("core__parallel_execution__enabled", parallel_execution_enabled)
     return builder
 
 
@@ -57,8 +57,8 @@ def multiprocessing_manager(request):
 
 
 @pytest.fixture
-def process_manager(parallel_processing_enabled, multiprocessing_manager):
-    if not parallel_processing_enabled:
+def process_manager(parallel_execution_enabled, multiprocessing_manager):
+    if not parallel_execution_enabled:
         return None
     return multiprocessing_manager
 

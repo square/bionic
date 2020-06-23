@@ -20,7 +20,7 @@ def log_checker(caplog):
 
 
 @pytest.mark.run_with_all_execution_modes_by_default
-def test_logging_details(builder, log_checker, parallel_processing_enabled):
+def test_logging_details(builder, log_checker, parallel_execution_enabled):
     """
     Test the details of the log messages we emit. Since these messages are currently the
     best way to get visibility into what Bionic is doing, we have much more detailed
@@ -51,8 +51,8 @@ def test_logging_details(builder, log_checker, parallel_processing_enabled):
 
     assert flow.get("x_plus_two") == 3
 
-    if parallel_processing_enabled:
-        # This is different from serial processing because we don't pass
+    if parallel_execution_enabled:
+        # This is different from serial execution because we don't pass
         # in-memory cache to the subprocesses. The subprocess loads the
         # entities from disk cache instead.
         log_checker.expect(
@@ -70,7 +70,7 @@ def test_logging_details(builder, log_checker, parallel_processing_enabled):
     flow = builder.build()
     assert flow.get("x_plus_one") == 2
     # We don't access the definitions for simple lookup objects in
-    # parallel processing unless we use the objects for computation.
+    # parallel execution unless we use the objects for computation.
     # Since we load x_plus_one from disk cache, we don't access the
     # definition for x.
     # To clarify: we do access it for looking at the cache, but it's

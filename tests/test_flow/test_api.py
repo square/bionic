@@ -686,7 +686,7 @@ def test_unpicklable_non_persisted_entity(builder):
 
 
 @pytest.mark.run_with_all_execution_modes_by_default
-def test_entity_serialization_exception(builder, parallel_processing_enabled):
+def test_entity_serialization_exception(builder, parallel_execution_enabled):
     @builder
     def unpicklable_value():
         def f():
@@ -698,14 +698,14 @@ def test_entity_serialization_exception(builder, parallel_processing_enabled):
         builder.build().get("unpicklable_value")
     except EntitySerializationError as e:
         # AttributeError is what happens when we try to pickle a function.
-        if parallel_processing_enabled:
+        if parallel_execution_enabled:
             assert "\nAttributeError:" in e.__cause__.tb
         else:
             assert isinstance(e.__cause__, AttributeError)
 
 
 @pytest.mark.run_with_all_execution_modes_by_default
-def test_entity_computation_exception(builder, parallel_processing_enabled):
+def test_entity_computation_exception(builder, parallel_execution_enabled):
     @builder
     def uncomputable_value():
         return 1 / 0
@@ -713,7 +713,7 @@ def test_entity_computation_exception(builder, parallel_processing_enabled):
     try:
         builder.build().get("uncomputable_value")
     except EntityComputationError as e:
-        if parallel_processing_enabled:
+        if parallel_execution_enabled:
             assert "\nZeroDivisionError:" in e.__cause__.tb
         else:
             assert isinstance(e.__cause__, ZeroDivisionError)
