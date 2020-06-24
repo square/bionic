@@ -10,7 +10,7 @@ concepts which haven't been well-explored in this domain -- for example, the
 way we create and gather multiple entity values.  We might discover that we've
 created the wrong abstractions and need to adjust the API in a
 non-backwards-compatible way. (We explain our policy on this `here
-<release-notes.rst#versioning-scheme>`_.) To be completely protected against breaking
+<release-notes.rst#versioning-scheme>`__.) To be completely protected against breaking
 changes, you can pin a specific version of Bionic in your ``requirements.txt`` file:
 
 .. parsed-literal::
@@ -18,7 +18,7 @@ changes, you can pin a specific version of Bionic in your ``requirements.txt`` f
     bionic==\ |version|
 
 Bionic is widely used at Square, but so far hasn't received much testing in the outside
-world. If you discover any new bugs, you can get help with them `here <get-help.rst>`_.
+world. If you discover any new bugs, you can get help with them `here <get-help.rst>`__.
 
 Avoid Global State
 ------------------
