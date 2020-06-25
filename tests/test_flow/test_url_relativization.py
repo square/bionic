@@ -1,4 +1,4 @@
-from bionic.cache import relativize_url, derelativize_url
+from bionic.persistence import relativize_url, derelativize_url
 
 
 rel_artifact_url = "../artifacts/artifact.pkl"

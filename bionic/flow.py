@@ -17,7 +17,6 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
-from .cache import LocalStore, GcsCloudStore, PersistentCache
 from .datatypes import (
     CaseKey,
     EntityDefinition,
@@ -32,6 +31,7 @@ from .exception import (
     AttributeValidationError,
 )
 from .executor import Executor
+from .persistence import LocalStore, GcsCloudStore, PersistentCache
 from .provider import (
     ValueProvider,
     HashableWrapper,
