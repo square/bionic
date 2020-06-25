@@ -21,6 +21,8 @@ class SimpleFlowModel:
 
     def __init__(self, builder, make_list):
         self._builder = builder
+        self._current_flow = None
+        self._update_flow()
 
         self._entities_by_name = {}
         self._last_called_names = make_list()
@@ -55,8 +57,8 @@ class SimpleFlowModel:
 
         self._define_entity(name)
 
-    def build_flow(self):
-        return self._builder.build()
+    def get_flow(self):
+        return self._current_flow
 
     def expected_entity_value(self, name):
         entity = self._entities_by_name[name]
@@ -178,6 +180,11 @@ class SimpleFlowModel:
             vars_dict,
         )
 
+        self._update_flow()
+
+    def _update_flow(self):
+        self._current_flow = self._builder.build()
+
 
 class ModelEntity:
     """
@@ -227,7 +234,7 @@ class Fuzzer:
                     dep_names.append(name)
             new_name = self.model.add_entity(dep_names, is_nondeterministic)
 
-            self.model.build_flow().get(new_name)
+            self.model.get_flow().get(new_name)
             expected_called_names = self.model.nondeterministic_upstream_entity_names(
                 new_name
             )
@@ -268,7 +275,7 @@ class Fuzzer:
                     # Bionic doesn't know the code has changed, so this entity
                     # should still be returning the old value.
                     affected_name = self._random.choice(affected_names)
-                    returned_value = self.model.build_flow().get(affected_name)
+                    returned_value = self.model.get_flow().get(affected_name)
                     expected_value = self.model.expected_entity_value(affected_name)
 
                     # When the change is functional and bionic doesn't recompute the
@@ -304,10 +311,10 @@ class Fuzzer:
                         # Bionic should detect that we forgot to update the
                         # version.
                         with pytest.raises(CodeVersioningError):
-                            self.model.build_flow().get(affected_name)
+                            self.model.get_flow().get(affected_name)
                     else:
                         # Version does not matter for nondeterministic entities.
-                        assert self.model.build_flow().get(
+                        assert self.model.get_flow().get(
                             affected_name
                         ) == self.model.expected_entity_value(affected_name)
 
@@ -331,7 +338,7 @@ class Fuzzer:
                     )
 
             for affected_name in affected_names:
-                assert self.model.build_flow().get(
+                assert self.model.get_flow().get(
                     affected_name
                 ) == self.model.expected_entity_value(affected_name)
 
@@ -395,7 +402,7 @@ def test_small_fixed_flow_short_fuzz(fuzzer, versioning_mode):
     e4 = fuzzer.model.add_entity([e1, e2])
     e5 = fuzzer.model.add_entity([e3, e4])
 
-    assert fuzzer.model.build_flow().get(e5) == fuzzer.model.expected_entity_value(e5)
+    assert fuzzer.model.get_flow().get(e5) == fuzzer.model.expected_entity_value(e5)
     assert list(sorted(fuzzer.model.called_entity_names())) == list(
         sorted(fuzzer.model.entity_names())
     )
