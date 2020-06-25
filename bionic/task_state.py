@@ -1,8 +1,8 @@
 import copy
 
-from .cache import Provenance
 from .datatypes import ProvenanceDigest, Query, Result
 from .exception import CodeVersioningError
+from .persistence import Provenance
 from .util import oneline, single_unique_element
 
 import logging

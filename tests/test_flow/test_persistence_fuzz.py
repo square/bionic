@@ -4,8 +4,8 @@ from numpy.random import choice
 from textwrap import dedent
 from random import Random
 
-from bionic.cache import FakeCloudStore
 from bionic.exception import CodeVersioningError
+from bionic.persistence import FakeCloudStore
 from bionic import interpret
 import bionic as bn
 
