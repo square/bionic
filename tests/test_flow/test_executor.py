@@ -24,15 +24,19 @@ def loky_executor():
 
 
 def test_executor_resizes(builder, loky_executor):
-    builder.assign("x", 1)
+    builder.assign("a", 1)
 
     @builder
-    def y(x):
-        return x
+    def b(a):
+        return a
 
     @builder
-    def z(x):
-        return x
+    def c(b):
+        return b
+
+    @builder
+    def d(c):
+        return c
 
     builder.set("core__parallel_execution__worker_count", 2)
     flow1 = builder.build()
@@ -40,16 +44,18 @@ def test_executor_resizes(builder, loky_executor):
     builder.set("core__parallel_execution__worker_count", 3)
     flow2 = builder.build()
 
-    assert flow1.get("y") == 1
+    assert flow1.get("b") == 1
     # It's gross to check a private variable of the executor but this is
     # the best way to check that it was resized correctly.
     # TODO: Return PIDs in functions and assert that PIDs are different.
     assert loky_executor._max_workers == 2
 
-    assert flow2.get("y") == 1
+    # Call a non-cached entity so that a task is submitted to executor
+    # and it resizes.
+    assert flow2.get("c") == 1
     assert loky_executor._max_workers == 3
 
     # Call a non-cached entity so that a task is submitted to executor
     # and it resizes.
-    assert flow1.get("z") == 1
+    assert flow1.get("d") == 1
     assert loky_executor._max_workers == 2

@@ -565,6 +565,11 @@ class EntryBlockage:
         return not self._blocking_tks
 
 
+def compute_task_state(task_state, task_key_logger):
+    task_state.compute(task_key_logger)
+    return task_state.task.keys[0]
+
+
 class TaskCompletionRunner:
     """
     Runs `TaskState` to completion.
@@ -624,7 +629,13 @@ class TaskCompletionRunner:
         # Initialize the task state before attempting to complete it.
         state.initialize(self._bootstrap, self._flow_instance_uuid)
 
-        if (
+        # Attempt to complete the task state from persistence cache.
+        state.attempt_to_complete_from_cache()
+        if state.is_complete:
+            self._mark_entry_completed(entry)
+
+        # Compute the results serially.
+        elif (
             # This is a bootstrap entity.
             self._bootstrap is None
             # Complete the task state serially.
@@ -639,18 +650,18 @@ class TaskCompletionRunner:
             # cloudpicklable.
             or state.task.is_simple_lookup
         ):
-            state.complete(self.task_key_logger)
+            state.compute(self.task_key_logger)
             self._mark_entry_completed(entry)
 
-        # Process serializable entity in parallel.
+        # Compute the results for serializable entity in parallel.
         elif state.should_persist:
             new_state_for_subprocess = state.strip_state_for_subprocess()
             future = self._bootstrap.executor.submit(
-                new_state_for_subprocess.complete, self.task_key_logger
+                compute_task_state, new_state_for_subprocess, self.task_key_logger,
             )
             self._mark_entry_in_progress(entry, future)
 
-        # Do not process non-serializable entity in parallel. Any entity that
+        # Do not compute non-serializable entity in parallel. Any entity that
         # depends on this entity will compute it.
         else:
             self._mark_entry_completed(entry)

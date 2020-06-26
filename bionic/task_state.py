@@ -44,13 +44,13 @@ class TaskState:
         self._cache_accessors = None
         self.should_persist = None
 
-        # This can be set by complete() or _compute().
+        # This can be set by compute() or attempt_to_complete_from_cache().
         #
         # This will be present if and only if both is_complete and
         # should_persist are True.
         self._result_value_hashes_by_dnode = None
 
-        # This can be set by get_results_assuming_complete() or _compute().
+        # This can be set by get_results_assuming_complete() or compute().
         self._results_by_dnode = None
 
         # A completed task state has it's results computed and cached somewhere for
@@ -104,34 +104,6 @@ class TaskState:
     def __repr__(self):
         return f"TaskState({self.task!r})"
 
-    def complete(self, task_key_logger):
-        """
-        Ensures that a task state reaches completion -- i.e., that its results are
-        available and can be retrieved. This can happen either by computing the task's
-        values or by confirming that cached values already exist.
-        """
-
-        assert self.is_completable
-        assert not self.is_complete
-
-        # See if we can load it from the cache.
-        if self.should_persist and all(axr.can_load() for axr in self._cache_accessors):
-            # We only load the hashed result while completing task state
-            # and lazily load the entire result when needed later.
-            value_hashes_by_dnode = {}
-            for accessor in self._cache_accessors:
-                value_hash = accessor.load_result_value_hash()
-                value_hashes_by_dnode[accessor.query.dnode] = value_hash
-
-            self._result_value_hashes_by_dnode = value_hashes_by_dnode
-        # If we cannot load it from cache, we compute the task state.
-        else:
-            self._compute(task_key_logger)
-
-        self.is_complete = True
-
-        return self.task_keys[0]
-
     def get_results_assuming_complete(self, task_key_logger):
         "Returns the results of an already-completed task state."
 
@@ -158,13 +130,37 @@ class TaskState:
 
         return results_by_dnode
 
-    def _compute(self, task_key_logger):
+    def attempt_to_complete_from_cache(self):
+        """
+        If the results are available in persistent cache, populates value hashes
+        and marks the task state complete. Otherwise, it does nothing.
+        """
+        assert self.is_completable
+        assert not self.is_complete
+
+        if not self.should_persist:
+            return
+        if not all(axr.can_load() for axr in self._cache_accessors):
+            return
+
+        # We only load the hashed result while completing task state
+        # and lazily load the entire result when needed later.
+        value_hashes_by_dnode = {}
+        for accessor in self._cache_accessors:
+            value_hash = accessor.load_result_value_hash()
+            value_hashes_by_dnode[accessor.query.dnode] = value_hash
+        self._result_value_hashes_by_dnode = value_hashes_by_dnode
+
+        self.is_complete = True
+
+    def compute(self, task_key_logger):
         """
         Computes the values of a task state by running its task. Requires that all
         the task's dependencies are already complete.
         """
 
         assert self.is_completable
+        assert not self.is_complete
 
         task = self.task
 
@@ -179,7 +175,7 @@ class TaskState:
                 # If dep_state is not complete yet, that's probably because the results
                 # aren't communicated between processes. Compute the results to populate
                 # the in-memory cache.
-                dep_results_by_dnode = dep_state._compute(task_key_logger)
+                dep_results_by_dnode = dep_state.compute(task_key_logger)
             dep_results.append(dep_results_by_dnode[dep_key.dnode])
 
         if not task.is_simple_lookup:
@@ -198,6 +194,7 @@ class TaskState:
                 result_value_hashes_by_dnode[query.dnode] = ""
             self._results_by_dnode = results_by_dnode
             self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
+            self.is_complete = True
             return self._results_by_dnode
 
         else:
@@ -243,6 +240,7 @@ class TaskState:
         if self.should_persist:
             self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
 
+        self.is_complete = True
         return self._results_by_dnode
 
     def sync_after_subprocess_completion(self):
