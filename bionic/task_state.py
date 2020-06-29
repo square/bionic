@@ -46,16 +46,11 @@ class TaskState:
 
         # This can be set by compute() or attempt_to_complete_from_cache().
         #
-        # This will be present if and only if both is_complete and
-        # should_persist are True.
+        # This will be present only if should_persist is True.
         self._result_value_hashes_by_dnode = None
 
-        # This can be set by get_results_assuming_complete() or compute().
+        # This can be set by get_cached_results() or compute().
         self._results_by_dnode = None
-
-        # A completed task state has it's results computed and cached somewhere for
-        # easy retrieval.
-        self.is_complete = False
 
     # TODO: We need a coherent story around incomplete states between parallel
     # and non-parallel mode. We have to compute non-persisted deps inside the
@@ -76,7 +71,7 @@ class TaskState:
         return [
             dep_state
             for dep_state in self.dep_states
-            if (dep_state.should_persist and not dep_state.is_complete)
+            if (dep_state.should_persist and not dep_state.is_cached)
             or not dep_state.is_completable
         ]
 
@@ -96,6 +91,16 @@ class TaskState:
         """
         return self._is_initialized and len(self.blocking_dep_states()) == 0
 
+    @property
+    def is_cached(self):
+        """
+        Indicates whether the task state's results are cached.
+        """
+        return (
+            self._result_value_hashes_by_dnode is not None
+            or self._results_by_dnode is not None
+        )
+
     def output_would_be_missing(self):
         return single_unique_element(
             task_key.case_key.has_missing_values for task_key in self.task.keys
@@ -104,10 +109,10 @@ class TaskState:
     def __repr__(self):
         return f"TaskState({self.task!r})"
 
-    def get_results_assuming_complete(self, task_key_logger):
+    def get_cached_results(self, task_key_logger):
         "Returns the results of an already-completed task state."
 
-        assert self.is_complete
+        assert self.is_cached
 
         if self._results_by_dnode:
             for task_key in self.task_keys:
@@ -136,7 +141,7 @@ class TaskState:
         and marks the task state complete. Otherwise, it does nothing.
         """
         assert self.is_completable
-        assert not self.is_complete
+        assert not self.is_cached
 
         if not self.should_persist:
             return
@@ -151,31 +156,30 @@ class TaskState:
             value_hashes_by_dnode[accessor.query.dnode] = value_hash
         self._result_value_hashes_by_dnode = value_hashes_by_dnode
 
-        self.is_complete = True
-
-    def compute(self, task_key_logger):
+    def compute(self, task_key_logger, return_results=False):
         """
         Computes the values of a task state by running its task. Requires that all
         the task's dependencies are already complete.
+
+        Returns a dict of computed results by dnode when return_results is True.
         """
 
         assert self.is_completable
-        assert not self.is_complete
+        assert not self.is_cached
 
         task = self.task
 
         dep_results = []
         for dep_state, dep_key in zip(self.dep_states, task.dep_keys):
-            assert dep_state.is_complete or dep_state.is_completable
-            if dep_state.is_complete:
-                dep_results_by_dnode = dep_state.get_results_assuming_complete(
-                    task_key_logger
-                )
+            assert dep_state.is_cached or dep_state.is_completable
+            if dep_state.is_cached:
+                dep_results_by_dnode = dep_state.get_cached_results(task_key_logger)
             else:
                 # If dep_state is not complete yet, that's probably because the results
-                # aren't communicated between processes. Compute the results to populate
-                # the in-memory cache.
-                dep_results_by_dnode = dep_state.compute(task_key_logger)
+                # aren't communicated between processes. Compute the results.
+                dep_results_by_dnode = dep_state.compute(
+                    task_key_logger, return_results=True
+                )
             dep_results.append(dep_results_by_dnode[dep_key.dnode])
 
         if not task.is_simple_lookup:
@@ -194,7 +198,6 @@ class TaskState:
                 result_value_hashes_by_dnode[query.dnode] = ""
             self._results_by_dnode = results_by_dnode
             self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-            self.is_complete = True
             return self._results_by_dnode
 
         else:
@@ -229,19 +232,20 @@ class TaskState:
 
             results_by_dnode[query.dnode] = result
 
+        # We cache the hashed values eagerly since they are cheap to load.
+        if self.should_persist:
+            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
         # Memoize results at this point only if results should not persist.
         # Otherwise, load it lazily later so that if the serialized/deserialized
         # value is not exactly the same as the original, we still
         # always return the same value.
-        if self.can_memoize and not self.should_persist:
+        elif self.can_memoize:
             self._results_by_dnode = results_by_dnode
 
-        # But we cache the hashed values eagerly since they are cheap to load.
-        if self.should_persist:
-            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-
-        self.is_complete = True
-        return self._results_by_dnode
+        if return_results:
+            if self.is_cached:
+                return self.get_cached_results(task_key_logger)
+            return results_by_dnode
 
     def sync_after_subprocess_completion(self):
         """
@@ -281,9 +285,6 @@ class TaskState:
                         )
                     )
                 self._result_value_hashes_by_dnode[accessor.query.dnode] = value_hash
-
-        # Lastly, we can mark the task state as complete.
-        self.is_complete = True
 
     def initialize(self, bootstrap, flow_instance_uuid):
         "Initializes the task state to get it ready for completion."
@@ -454,12 +455,7 @@ class TaskState:
         task_state.case_key = None
         task_state._provenance = None
 
-        # Any non-persisted value will have to be recomputed again in the other
-        # subprocess and isn't complete anymore.
-        if not task_state.should_persist:
-            task_state.is_complete = False
-
-        if task_state.is_complete:
+        if task_state.is_cached:
             task_state.dep_states = []
             task_state.task = None
             task_state._queries = None

@@ -105,16 +105,23 @@ class FlowState(pyrs.PClass):
         if entity_def.name in self.entity_defs_by_name:
             raise AlreadyDefinedEntityError(entity_def.name)
 
-        if entity_is_internal(entity_def.name) and entity_def.can_persist:
-            message = f"""
-            Attempted to set @persist to True for Bionic internal
-            entity {entity_def.name!r}.
-            Disable persistence for the decorators by applying
-            `@persist(False)` or `@immediate` to the corresponding
-            function or passing `persist=False` when you
-            `declare` / `assign` the entity values.
-            """
-            raise AttributeValidationError(oneline(message))
+        if entity_is_internal(entity_def.name):
+            if entity_def.can_persist:
+                message = f"""
+                Attempted to set @persist to True for Bionic internal
+                entity {entity_def.name!r}.
+                Disable persistence for the decorators by applying
+                `@persist(False)` or `@immediate` to the corresponding
+                function or passing `persist=False` when you
+                `declare` / `assign` the entity values.
+                """
+                raise AttributeValidationError(oneline(message))
+            if not entity_def.can_memoize:
+                message = f"""
+                Attempted to set @memoize to False for Bionic internal
+                entity {entity_def.name!r}.
+                """
+                raise AttributeValidationError(oneline(message))
 
         return self._set_entity_def(entity_def).touch()
 
@@ -411,8 +418,14 @@ class FlowBuilder:
             protocol.
         doc: String, optional
             Description of the new entity.
-        persist: Boolean, optional
+        persist: Boolean, optional (default: True)
             Whether this entity's values should be cached persistently.
+            The only reason to set this to False is if an internal Bionic
+            entity depends on it; in this case, persistence is impossible
+            because Bionic's cache won't be constructed by the time this
+            entity is calculated. The downside of setting this to False is
+            that it won't be possible to retrieve a serialized file for
+            this entity using the mode argument to Flow.get.
         """
 
         if protocol is None:
@@ -460,8 +473,14 @@ class FlowBuilder:
             protocol.
         doc: String, optional
             Description of the new entity.
-        persist: Boolean, optional
+        persist: Boolean, optional (default: True)
             Whether this entity's values should be cached persistently.
+            The only reason to set this to False is if an internal Bionic
+            entity depends on it; in this case, persistence is impossible
+            because Bionic's cache won't be constructed by the time this
+            entity is calculated. The downside of setting this to False is
+            that it won't be possible to retrieve a serialized file for
+            this entity using the mode argument to Flow.get.
         """
 
         check_at_most_one_present(value=value, values=values)
@@ -962,13 +981,6 @@ class FlowBuilder:
         can_memoize = acc.can_memoize
         if can_memoize is None:
             can_memoize = True
-
-        if not can_persist and not can_memoize:
-            message = f"""
-            Attempted to set both @persist and @memoize to False.
-            At least one form of storage must be enabled for entities:
-            {provider.entity_names!r}"""
-            raise ValueError(oneline(message))
 
         state = self._state
 

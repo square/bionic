@@ -457,14 +457,14 @@ class EntityDeriver:
         ]
 
         task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
-        task_runner.run(requested_task_states)
+        results_by_dnode_by_task_key = task_runner.run(requested_task_states)
 
         for state in requested_task_states:
-            assert state.is_complete, state
+            assert state.task.keys[0] in results_by_dnode_by_task_key
 
         return ResultGroup(
             results=[
-                state.get_results_assuming_complete(task_runner.task_key_logger)[dnode]
+                results_by_dnode_by_task_key[state.task.keys[0]][dnode]
                 for state in requested_task_states
             ],
             key_space=dinfo.key_space,
@@ -589,7 +589,6 @@ class TaskCompletionRunner:
         self._pending_entries = []
         self._in_progress_entries = {}
         self._blockage_lists_by_blocking_tk = defaultdict(list)
-        self._requested_task_keys = set()
 
     def run(self, states):
         try:
@@ -597,8 +596,7 @@ class TaskCompletionRunner:
                 self._bootstrap.executor.start_logging()
 
             for state in states:
-                self._requested_task_keys.update(state.task.keys)
-                entry = self._get_or_create_entry_for_state(state)
+                entry = self._get_or_create_entry_for_state(state, is_requested=True)
                 self._mark_entry_pending(entry)
 
             while self._has_pending_entries():
@@ -614,6 +612,12 @@ class TaskCompletionRunner:
             assert len(self._in_progress_entries) == 0
             assert len(self._get_all_blocked_entries()) == 0
 
+            return {
+                task_key: entry.results_by_dnode
+                for (task_key, entry) in self._entries_by_task_key.items()
+                if entry.is_requested
+            }
+
         finally:
             if self._bootstrap is not None and self._bootstrap.executor is not None:
                 self._bootstrap.executor.stop_logging()
@@ -621,7 +625,7 @@ class TaskCompletionRunner:
     def _process_entry(self, entry):
         assert entry.stage == EntryStage.ACTIVE
 
-        if entry.state.is_complete:
+        if entry.state.is_cached:
             self._mark_entry_completed(entry)
             return
 
@@ -631,7 +635,14 @@ class TaskCompletionRunner:
 
         # Attempt to complete the task state from persistence cache.
         state.attempt_to_complete_from_cache()
-        if state.is_complete:
+        if state.is_cached:
+            self._mark_entry_completed(entry)
+
+        # If results aren't cached and the results needs to be returned,
+        # we compute the results and store them in the runner.
+        elif entry.is_requested and not state.should_persist and not state.can_memoize:
+            results = state.compute(self.task_key_logger, return_results=True)
+            entry.results_by_dnode = results
             self._mark_entry_completed(entry)
 
         # Compute the results serially.
@@ -641,10 +652,7 @@ class TaskCompletionRunner:
             # Complete the task state serially.
             or self._bootstrap.executor is None
             # This is a non-serializable entity that needs to be returned.
-            or (
-                not state.should_persist
-                and entry.state.task.keys[0] in self._requested_task_keys
-            )
+            or (entry.is_requested and not state.should_persist)
             # This is a simple lookup task that looks up a value in a dictionary.
             # We can't run this in a separate process because the value may not be
             # cloudpicklable.
@@ -666,10 +674,12 @@ class TaskCompletionRunner:
         else:
             self._mark_entry_completed(entry)
 
-    def _get_or_create_entry_for_state(self, state):
+    def _get_or_create_entry_for_state(self, state, is_requested=False):
         task_key = state.task.keys[0]
         if task_key not in self._entries_by_task_key:
-            self._entries_by_task_key[task_key] = TaskRunnerEntry(state=state)
+            self._entries_by_task_key[task_key] = TaskRunnerEntry(
+                state=state, is_requested=is_requested
+            )
         return self._entries_by_task_key[task_key]
 
     def _has_pending_entries(self):
@@ -733,6 +743,13 @@ class TaskCompletionRunner:
             completed_entry.future = None
             del self._in_progress_entries[completed_entry.state.task.keys[0]]
 
+        if completed_entry.is_requested:
+            if completed_entry.state.is_cached:
+                results = completed_entry.state.get_cached_results(self.task_key_logger)
+                completed_entry.results_by_dnode = results
+            else:
+                assert completed_entry.results_by_dnode is not None
+
         completed_entry.stage = EntryStage.COMPLETED
         self._unblock_entries(completed_entry)
 
@@ -769,10 +786,12 @@ class TaskRunnerEntry:
     `TaskState` execution and tracking.
     """
 
-    def __init__(self, state):
+    def __init__(self, state, is_requested):
         self.state = state
         self.stage = EntryStage.NEW
         self.future = None
+        self.is_requested = is_requested
+        self.results_by_dnode = None
 
 
 class EntryStage(Enum):
