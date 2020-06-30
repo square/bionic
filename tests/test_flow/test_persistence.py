@@ -877,31 +877,36 @@ def test_persisting_none(builder, make_counter):
     assert counter.times_called() == 1
 
 
-def test_disable_memory_caching(builder):
-    x_protocol = ReadCountingProtocol()
+def test_disable_memory_caching(builder, make_counter):
+    protocol = ReadCountingProtocol()
+    counter = make_counter()
 
     @builder
-    @x_protocol
+    @protocol
     @bn.memoize(False)
+    @count_calls(counter)
     def x():
         return 1
 
     flow = builder.build()
     assert flow.get("x") == 1
     assert flow.get("x") == 1
-    assert x_protocol.times_read_called == 2
+    assert protocol.times_read_called == 2
+    assert counter.times_called() == 1
 
-    with pytest.raises(ValueError):
+    @builder  # noqa: F811
+    @protocol
+    @bn.persist(False)
+    @bn.memoize(False)
+    @count_calls(counter)
+    def x():  # noqa: F811
+        return 1
 
-        @builder
-        @x_protocol
-        @bn.persist(False)
-        @bn.memoize(False)
-        def y():
-            return 1
-
-        flow = builder.build()
-        assert flow.get("y") == 1
+    flow = builder.build()
+    assert flow.get("x") == 1
+    assert flow.get("x") == 1
+    assert protocol.times_read_called == 2
+    assert counter.times_called() == 2
 
 
 @pytest.mark.parametrize("decorator", [bn.persist, bn.memoize])

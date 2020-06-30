@@ -91,16 +91,6 @@ class ResettingCounter:
         self._n_calls_since_last_check = 0
 
 
-def _decorate_count_calls(counter, func):
-    def wrapper(func, *args, **kwargs):
-        counter.mark()
-        return func(*args, **kwargs)
-
-    wrapped = decorate(func, wrapper)
-    counter.reset()
-    return wrapped
-
-
 class RoundingProtocol(bn.protocols.BaseProtocol):
     def get_fixed_file_extension(self):
         return "round"
