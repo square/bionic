@@ -20,7 +20,7 @@ class EntityDefinition:
     protocol = attr.ib()
     doc = attr.ib()
     can_persist = attr.ib()
-    can_memoize = attr.ib(default=True)
+    optional_should_memoize = attr.ib()
 
 
 @attr.s(frozen=True)

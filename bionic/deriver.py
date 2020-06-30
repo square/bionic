@@ -11,7 +11,7 @@ import attr
 from .datatypes import ResultGroup, EntityDefinition
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
-from .exception import AttributeValidationError, UndefinedEntityError
+from .exception import UndefinedEntityError
 from .optdep import import_optional_dependency
 from .protocols import TupleProtocol
 from .provider import TupleConstructionProvider, TupleDeconstructionProvider
@@ -208,6 +208,9 @@ class EntityDeriver:
                 "core__versioning_policy"
             ),
             executor=self._bootstrap_singleton_entity("core__executor"),
+            should_memoize_default=self._bootstrap_singleton_entity(
+                "core__memoize_by_default"
+            ),
         )
 
     def _prevalidate_base_dnodes(self):
@@ -298,7 +301,7 @@ class EntityDeriver:
                 name=dnode.to_descriptor(),
                 protocol=TupleProtocol(len(dnode.children)),
                 doc=f"A Python tuple with {len(dnode.children)} values.",
-                can_memoize=True,
+                optional_should_memoize=True,
                 can_persist=False,
             )
 
@@ -390,18 +393,6 @@ class EntityDeriver:
             entity_defs_by_dnode=entity_defs_by_dnode,
         )
 
-        # Check that the provider configuration is valid.
-        if provider.attrs.changes_per_run and not task_state.can_memoize:
-            # TODO This message should say something like:
-            #    "Entity with name ..." or "Entities with names ..."
-            message = f"""
-            Entity with names {provider.entity_names!r} uses @changes_per_run with
-            @memoize(False), which is not allowed. @changes_per_run computes once in
-            a flow instance and memoizes the value. Memoization cannot be disabled
-            for this entity.
-            """
-            raise AttributeValidationError(oneline(message))
-
         for task_key in task.keys:
             self._saved_task_states_by_key[task_key] = task_state
         return task_state
@@ -480,6 +471,7 @@ class Bootstrap:
     persistent_cache = attr.ib()
     versioning_policy = attr.ib()
     executor = attr.ib()
+    should_memoize_default = attr.ib()
 
 
 class TaskKeyLogger:
@@ -640,7 +632,9 @@ class TaskCompletionRunner:
 
         # If results aren't cached and the results needs to be returned,
         # we compute the results and store them in the runner.
-        elif entry.is_requested and not state.should_persist and not state.can_memoize:
+        elif (
+            entry.is_requested and not state.should_persist and not state.should_memoize
+        ):
             results = state.compute(self.task_key_logger, return_results=True)
             entry.results_by_dnode = results
             self._mark_entry_completed(entry)

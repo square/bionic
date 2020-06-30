@@ -376,6 +376,26 @@ cases, we can disable in-memory caching:
     def message(subject):
         return f'Hello {subject}.'
 
+In-memory caching can also be globally disabled:
+
+.. code-block:: python
+
+    builder.set('core__memoize_by_default', False)
+
+This only changes the default behavior, so it can be explicitly re-enabled for
+individual entities:
+
+.. TODO: We should be consistent between the usage of @bn and @bionic.
+
+.. code-block:: python
+
+    builder.set('core__memoize_by_default', False)
+
+    @builder
+    @bionic.memoize(True)
+    def message(subject):
+        return f'Hello {subject}.'
+
 
 .. _changes_per_run :
 

@@ -30,7 +30,7 @@ class DecorationAccumulator:
     protocol = attr.ib(default=None)
     docs = attr.ib(default=None)
     can_persist = attr.ib(default=None)
-    can_memoize = attr.ib(default=None)
+    should_memoize = attr.ib(default=None)
 
     def wrap_provider(self, wrapper_fn, *args, **kwargs):
         self.provider = wrapper_fn(self.provider, *args, **kwargs)

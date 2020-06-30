@@ -116,10 +116,12 @@ class FlowState(pyrs.PClass):
                 `declare` / `assign` the entity values.
                 """
                 raise AttributeValidationError(oneline(message))
-            if not entity_def.can_memoize:
+            if entity_def.optional_should_memoize is False:
                 message = f"""
                 Attempted to set @memoize to False for Bionic internal
                 entity {entity_def.name!r}.
+                Enable memoization by removing `@memoize(False)` from the
+                corresponding function.
                 """
                 raise AttributeValidationError(oneline(message))
 
@@ -253,14 +255,10 @@ class FlowState(pyrs.PClass):
     def clear_providers(self, names):
         state = self
 
-        # Remember the original entity definitions.
-        # TODO Here we delete each entity definition and then re-create it. The only
-        # effect this has is to reset the can_memoize attribute to its default value.
-        # This shouldn't change any actual behavior, since this attribute doesn't
-        # matter for ValueProviders. However, I'm keeping the deletion/creation code
-        # in order to keep the entity definition attributes 100% consistent with their
-        # legacy provider equivalents. Once the old provider code has been removed, we
-        # can decide whether to remove the deletion/creation of the entity definitions.
+        # TODO We delete and re-create entity defn for the given names.
+        # The recreation is vestigial of the older provider code and
+        # has a side effect of clearing names from ``default_entity_names``.
+        # Remove this logic in favor of directly clearing names.
         original_entity_defs = [
             state.get_entity_def(name)
             for name in names
@@ -273,16 +271,7 @@ class FlowState(pyrs.PClass):
 
         # Recreate an empty version of each provider.
         for entity_def in original_entity_defs:
-            state = state.define_entity(
-                # As noted above, we only preserve some of the attributes from the
-                # original definition.
-                EntityDefinition(
-                    name=entity_def.name,
-                    protocol=entity_def.protocol,
-                    doc=entity_def.doc,
-                    can_persist=entity_def.can_persist,
-                )
-            )
+            state = state.define_entity(entity_def)
             state = state.create_provider(entity_def.name)
 
         return state.touch()
@@ -440,7 +429,13 @@ class FlowBuilder:
             doc = docstring
 
         self._state = self._state.define_entity(
-            EntityDefinition(name=name, protocol=protocol, doc=doc, can_persist=persist)
+            EntityDefinition(
+                name=name,
+                protocol=protocol,
+                doc=doc,
+                can_persist=persist,
+                optional_should_memoize=True,
+            )
         ).create_provider(name)
 
     def assign(
@@ -505,7 +500,13 @@ class FlowBuilder:
         state = self._state
 
         state = state.define_entity(
-            EntityDefinition(name=name, protocol=protocol, doc=doc, can_persist=persist)
+            EntityDefinition(
+                name=name,
+                protocol=protocol,
+                doc=doc,
+                can_persist=persist,
+                optional_should_memoize=True,
+            )
         )
         state = state.create_provider(name)
         for value in values:
@@ -978,10 +979,6 @@ class FlowBuilder:
         if can_persist is None:
             can_persist = True
 
-        can_memoize = acc.can_memoize
-        if can_memoize is None:
-            can_memoize = True
-
         state = self._state
 
         # Delete the original definitions.
@@ -999,7 +996,7 @@ class FlowBuilder:
                 protocol=protocol,
                 doc=doc,
                 can_persist=can_persist,
-                can_memoize=can_memoize,
+                optional_should_memoize=acc.should_memoize,
             )
             state = state.define_entity(entity_def)
         state = state.install_provider(provider)
@@ -1699,6 +1696,7 @@ def create_default_flow_state():
 
     builder.declare("core__flow_name", persist=False)
 
+    builder.assign("core__memoize_by_default", True, persist=False)
     builder.assign("core__persistent_cache__global_dir", "bndata", persist=False)
     builder.assign("core__versioning_mode", "manual", persist=False)
 
