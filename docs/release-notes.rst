@@ -82,6 +82,11 @@ Cache Compatibility Changes
 New Features
 ............
 
+- Memoization can be globally disabled with the ``core_memoize_by_default`` entity,
+  which means you can opt-in which entities are memoized instead of opting out.
+- Bionic now allows entities to have no caching at all. Previously each entity needed
+  to be cached either in memory or on disk; now both of these can be disabled, in which
+  case it will be recomputed each time it's needed.
 - `GeoPandas <https://geopandas.org>`_ DataFrames can now be serialized and cached.
   Bionic will do this automatically when an entity function returns a value of the
   appropriate type, but it can also be explicitly controlled with the new
@@ -116,10 +121,11 @@ Improvements
 ............
 
 - "Unset" entity (entities that are declared but have no value set) are now
-  handled more cleanly. They now appear in the DAG visualization; if an entity value can't be computed because one of its ancestors is unset, the
-  exception message now describes the exact problem and the name of the problematic
-  ancestor; and the ``@gather`` decorator now handles "missing" values more consistently by
-  treating them as an empty set of values.
+  handled more cleanly. They now appear in the DAG visualization; if an entity value
+  can't be computed because one of its ancestors is unset, the exception message now
+  describes the exact problem and the name of the problematic ancestor; and the
+  ``@gather`` decorator now handles "missing" values more consistently by treating them
+  as an empty set of values.
 - Bionic now uses `version 4
   <https://docs.python.org/3/library/pickle.html#data-stream-format>`_ of the Pickle
   data format by default, so objects larger than 4 GB can be serialized without
@@ -146,9 +152,9 @@ Cache Compatibility Changes
 New Features
 ............
 
-- :meth:`Flow.render_dag <bionic.Flow.render_dag>` can now output the DAG as SVG in addition to
-  existing formats.  When SVG is used, entity docstrings appear as tooltips.
-  SVG is the new default format for rendering in Jupyter Notebooks.
+- :meth:`Flow.render_dag <bionic.Flow.render_dag>` can now output the DAG as SVG in
+  addition to existing formats.  When SVG is used, entity docstrings appear as
+  tooltips. SVG is the new default format for rendering in Jupyter Notebooks.
 - The :func:`@changes_per_run <bionic.changes_per_run>` decorator was added; this
   tells Bionic that a function is non-deterministic and should be re-run for each
   instance of a Flow.

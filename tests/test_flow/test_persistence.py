@@ -909,6 +909,62 @@ def test_disable_memory_caching(builder, make_counter):
     assert counter.times_called() == 2
 
 
+def test_disable_default_memory_caching(builder, make_counter):
+    # Test that memoization by default is True.
+    x_protocol = ReadCountingProtocol()
+    x_counter = make_counter()
+
+    @builder
+    @x_protocol
+    @count_calls(x_counter)
+    def x():
+        return 1
+
+    flow = builder.build()
+    assert flow.get("x") == 1
+    assert flow.get("x") == 1
+    # Flow uses memoized value for the second get call.
+    assert x_protocol.times_read_called == 1
+    assert x_counter.times_called() == 1
+
+    # Test that disabling memoization works.
+    builder.set("core__memoize_by_default", False)
+
+    y_protocol = ReadCountingProtocol()
+    y_counter = make_counter()
+
+    @builder
+    @y_protocol
+    @count_calls(y_counter)
+    def y():
+        return 2
+
+    flow = builder.build()
+    assert flow.get("y") == 2
+    assert flow.get("y") == 2
+    # Flow reads from disk for each get call.
+    assert y_protocol.times_read_called == 2
+    assert y_counter.times_called() == 1
+
+    # Test overriding the default memoization value.
+    z_protocol = ReadCountingProtocol()
+    z_counter = make_counter()
+
+    @builder
+    @z_protocol
+    @bn.memoize(True)
+    @count_calls(z_counter)
+    def z():
+        return 3
+
+    flow = builder.build()
+    assert flow.get("z") == 3
+    assert flow.get("z") == 3
+    # Flow uses memoized value for the second get call.
+    assert z_protocol.times_read_called == 1
+    assert z_counter.times_called() == 1
+
+
 @pytest.mark.parametrize("decorator", [bn.persist, bn.memoize])
 @pytest.mark.parametrize("enabled1", [True, False])
 @pytest.mark.parametrize("enabled2", [True, False])
@@ -1075,17 +1131,36 @@ def test_changes_per_run_and_persist(builder, make_counter, parallel_execution_e
     assert x_plus_three_counter.times_called() == 0
 
 
-def test_changes_per_run_and_not_memoize(builder):
+def test_changes_per_run_and_not_memoize(builder, make_counter):
+    counter = make_counter()
     builder.assign("x", 5)
 
     @builder
     @bn.memoize(False)
+    @bn.persist(False)
     @bn.changes_per_run
+    @count_calls(counter)
     def x_plus_one(x):
         return x + 1
 
-    with pytest.raises(AttributeValidationError):
-        builder.build().get("x_plus_one")
+    with pytest.warns(
+        UserWarning,
+        match="aren't configured to be memoized but are decorated with @changes_per_run",
+    ):
+        flow = builder.build()
+        assert flow.get("x_plus_one") == 6
+        assert flow.get("x_plus_one") == 6
+        # Recompute once as the value would still be memoized.
+        assert counter.times_called() == 1
+
+    with pytest.warns(
+        UserWarning,
+        match="aren't configured to be memoized but are decorated with @changes_per_run",
+    ):
+        flow = builder.build()
+        assert flow.get("x_plus_one") == 6
+        # Recomputes between flows since the value is memoized and not persisted.
+        assert counter.times_called() == 1
 
 
 def test_updating_cache_works_only_with_immediate(builder):

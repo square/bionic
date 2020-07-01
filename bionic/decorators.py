@@ -100,6 +100,7 @@ def persist(enabled):
 def memoize(enabled):
     """
     Indicates whether computed values should be cached in memory.
+    Overrides the value of `core__memoize_by_default` when set.
 
     Parameters
     ----------
@@ -117,7 +118,7 @@ def memoize(enabled):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
     return decorator_updating_accumulator(
-        lambda acc: acc.update_attr("can_memoize", enabled, "@memoize")
+        lambda acc: acc.update_attr("should_memoize", enabled, "@memoize")
     )
 
 
@@ -440,7 +441,7 @@ def returns(out_descriptor):
 
 immediate = persist(False)
 immediate.__doc__ = """
-Guarantees that an entity can computed during bootstrap resolution.
+Guarantees that an entity can be computed during bootstrap resolution.
 
 Currently ``@immediate`` is equivalent to ``@persist(False)``.
 """

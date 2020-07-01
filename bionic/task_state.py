@@ -6,6 +6,7 @@ from .persistence import Provenance
 from .util import oneline, single_unique_element
 
 import logging
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +29,13 @@ class TaskState:
 
         # Cached values.
         self.task_keys = task.keys
-        # In theory different entities for a single task could have different cache
-        # settings, but I'm not sure it can happen in practice (given the way
-        # grouped entities are created). At any rate, once we have tuple
-        # descriptors, each task state will only be responsible for a single entity
-        # and this won't be an issue.
-        self.can_memoize = single_unique_element(
-            entity_def.can_memoize for entity_def in self.entity_defs_by_dnode.values()
-        )
 
         # These are set by initialize().
         self._is_initialized = False
         self._provenance = None
         self._queries = None
         self._cache_accessors = None
+        self.should_memoize = None
         self.should_persist = None
 
         # This can be set by compute() or attempt_to_complete_from_cache().
@@ -130,7 +124,7 @@ class TaskState:
 
             results_by_dnode[result.query.dnode] = result
 
-        if self.can_memoize:
+        if self.should_memoize:
             self._results_by_dnode = results_by_dnode
 
         return results_by_dnode
@@ -239,7 +233,7 @@ class TaskState:
         # Otherwise, load it lazily later so that if the serialized/deserialized
         # value is not exactly the same as the original, we still
         # always return the same value.
-        elif self.can_memoize:
+        elif self.should_memoize:
             self._results_by_dnode = results_by_dnode
 
         if return_results:
@@ -335,13 +329,44 @@ class TaskState:
             for task_key in self.task_keys
         ]
 
-        should_persist = (
-            single_unique_element(
-                entity_def.can_persist
-                for entity_def in self.entity_defs_by_dnode.values()
-            )
-            and not self.output_would_be_missing()
+        # In theory different entities for a single task could have different cache
+        # settings, but I'm not sure it can happen in practice (given the way
+        # grouped entities are created). At any rate, once we have tuple
+        # descriptors, each task state will only be responsible for a single entity
+        # and this won't be an issue.
+        optional_should_memoize, can_persist = single_unique_element(
+            (entity_def.optional_should_memoize, entity_def.can_persist)
+            for entity_def in self.entity_defs_by_dnode.values()
         )
+
+        should_memoize = optional_should_memoize
+        if should_memoize is None:
+            if bootstrap is None:
+                should_memoize = True
+            else:
+                should_memoize = bootstrap.should_memoize_default
+        if self.provider.attrs.changes_per_run and not should_memoize:
+            descriptors = [
+                task_key.dnode.to_descriptor() for task_key in self.task_keys
+            ]
+            if bootstrap is None or bootstrap.should_memoize_default:
+                fix_message = (
+                    "removing `memoize(False)` from the corresponding function"
+                )
+            else:
+                fix_message = "applying `@memoize(True)` to the corresponding function"
+            message = f"""
+            Descriptors {descriptors!r} aren't configured to be memoized but
+            are decorated with @changes_per_run. We will memoize it anyway:
+            since @changes_per_run implies that this value can have a different
+            value each time it’s computed, we need to memoize its value to make
+            sure it’s consistent across the entire flow. To avoid this warning,
+            enable memoization for the descriptor by {fix_message!r}."""
+            warnings.warn(oneline(message))
+            should_memoize = True
+        self.should_memoize = should_memoize
+
+        should_persist = can_persist and not self.output_would_be_missing()
         if should_persist and bootstrap is None:
             descriptors = [
                 task_key.dnode.to_descriptor() for task_key in self.task_keys
