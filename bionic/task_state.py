@@ -147,6 +147,32 @@ class TaskState:
 
         self._load_value_hashes()
 
+    def refresh_all_cache_state(self, bootstrap):
+        """
+        Refreshes all state that depends on the persistent cache.
+
+        This is useful if the external cache state might have changed since we last
+        worked with this task.
+        """
+
+        # If this task state is not initialized or not persisted, there's nothing to
+        # refresh.
+        if not self._is_initialized or not self.should_persist:
+            return
+
+        self.refresh_cache_accessors(bootstrap)
+
+        # If we haven't loaded anything from the cache, we can stop here.
+        if self._result_value_hashes_by_dnode is None:
+            return
+
+        # Otherwise, let's update our value hashes from the cache.
+        if all(axr.can_load() for axr in self._cache_accessors):
+            self._load_value_hashes()
+        else:
+            self._result_value_hashes_by_dnode = None
+            self.is_complete = False
+
     def compute(self, task_key_logger, return_results=False):
         """
         Computes the values of a task state by running its task. Requires that all

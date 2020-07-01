@@ -594,6 +594,14 @@ class TaskCompletionRunner:
             while self._has_pending_entries():
                 entry = self._activate_next_pending_entry()
 
+                # Before we decide if the current entry is blocked, we need to create
+                # an entry for each of its dependencies. This has the side effect of
+                # refreshing each of their cache states, so if any of them have had
+                # their cache entries deleted, their status will be correctly updated
+                # to "not complete".
+                for dep_state in entry.state.dep_states:
+                    self._get_or_create_entry_for_state(dep_state)
+
                 if len(entry.state.blocking_dep_states()) > 0:
                     self._mark_entry_blocked(entry)
                     continue
@@ -671,6 +679,9 @@ class TaskCompletionRunner:
     def _get_or_create_entry_for_state(self, state, is_requested=False):
         task_key = state.task.keys[0]
         if task_key not in self._entries_by_task_key:
+            # Before doing anything with this task state, we should make sure its
+            # cache state is up to date.
+            state.refresh_all_cache_state(self._bootstrap)
             self._entries_by_task_key[task_key] = TaskRunnerEntry(
                 state=state, is_requested=is_requested
             )
