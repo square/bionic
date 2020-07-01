@@ -11,6 +11,9 @@ import warnings
 logger = logging.getLogger(__name__)
 
 
+# TODO Let's reorder the methods here with this order:
+# 1. First public, then private.
+# 2. Rough chronological order.
 class TaskState:
     """
     Represents the state of a task computation.  Keeps track of its position in
@@ -142,13 +145,7 @@ class TaskState:
         if not all(axr.can_load() for axr in self._cache_accessors):
             return
 
-        # We only load the hashed result while completing task state
-        # and lazily load the entire result when needed later.
-        value_hashes_by_dnode = {}
-        for accessor in self._cache_accessors:
-            value_hash = accessor.load_result_value_hash()
-            value_hashes_by_dnode[accessor.query.dnode] = value_hash
-        self._result_value_hashes_by_dnode = value_hashes_by_dnode
+        self._load_value_hashes()
 
     def compute(self, task_key_logger, return_results=False):
         """
@@ -252,33 +249,18 @@ class TaskState:
 
         assert self.should_persist
 
-        # First, let's flush the stored entries in cache accessors. This is to prevent cases
-        # like current process contains an outdated stored entries.
-        #
-        # For example: In assisted mode, main process checks for versioning error which can
-        # populate the stored entries as entries without an artifact. Now subprocess can
-        # update the stored entries after computing them but it won't be communicated back.
-        # This allows the main process to fetch fresh entries which might have been updated.
+        # First, let's flush the stored entries in cache accessors. Since we just
+        # computed this entry in a subprocess, there should be a new cache entry that
+        # isn't reflected yet in our local accessors.
+        # (We don't just call self.refresh_cache_accessors() because we don't
+        # particularly want to do the cache versioning check -- it's a little late to
+        # do anything if it fails now.)
         for accessor in self._cache_accessors:
             accessor.flush_stored_entries()
 
-        # Then, populate the value hash.
+        # Then, populate the value hashes.
         if self._result_value_hashes_by_dnode is None:
-            self._result_value_hashes_by_dnode = {}
-            for accessor in self._cache_accessors:
-                value_hash = accessor.load_result_value_hash()
-                if value_hash is None:
-                    raise AssertionError(
-                        oneline(
-                            f"""
-                        Failed to load cached value (hash) for descriptor
-                        {accessor.query.dnode.to_descriptor()!r}.
-                        This suggests we did not successfully complete the task
-                        in subprocess, or the entity wasn't cached;
-                        this should be impossible!"""
-                        )
-                    )
-                self._result_value_hashes_by_dnode[accessor.query.dnode] = value_hash
+            self._load_value_hashes()
 
     def initialize(self, bootstrap, flow_instance_uuid):
         "Initializes the task state to get it ready for completion."
@@ -392,15 +374,26 @@ class TaskState:
 
         # Lastly, set up cache accessors.
         if self.should_persist:
-            self._cache_accessors = [
-                bootstrap.persistent_cache.get_accessor(query)
-                for query in self._queries
-            ]
-
-            if bootstrap.versioning_policy.check_for_bytecode_errors:
-                self._check_accessors_for_version_problems()
+            self.refresh_cache_accessors(bootstrap)
 
         self._is_initialized = True
+
+    def refresh_cache_accessors(self, bootstrap):
+        """
+        Initializes the cache acessors for this task state.
+
+        This sets up state that allows us to read and write cache entries for this
+        task's value. This includes some in-memory representations of exernal persistent
+        resources (files or cloud blobs); calling this multiple times can be necessary
+        in order to wipe this state and allow it get back in sync with the real world.
+        """
+
+        self._cache_accessors = [
+            bootstrap.persistent_cache.get_accessor(query) for query in self._queries
+        ]
+
+        if bootstrap.versioning_policy.check_for_bytecode_errors:
+            self._check_accessors_for_version_problems()
 
     def _check_accessors_for_version_problems(self):
         """
@@ -443,6 +436,28 @@ class TaskState:
 
         for accessor in accessors_needing_saving:
             accessor.update_provenance()
+
+    def _load_value_hashes(self):
+        """
+        Reads (from disk) and saves (in memory) this task's value hashes.
+        """
+
+        result_value_hashes_by_dnode = {}
+        for accessor in self._cache_accessors:
+            value_hash = accessor.load_result_value_hash()
+            if value_hash is None:
+                raise AssertionError(
+                    oneline(
+                        f"""
+                    Failed to load cached value (hash) for descriptor
+                    {accessor.query.dnode.to_descriptor()!r}.
+                    This suggests we did not successfully complete the task
+                    in subprocess, or the entity wasn't cached;
+                    this should be impossible!"""
+                    )
+                )
+            result_value_hashes_by_dnode[accessor.query.dnode] = value_hash
+        self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
 
     def strip_state_for_subprocess(self, new_task_states_by_key=None):
         """
