@@ -255,24 +255,13 @@ class FlowState(pyrs.PClass):
     def clear_providers(self, names):
         state = self
 
-        # TODO We delete and re-create entity defn for the given names.
-        # The recreation is vestigial of the older provider code and
-        # has a side effect of clearing names from ``default_entity_names``.
-        # Remove this logic in favor of directly clearing names.
-        original_entity_defs = [
-            state.get_entity_def(name)
-            for name in names
-            if name in state.entity_defs_by_name
-        ]
-
         # Delete the providers (or fail if not possible).
         state = state.delete_providers(names)
-        state = state.delete_entity_defs(names)
 
         # Recreate an empty version of each provider.
-        for entity_def in original_entity_defs:
-            state = state.define_entity(entity_def)
-            state = state.create_provider(entity_def.name)
+        entity_names = [name for name in names if name in state.entity_defs_by_name]
+        for name in entity_names:
+            state = state.create_provider(name)
 
         return state.touch()
 
@@ -312,16 +301,16 @@ class FlowState(pyrs.PClass):
 
         state = self
         state = state.set(entity_defs_by_name=state.entity_defs_by_name.remove(name),)
-        if name in state.default_entity_names:
-            state = state.set(
-                default_entity_names=(state.default_entity_names.remove(name))
-            )
         return state
 
     def _erase_provider(self, name):
         state = self
         if name in state.providers_by_name:
             state = state.set(providers_by_name=state.providers_by_name.remove(name),)
+        if name in state.default_entity_names:
+            state = state.set(
+                default_entity_names=(state.default_entity_names.remove(name))
+            )
         return state
 
     def _set_entity_def(self, entity_def):
