@@ -39,6 +39,18 @@ class CacheTester:
         for entry in new_entries:
             self._validate_entry(entry)
 
+    def expect_removed_entries(self, *expected_removed_entity_names):
+        cur_entries = set(self._get_entries())
+        assert cur_entries.issubset(self._old_entries)
+        removed_entries = self._old_entries - set(cur_entries)
+        self._old_entries = cur_entries
+
+        removed_entity_names = {entry.entity for entry in removed_entries}
+        assert removed_entity_names == set(expected_removed_entity_names)
+
+    def expect_same_entries(self):
+        assert set(self._get_entries()) == self._old_entries
+
     def expect_zero_entries(self):
         assert list(self._get_entries()) == []
 
@@ -131,6 +143,52 @@ def test_get_entries(preset_flow):
     tester.expect_new_entries("xy", "xy_squared")
 
 
+def test_entry_delete(preset_flow):
+    tester = CacheTester(preset_flow)
+
+    tester.flow.get("xy_squared")
+    tester.expect_new_entries("x", "y", "xy", "xy_squared")
+
+    (x_entry,) = [
+        entry for entry in tester.flow.cache.get_entries() if entry.entity == "x"
+    ]
+    x_entry.delete()
+    tester.expect_removed_entries("x")
+
+    (xy_entry,) = [
+        entry for entry in tester.flow.cache.get_entries() if entry.entity == "xy"
+    ]
+    xy_entry.delete()
+    tester.expect_removed_entries("xy")
+
+    tester.flow = tester.flow.to_builder().build()
+    tester.flow.get("xy_squared")
+    tester.expect_new_entries("x", "xy")
+
+
+def test_flow_handles_delete_gracefully(builder):
+    builder.assign("a", 1)
+
+    @builder
+    @bn.memoize(False)
+    def b(a):
+        return a + 1
+
+    @builder
+    @bn.memoize(False)
+    def c(b):
+        return b + 1
+
+    flow = builder.build()
+
+    flow.get("b")
+
+    (b_entry,) = [entry for entry in flow.cache.get_entries() if entry.entity == "b"]
+    b_entry.delete()
+
+    flow.get("c")
+
+
 # It would be nice if we could parameterize the above tests to run with or without GCS.
 # However, it doesn't seem to be possible to have a parametrized fixture where only some
 # of the variations depend on other fixtures; this is important because the GCS fixtures
@@ -173,3 +231,23 @@ def test_cache_on_gcs(gcs_builder):
     local_tester.expect_new_entries("c")
     cloud_tester.expect_new_entries("c")
     total_tester.expect_new_entries("c", "c")
+
+    (local_b_entry,) = [
+        entry
+        for entry in flow.cache.get_entries()
+        if entry.entity == "b" and entry.tier == "local"
+    ]
+    local_b_entry.delete()
+    local_tester.expect_removed_entries("b")
+    cloud_tester.expect_same_entries()
+    total_tester.expect_removed_entries("b")
+
+    (cloud_c_entry,) = [
+        entry
+        for entry in flow.cache.get_entries()
+        if entry.entity == "c" and entry.tier == "cloud"
+    ]
+    cloud_c_entry.delete()
+    local_tester.expect_same_entries()
+    cloud_tester.expect_removed_entries("c")
+    total_tester.expect_removed_entries("c")

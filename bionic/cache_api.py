@@ -110,6 +110,11 @@ class CacheEntry:
     def metadata_path(self):
         return path_from_url_if_file(self.metadata_url)
 
+    def delete(self):
+        """Safely deletes the artifact and its metadata from the cache."""
+
+        self._inventory.delete_entry(self.metadata_url, self.artifact_url)
+
     def __hash__(self):
         return hash(self._comparison_key)
 
