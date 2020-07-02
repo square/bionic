@@ -9,7 +9,7 @@ from setuptools import find_packages, setup
 # This appears to be the least annoying Python-version-agnostic way of loading
 # an external file.
 extras_require = run_path(
-    os.path.join(os.path.dirname(__file__), "bionic", "extras.py")
+    os.path.join(os.path.dirname(__file__), "bionic", "deps/extras.py")
 )["extras_require"]
 
 with open("README.md") as readme_file:

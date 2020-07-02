@@ -12,7 +12,7 @@ from .datatypes import ResultGroup, EntityDefinition
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .exception import UndefinedEntityError
-from .optdep import import_optional_dependency
+from .deps.optdep import import_optional_dependency
 from .protocols import TupleProtocol
 from .provider import TupleConstructionProvider, TupleDeconstructionProvider
 from .task_state import TaskState

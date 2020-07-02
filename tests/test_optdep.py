@@ -1,6 +1,10 @@
 import pytest
 
-from bionic.optdep import import_optional_dependency, TEST_EXTRA_NAME, TEST_PACKAGE_NAME
+from bionic.deps.optdep import (
+    import_optional_dependency,
+    TEST_EXTRA_NAME,
+    TEST_PACKAGE_NAME,
+)
 
 
 def test_import_missing_dependency():

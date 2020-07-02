@@ -13,7 +13,7 @@ import traceback
 
 from multiprocessing.managers import SyncManager
 
-from .optdep import import_optional_dependency
+from .deps.optdep import import_optional_dependency
 from .util import oneline, SynchronizedSet
 
 

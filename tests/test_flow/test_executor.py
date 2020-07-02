@@ -3,7 +3,7 @@ import pytest
 from ..conftest import ExecutionMode
 
 from bionic.executor import get_singleton_manager, logging_initializer
-from bionic.optdep import import_optional_dependency
+from bionic.deps.optdep import import_optional_dependency
 
 
 # TODO use a marker to run parallel execution mode tests.
