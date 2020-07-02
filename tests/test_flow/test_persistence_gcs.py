@@ -31,17 +31,8 @@ pytestmark = pytest.mark.needs_gcs
 
 
 @pytest.fixture(scope="function")
-def gcs_builder(builder, tmp_gcs_url_prefix):
-    URL_PREFIX = "gs://"
-    assert tmp_gcs_url_prefix.startswith(URL_PREFIX)
-    gcs_path = tmp_gcs_url_prefix[len(URL_PREFIX) :]
-    bucket_name, object_path = gcs_path.split("/", 1)
-
-    builder = builder.build().to_builder()
-
-    builder.set("core__persistent_cache__gcs__bucket_name", bucket_name)
-    builder.set("core__persistent_cache__gcs__object_path", object_path)
-    builder.set("core__persistent_cache__gcs__enabled", True)
+def preset_gcs_builder(gcs_builder):
+    builder = gcs_builder
 
     builder.set("core__versioning_mode", "assist")
 
@@ -51,9 +42,9 @@ def gcs_builder(builder, tmp_gcs_url_prefix):
     return builder
 
 
-def test_gcs_caching(gcs_builder, make_counter):
+def test_gcs_caching(preset_gcs_builder, make_counter):
     call_counter = make_counter()
-    builder = gcs_builder
+    builder = preset_gcs_builder
 
     @builder
     @count_calls(call_counter)
@@ -97,9 +88,9 @@ def test_gcs_caching(gcs_builder, make_counter):
     assert call_counter.times_called() == 2
 
 
-def test_versioning(gcs_builder, make_counter):
+def test_versioning(preset_gcs_builder, make_counter):
     call_counter = make_counter()
-    builder = gcs_builder
+    builder = preset_gcs_builder
 
     @builder
     def xy(x, y):
@@ -164,9 +155,9 @@ def test_versioning(gcs_builder, make_counter):
     assert call_counter.times_called() == 0
 
 
-def test_indirect_versioning(gcs_builder, make_counter):
+def test_indirect_versioning(preset_gcs_builder, make_counter):
     call_counter = make_counter()
-    builder = gcs_builder
+    builder = preset_gcs_builder
 
     @builder
     @bn.version(major=1)
@@ -220,9 +211,9 @@ def test_indirect_versioning(gcs_builder, make_counter):
     assert call_counter.times_called() == 1
 
 
-def test_multifile_serialization(gcs_builder, make_counter):
+def test_multifile_serialization(preset_gcs_builder, make_counter):
     call_counter = make_counter()
-    builder = gcs_builder
+    builder = preset_gcs_builder
 
     dask_df = dd.from_pandas(
         df_from_csv_str(
@@ -256,9 +247,9 @@ def test_multifile_serialization(gcs_builder, make_counter):
     assert call_counter.times_called() == 0
 
 
-def test_file_path_copying(gcs_builder, make_counter):
+def test_file_path_copying(preset_gcs_builder, make_counter):
     call_counter = make_counter()
-    builder = gcs_builder
+    builder = preset_gcs_builder
 
     file_contents = "DATA"
 

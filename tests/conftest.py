@@ -158,6 +158,10 @@ def session_tmp_gcs_url_prefix(gcs_url_stem):
 
     yield gs_url
 
+    # This will throw an exception if the URL doesn't exist at this point.
+    # Currently every test using this fixture does write some objects under this URL,
+    # *and* doesn't clean all of them up. If this changes, we may need to start
+    # handling this more gracefully.
     gsutil_wipe_path(gs_url)
 
 
@@ -171,3 +175,19 @@ def tmp_gcs_url_prefix(session_tmp_gcs_url_prefix, request):
     # https://github.com/GoogleCloudPlatform/gsutil/issues/290
     node_name = request.node.name.replace("[", "_").replace("]", "")
     return session_tmp_gcs_url_prefix + node_name + "/"
+
+
+@pytest.fixture(scope="function")
+def gcs_builder(builder, tmp_gcs_url_prefix):
+    URL_PREFIX = "gs://"
+    assert tmp_gcs_url_prefix.startswith(URL_PREFIX)
+    gcs_path = tmp_gcs_url_prefix[len(URL_PREFIX) :]
+    bucket_name, object_path = gcs_path.split("/", 1)
+
+    builder = builder.build().to_builder()
+
+    builder.set("core__persistent_cache__gcs__bucket_name", bucket_name)
+    builder.set("core__persistent_cache__gcs__object_path", object_path)
+    builder.set("core__persistent_cache__gcs__enabled", True)
+
+    return builder
