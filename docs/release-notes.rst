@@ -93,6 +93,8 @@ New Features
   Bionic will do this automatically when an entity function returns a value of the
   appropriate type, but it can also be explicitly controlled with the new
   :func:`@geodataframe <bionic.protocol.geodataframe>` protocol.
+- Bionic now provides an :ref:`API <cache-api>` for listing and deleting cached
+  artifacts.
 
 Documentation Changes
 .....................
