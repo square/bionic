@@ -782,7 +782,7 @@ class GcsFilesystem:
 
 class GcsTool:
     """
-    A helper object providing utility methods for accessing a GCS.  Maintains
+    A helper object providing utility methods for accessing GCS.  Maintains
     a GCS client, and a prefix defining a default namespace to read/write on.
     """
 
@@ -792,7 +792,7 @@ class GcsTool:
         if url.endswith("/"):
             url = url[:-1]
         self.url = url
-        bucket_name, object_prefix = self._bucket_and_object_names_from_url(url)
+        bucket_name, object_prefix = bucket_and_object_names_from_gs_url(url)
 
         self._bucket_name = bucket_name
         self._object_prefix = object_prefix
@@ -844,20 +844,10 @@ class GcsTool:
         logger.debug("Finished running gsutil")
 
     def _validated_object_name_from_url(self, url):
-        bucket_name, object_name = self._bucket_and_object_names_from_url(url)
+        bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
         assert bucket_name == self._bucket.name
         assert object_name.startswith(self._object_prefix)
         return object_name
-
-    def _bucket_and_object_names_from_url(self, url):
-        if not is_gcs_url(url):
-            raise ValueError(f'url must have schema "{GCS_SCHEME}"')
-        result = urlparse(url)
-        result_path = result.path
-        # urlparse always parses the url with a leading slash in path
-        # but we don't want the leading slash for gcs object name
-        assert result_path.startswith("/")
-        return result.netloc, result_path[1:]
 
 
 class InternalCacheStateError(Exception):
@@ -1112,6 +1102,14 @@ def path_from_url(url):
 
 def url_from_path(path):
     return Path(path).as_uri()
+
+
+def bucket_and_object_names_from_gs_url(url):
+    if not is_gcs_url(url):
+        raise ValueError(f'url must have schema "{GCS_SCHEME}": got {url}')
+    result = urlparse(url)
+    result_path = result.path
+    return result.netloc, result_path[1:]
 
 
 def recursive_file_copy(src_path, dst_path):
