@@ -412,6 +412,20 @@ class MetadataMatch:
     level = attr.ib()
 
 
+# TODO Should we merge this with InventoryEntry?
+@attr.s(frozen=True)
+class ExternalCacheItem:
+    """
+    Represents an inventory entry, but contains data intended to be exposed to users
+    via the Cache class.
+    """
+
+    inventory = attr.ib()
+    abs_artifact_url = attr.ib()
+    abs_metadata_url = attr.ib()
+    descriptor = attr.ib()
+
+
 class Inventory:
     """
     Maintains a persistent mapping from Queries to artifact URLs.  An Inventory
@@ -500,6 +514,21 @@ class Inventory:
             exactly_matches_query=(match.level == "exact"),
             value_hash=metadata_record.value_hash,
         )
+
+    def list_items(self):
+        metadata_urls = [
+            url for url in self._fs.search(self.root_url) if url.endswith(".yaml")
+        ]
+
+        for metadata_url in metadata_urls:
+            metadata_record = self._load_metadata_from_url(metadata_url)
+            artifact_url = metadata_record.artifact_url
+            yield ExternalCacheItem(
+                inventory=self,
+                abs_artifact_url=derelativize_url(artifact_url, metadata_url),
+                abs_metadata_url=metadata_url,
+                descriptor=metadata_record.descriptor,
+            )
 
     def _find_best_match(self, query):
         equivalent_url_prefix = self._equivalent_metadata_url_prefix_for_query(query)
