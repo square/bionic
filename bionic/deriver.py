@@ -681,7 +681,7 @@ class TaskCompletionRunner:
         if task_key not in self._entries_by_task_key:
             # Before doing anything with this task state, we should make sure its
             # cache state is up to date.
-            state.refresh_all_cache_state(self._bootstrap)
+            state.refresh_all_persistent_cache_state(self._bootstrap)
             self._entries_by_task_key[task_key] = TaskRunnerEntry(
                 state=state, is_requested=is_requested
             )

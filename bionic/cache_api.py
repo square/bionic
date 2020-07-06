@@ -7,6 +7,7 @@ from functools import total_ordering
 
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .persistence import path_from_url, is_file_url
+from .util import oneline
 
 
 class Cache:
@@ -111,9 +112,37 @@ class CacheEntry:
         return path_from_url_if_file(self.metadata_url)
 
     def delete(self):
-        """Safely deletes the artifact and its metadata from the cache."""
+        """
+        Safely deletes the artifact and its metadata from the cache.
 
-        self._inventory.delete_entry(self.metadata_url, self.artifact_url)
+        Returns True if the entry is deleted and False if it was not found. Throws a
+        ``CacheEntryDeletionFailureError`` if the deletion fails.
+        """
+
+        # We delete the metadata file first, because it refers to the artifact file.
+        # (If we deleted the artifact first and then crashed, we would have an invalid
+        # metadata file lying around.)
+        try:
+            if not self._inventory.delete_url(self.metadata_url):
+                return False
+        except Exception as e:
+            message = f"""
+            Unable to delete metadata file at {self.metadata_url}; you may need to
+            manually delete both this file and the artifact file at {self.artifact_url}.
+            """
+            raise CacheEntryDeletionError(oneline(message)) from e
+
+        try:
+            self._inventory.delete_url(self.artifact_url)
+        except Exception as e:
+            message = f"""
+            Unable to delete artifact file at {self.artifact_url} (although the
+            corresponding metadata file was successfully deleted). You may need to
+            delete the artifact file manually.
+            """
+            raise CacheEntryDeletionError(oneline(message)) from e
+
+        return True
 
     def __hash__(self):
         return hash(self._comparison_key)
@@ -130,3 +159,7 @@ class CacheEntry:
 
     def __repr__(self):
         return f"CacheEntry(metadata_url={self.metadata_url!r})"
+
+
+class CacheEntryDeletionError(Exception):
+    pass

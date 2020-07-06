@@ -152,14 +152,16 @@ def test_entry_delete(preset_flow):
     (x_entry,) = [
         entry for entry in tester.flow.cache.get_entries() if entry.entity == "x"
     ]
-    x_entry.delete()
+    assert x_entry.delete()
     tester.expect_removed_entries("x")
+    assert not x_entry.delete()
 
     (xy_entry,) = [
         entry for entry in tester.flow.cache.get_entries() if entry.entity == "xy"
     ]
-    xy_entry.delete()
+    assert xy_entry.delete()
     tester.expect_removed_entries("xy")
+    assert not xy_entry.delete()
 
     tester.flow = tester.flow.to_builder().build()
     tester.flow.get("xy_squared")
@@ -186,6 +188,8 @@ def test_flow_handles_delete_gracefully(builder):
     (b_entry,) = [entry for entry in flow.cache.get_entries() if entry.entity == "b"]
     b_entry.delete()
 
+    # The goal here is to make sure that Bionic correctly updates its cache state,
+    # detects that `b` is deleted, and recomputes it.
     flow.get("c")
 
 

@@ -147,7 +147,7 @@ class TaskState:
 
         self._load_value_hashes()
 
-    def refresh_all_cache_state(self, bootstrap):
+    def refresh_all_persistent_cache_state(self, bootstrap):
         """
         Refreshes all state that depends on the persistent cache.
 
@@ -171,7 +171,6 @@ class TaskState:
             self._load_value_hashes()
         else:
             self._result_value_hashes_by_dnode = None
-            self.is_complete = False
 
     def compute(self, task_key_logger, return_results=False):
         """
