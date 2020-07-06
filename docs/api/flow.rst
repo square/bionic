@@ -45,3 +45,14 @@ Flow API
 .. autoclass:: bionic.Flow
     :members:
 
+Cache API
+---------
+
+.. autoclass:: bionic.cache_api.Cache
+    :members:
+
+CacheEntry API
+--------------
+
+.. autoclass:: bionic.cache_api.CacheEntry
+    :members:

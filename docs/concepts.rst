@@ -595,6 +595,42 @@ plots.) This can be achieved with the ``mode`` argument to
 
 This would return a ``Path`` object for the ``subject`` entity.
 
+.. _cache-api:
+
+Programmatic Cache Access
+.........................
+
+.. versionadded:: 0.8.0
+
+Although Bionic attempts to manage the cache for you automatically, it's sometimes
+helpful to be able to interact with it directly. Bionic provides a basic API for
+exploring the cache:
+
+.. code-block:: python
+
+    for entry in flow.cache.get_entries():
+        print(entry.artifact_url)
+
+The :meth:`get_entries <bionic.cache_api.Cache.get_entries>` method returns a
+sequence of :class:`CacheEntry <bionic.cache_api.CacheEntry>` objects, one for each
+cached entity value. These objects contain information about the cached entity and
+the location of the cache file itself (which may be either a local file or a cloud
+blob).
+
+Cached entries can also be safely [#f4]_ deleted using the :meth:`delete
+<bionic.cache_api.CacheEntry.delete>` method. This can be used to selectively clean
+up the cache:
+
+.. code-block:: python
+
+    for entry in flow.cache.get_entries():
+        if entry.tier == 'local' and entry.entity == 'model':
+            entry.delete()
+
+.. [#f4] Manually deleting the artifact file itself is *not* safe, because Bionic
+  maintains various metadata files that need to be updated as well. In general, the only
+  safe manual operation is to delete the entire cache directory at once.
+
 Multiplicity
 ------------
 

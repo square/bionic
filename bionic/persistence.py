@@ -530,6 +530,9 @@ class Inventory:
                 descriptor=metadata_record.descriptor,
             )
 
+    def delete_url(self, url):
+        return self._fs.delete(url)
+
     def _find_best_match(self, query):
         equivalent_url_prefix = self._equivalent_metadata_url_prefix_for_query(query)
         possible_urls = self._fs.search(equivalent_url_prefix)
@@ -765,6 +768,13 @@ class LocalFilesystem:
             for sub_path in path_prefix.glob("**/*")
         ]
 
+    def delete(self, url):
+        path = path_from_url(url)
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
+
     def write_bytes(self, content_bytes, url):
         path = path_from_url(url)
         ensure_parent_dir_exists(path)
@@ -801,6 +811,13 @@ class GcsFilesystem:
             self._tool.url_from_object_name(blob.name)
             for blob in self._tool.blobs_matching_url_prefix(url_prefix)
         ]
+
+    def delete(self, url):
+        blob = self._tool.blob_from_url(url)
+        if blob is None:
+            return False
+        blob.delete()
+        return True
 
     def write_bytes(self, content_bytes, url):
         self._tool.blob_from_url(url).upload_from_string(content_bytes)
