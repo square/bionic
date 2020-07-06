@@ -8,7 +8,7 @@ from pathlib import Path
 from collections import defaultdict
 from io import BytesIO, IOBase
 
-from .optdep import import_optional_dependency
+from .deps.optdep import import_optional_dependency
 from .util import rewrap_docstring
 
 module_purpose = "rendering the flow DAG"
