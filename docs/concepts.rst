@@ -812,7 +812,7 @@ Parallel execution can be enabled like this:
 
     builder.set("core__parallel_execution__enabled", True)
 
-When parallel execution is enabled, Bionic starts up several worker processes [#f4]_,
+When parallel execution is enabled, Bionic starts up several worker processes [#f5]_,
 each of which can work on one value at a time. Of course, a worker can only start
 computing a value once all its dependencies are complete, so the number of processes
 that can be working at once depends on the :ref:`dependency graph <dagviz>`: if there
@@ -839,7 +839,7 @@ using the :ref:`protocol<protocols>` specified for the entity. Finally, entities
 marked with :func:`@persist(False) <bionic.persist>` are assumed to be unserializable
 and will always be computed in the main process rather than being parallelized.
 
-.. [#f4] The pool of workers is managed by
+.. [#f5] The pool of workers is managed by
   `Loky <https://loky.readthedocs.io/en/stable/>`_,
   which is built on Python's
   `multiprocessing <https://docs.python.org/3.8/library/multiprocessing.html>`_ module.
