@@ -81,18 +81,30 @@ def model(train_frame, random_seed, hyperparams_dict):
     return m
 
 
+# Predict probabilities for the test data.
+@builder
+def prediction_frame(model, test_frame):
+    """
+    A dataframe with one column, `proba`, containing predicted probabilities for the
+    test data.
+    """
+    predictions = model.predict_proba(test_frame.drop("target", axis=1))[:, 1]
+    df = pd.DataFrame()
+    df["proba"] = predictions
+    return df
+
+
 # Evaluate the model's precision and recall over a range of threshold values.
 @builder
-def precision_recall_frame(model, test_frame):
+def precision_recall_frame(test_frame, prediction_frame):
     """
     A dataframe with three columns:
     - `threshold`: a probability threshold for the model
     - `precision`: the test set precision resulting from that threshold
     - `recall`: the test set recall resulting from that threshold
     """
-    predictions = model.predict_proba(test_frame.drop("target", axis=1))[:, 1]
     precisions, recalls, thresholds = metrics.precision_recall_curve(
-        test_frame["target"], predictions
+        test_frame["target"], prediction_frame["proba"],
     )
 
     df = pd.DataFrame()
@@ -132,21 +144,3 @@ def all_hyperparams_pr_plot(gathered_frame, plt):
 
 # Assemble our flow object.
 flow = builder.build()
-
-# Compute and print the precision-recall dataframe.
-if __name__ == "__main__":
-    bn.util.init_basic_logging()
-
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Runs a simple ML workflow example")
-    parser.add_argument("--bucket", "-b", help="Name of GCS bucket to cache in")
-
-    args = parser.parse_args()
-    if args.bucket is not None:
-        flow = flow.setting(
-            "core__persistent_cache__gcs__bucket_name", args.bucket
-        ).setting("core__persistent_cache__gcs__enabled", True)
-
-    with pd.option_context("display.max_rows", 10):
-        print(flow.get("precision_recall_frame"))
