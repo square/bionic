@@ -12,19 +12,12 @@ exact timeline is not fixed.
 Future Work
 -----------
 
-Local Parallelization
-.....................
-
-Currently Bionic computes everything in a single process.  Later it will be
-able to run multiple tasks on different processes in parallel, allowing you to
-take advantage of all the CPU cores of whatever machine you're using.
-
 Distributed Computation
 .......................
 
-Similar to the above: Bionic will eventually be able to dispatch jobs to other
-machines (such as a cloud-based compute cluster) to achieve even more
-parallelization.
+Currently Bionic computes everything on a single machine, using either a single
+process or many in parallel. Later it will be able to dispatch jobs to other machines
+(such as a cloud-based compute cluster) to achieve even more parallelization.
 
 Direct Access to Persisted Files
 ................................

@@ -82,6 +82,8 @@ Cache Compatibility Changes
 New Features
 ............
 
+- Bionic flows can now be run :ref:`in parallel <parallel-execution>`, taking advantage
+  of multiple CPUs at once.
 - Memoization can be globally disabled with the ``core_memoize_by_default`` entity,
   which means you can opt-in which entities are memoized instead of opting out.
 - Bionic now allows entities to have no caching at all. Previously each entity needed
