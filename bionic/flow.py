@@ -17,6 +17,7 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
+from .cache_api import Cache
 from .datatypes import (
     CaseKey,
     EntityDefinition,
@@ -1594,6 +1595,8 @@ class Flow:
                 )
 
         self.get = GetMethod()
+
+        self.cache = Cache(self._deriver)
 
         class SettingMethod(ShortcutProxy):
             __doc__ = orig_setting_method.__doc__
