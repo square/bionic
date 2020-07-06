@@ -63,7 +63,7 @@ For each release, we list the following types of change (in this order):
 - **Development Changes**: Significant changes to Bionic's development process, such
   as changes to our Pytest configuration or our Continuous Integration ("CI").
 
-.. Upcoming Version (Not Yet Released)
+Upcoming Version (Not Yet Released)
 -----------------------------------
 
 .. Record any notable changes in this section. When we update the current version,
@@ -71,6 +71,11 @@ For each release, we list the following types of change (in this order):
    changes are added. This way, the "Upcoming Version" section will be never be visible
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
+
+Documentation Changes
+.....................
+
+- Fixed some typos in the documentation.
 
 0.8.0 (Jul 6, 2020)
 --------------------
@@ -87,7 +92,7 @@ New Features
 
 - Bionic flows can now be run :ref:`in parallel <parallel-execution>`, taking advantage
   of multiple CPUs at once.
-- Memoization can be globally disabled with the ``core_memoize_by_default`` entity,
+- Memoization can be globally disabled with the ``core__memoize_by_default`` entity,
   which means you can opt-in which entities are memoized instead of opting out.
 - Bionic now allows entities to have no caching at all. Previously each entity needed
   to be cached either in memory or on disk; now both of these can be disabled, in which
