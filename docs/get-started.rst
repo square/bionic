@@ -59,10 +59,10 @@ The full set of subpackages is as follows:
 ========== ==================================== ================================
 Subpackage  Installation Command                Enables
 ========== ==================================== ================================
+dask       ``pip install 'bionic[dask]'``       the ``@dask`` decorator
+---------- ------------------------------------ --------------------------------
 dev        ``pip install 'bionic[dev]'``        every feature; testing; building
                                                 documentation
----------- ------------------------------------ --------------------------------
-dask       ``pip install 'bionic[dask]'``       the ``@dask`` decorator
 ---------- ------------------------------------ --------------------------------
 dill       ``pip install 'bionic[dill]'``       the ``@dillable`` decorator
 ---------- ------------------------------------ --------------------------------
@@ -78,6 +78,8 @@ image      ``pip install 'bionic[image]'``      automatic de/serialization of
                                                 ``PIL.Image`` objects
 ---------- ------------------------------------ --------------------------------
 matplotlib ``pip install 'bionic[matplotlib]'`` the ``@pyplot`` decorator
+---------- ------------------------------------ --------------------------------
+parallel   ``pip install 'bionic[parallel]'``   parallel execution
 ---------- ------------------------------------ --------------------------------
 standard   ``pip install 'bionic[standard]'``   graph visualization; ``Image``
                                                 handling; ``@pyplot``
