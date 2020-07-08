@@ -602,6 +602,10 @@ Programmatic Cache Access
 
 .. versionadded:: 0.8.0
 
+.. note::  This API is intentionally quite minimal; we intend to add additional
+  convenience features based on observed usage patterns. If you'd like to add new
+  features, feel free to submit an issue or a PR on GitHub!
+
 Although Bionic attempts to manage the cache for you automatically, it's sometimes
 helpful to be able to interact with it directly. Bionic provides a basic API for
 exploring the cache:
