@@ -115,34 +115,45 @@ class CacheEntry:
         """
         Safely deletes the artifact and its metadata from the cache.
 
-        Returns True if the entry is deleted and False if it was not found. Throws a
+        Returns True if the artifact was deleted and False if it was not found. Throws a
         ``CacheEntryDeletionFailureError`` if the deletion fails.
+
+        (Note that if two entries refer to the same artifact and ``delete`` is called on
+        both, the first call with return True and the second will return False.)
         """
 
-        # We delete the metadata file first, because it refers to the artifact file.
-        # (If we deleted the artifact first and then crashed, we would have an invalid
-        # metadata file lying around.)
+        # We delete the artifact first, since it's the thing that actually takes up
+        # space. If we fail afterwards, the metadata file will contain an invalid URL,
+        # but that's okay: we handle that gracefully when loading the metadata.
         try:
-            if not self._inventory.delete_url(self.metadata_url):
-                return False
+            artifact_was_deleted = self._inventory.delete_url(self.artifact_url)
         except Exception as e:
-            message = f"""
-            Unable to delete metadata file at {self.metadata_url}; you may need to
-            manually delete both this file and the artifact file at {self.artifact_url}.
-            """
-            raise CacheEntryDeletionError(oneline(message)) from e
+            message = f"Unable to delete artifact file at {self.artifact_url}"
+            raise CacheEntryDeletionError(message) from e
 
+        # TODO There's an unhandled edge case here: it's possible that this metadata
+        # file was deleted and then another one was created with the same URL but
+        # pointing to a different artifact URL. In that case, we'll delete the new
+        # metadata file but not its artifact, leaving an orphaned artifact. That's not
+        # the end of the world but it's lame. We could avoid this by reloading the
+        # metadata file before deleting it and checking that the artifact URL is what
+        # we expect.
         try:
-            self._inventory.delete_url(self.artifact_url)
+            self._inventory.delete_url(self.metadata_url)
         except Exception as e:
-            message = f"""
-            Unable to delete artifact file at {self.artifact_url} (although the
-            corresponding metadata file was successfully deleted). You may need to
-            delete the artifact file manually.
-            """
-            raise CacheEntryDeletionError(oneline(message)) from e
+            first_message = f"Unable to delete metadata file at {self.metadata_url}"
+            if artifact_was_deleted:
+                second_message = f"""
+                however, the artifact at {self.artifact_url} was successfully deleted
+                """
+            else:
+                second_message = f"""
+                no artifact was deleted as the URL {self.artifact_url} no longer exists
+                """
+            full_message = first_message + " -- " + second_message
+            raise CacheEntryDeletionError(oneline(full_message)) from e
 
-        return True
+        return artifact_was_deleted
 
     def __hash__(self):
         return hash(self._comparison_key)

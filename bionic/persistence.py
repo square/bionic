@@ -483,37 +483,58 @@ class Inventory:
 
         logger.debug("In     %s inventory for %r, searching ...", self.tier, query)
 
-        match = self._find_best_match(query)
-        if not match:
-            logger.debug("... in %s inventory for %r, found no match", self.tier, query)
+        n_prior_attempts = 0
+        while True:
+            if n_prior_attempts in (10, 100, 1000, 10000, 100000, 1000000):
+                message = f"""
+                While searching in the {self.tier} cache for an entry matching
+                {query!r}, found {n_prior_attempts} invalid metadata files;
+                either a lot of artifact files were manually deleted,
+                or there's a bug in the cache code
+                """
+                if n_prior_attempts == 1000000:
+                    raise AssertionError("Giving up: " + oneline(message))
+                else:
+                    logger.warn(oneline(message))
+            n_prior_attempts += 1
+
+            match = self._find_best_match(query)
+            if not match:
+                logger.debug(
+                    "... in %s inventory for %r, found no match", self.tier, query
+                )
+
+                return InventoryEntry(
+                    tier=self.tier,
+                    has_artifact=False,
+                    artifact_url=None,
+                    provenance=None,
+                    exactly_matches_query=False,
+                    value_hash=None,
+                )
+
+            metadata_record = self._load_metadata_if_valid_else_delete(
+                match.metadata_url
+            )
+            if metadata_record is None:
+                continue
+
+            logger.debug(
+                "... in %s inventory for %r, found %s match at %s",
+                self.tier,
+                query,
+                match.level,
+                match.metadata_url,
+            )
 
             return InventoryEntry(
                 tier=self.tier,
-                has_artifact=False,
-                artifact_url=None,
-                provenance=None,
-                exactly_matches_query=False,
-                value_hash=None,
+                has_artifact=True,
+                artifact_url=metadata_record.artifact_url,
+                provenance=metadata_record.provenance,
+                exactly_matches_query=(match.level == "exact"),
+                value_hash=metadata_record.value_hash,
             )
-
-        logger.debug(
-            "... in %s inventory for %r, found %s match at %s",
-            self.tier,
-            query,
-            match.level,
-            match.metadata_url,
-        )
-
-        metadata_record = self._load_metadata_from_url(match.metadata_url)
-
-        return InventoryEntry(
-            tier=self.tier,
-            has_artifact=True,
-            artifact_url=metadata_record.artifact_url,
-            provenance=metadata_record.provenance,
-            exactly_matches_query=(match.level == "exact"),
-            value_hash=metadata_record.value_hash,
-        )
 
     def list_items(self):
         metadata_urls = [
@@ -521,7 +542,9 @@ class Inventory:
         ]
 
         for metadata_url in metadata_urls:
-            metadata_record = self._load_metadata_from_url(metadata_url)
+            metadata_record = self._load_metadata_if_valid_else_delete(metadata_url)
+            if metadata_record is None:
+                continue
             artifact_url = metadata_record.artifact_url
             yield ExternalCacheItem(
                 inventory=self,
@@ -590,12 +613,26 @@ class Inventory:
         filename = f"metadata_{query.provenance.exact_hash}.yaml"
         return self._nominal_metadata_url_prefix_for_query(query) + "/" + filename
 
-    def _load_metadata_from_url(self, url):
+    def _load_metadata_if_valid_else_delete(self, url):
         try:
             metadata_yaml = self._fs.read_bytes(url).decode("utf8")
-            return ArtifactMetadataRecord.from_yaml(metadata_yaml, url)
+            metadata_record = ArtifactMetadataRecord.from_yaml(metadata_yaml, url)
         except Exception as e:
             raise InternalCacheStateError.from_failure("metadata record", url, e)
+
+        if not self._fs.exists(metadata_record.artifact_url):
+            logger.info(
+                "Found invalid metadata record at %s, "
+                "referring to nonexistent artifact at %s; "
+                "deleting metadata record",
+                url,
+                metadata_record.artifact_url,
+            )
+            self.delete_url(url)
+            return None
+
+        else:
+            return metadata_record
 
     def _create_and_write_metadata(self, query, artifact_url, value_hash):
         metadata_url = self._exact_metadata_url_for_query(query)
