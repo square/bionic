@@ -37,18 +37,12 @@ logger = logging.getLogger(__name__)
 
 class ProviderAttributes:
     def __init__(
-        self,
-        dnodes,
-        code_version=None,
-        orig_flow_name=None,
-        is_default_value=None,
-        changes_per_run=None,
+        self, dnodes, code_version=None, orig_flow_name=None, changes_per_run=None,
     ):
         self.dnodes = dnodes
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
         self.changes_per_run = changes_per_run
-        self.is_default_value = is_default_value
 
 
 class BaseProvider:
