@@ -20,14 +20,45 @@ class TaskRunnerEntry:
     `TaskState` execution and tracking.
     """
 
-    def __init__(self, state, is_requested, dep_entries):
+    def __init__(self, state, dep_entries):
         self.stage = EntryStage.NEW
         self.dep_entries = dep_entries
 
         self.state = state
         self.future = None
-        self.is_requested = is_requested
         self.results_by_dnode = None
+
+        # Set by mark_requested().
+        # Includes self as a descendant.
+        self.is_requested = False
+        self.has_unserializable_requested_descendant_chain = False
+
+    @property
+    def incomplete_deps(self):
+        return [
+            dep_entry
+            for dep_entry in self.dep_entries
+            if dep_entry.stage != EntryStage.COMPLETED
+        ]
+
+    def mark_requested(self):
+        self.is_requested = True
+
+        assert self.state.should_persist is not None
+        # If the entity in unserializable, mark all the ancestors as having
+        # an unserializable requested descendant.
+        if self.state.should_persist is False:
+            ancestors = [self]
+            while len(ancestors) > 0:
+                ancestor = ancestors.pop(0)
+                # Chain breaks if the ancestor is serializable.
+                if ancestor.state.should_persist is not False:
+                    continue
+                # Continue if the ancestor was already marked.
+                if ancestor.has_unserializable_requested_descendant_chain:
+                    continue
+                ancestor.has_unserializable_requested_descendant_chain = True
+                ancestors.extend(ancestor.dep_entries)
 
     def compute(self, task_key_logger, return_results=False):
         """
@@ -37,21 +68,19 @@ class TaskRunnerEntry:
         Returns a dict of computed results by dnode when return_results is True.
         """
 
-        assert self.state.is_completable
         assert not self.state.is_cached
 
         task = self.state.task
 
         dep_results = []
         for dep_entry, dep_key in zip(self.dep_entries, task.dep_keys):
-            assert dep_entry.state.is_cached or dep_entry.state.is_completable
-            if dep_entry.state.is_cached:
+            if dep_entry.state.should_cache:
+                assert dep_entry.state.is_cached
                 dep_results_by_dnode = dep_entry.state.get_cached_results(
                     task_key_logger
                 )
             else:
-                # If dep_state is not complete yet, that's probably because the results
-                # aren't communicated between processes. Compute the results.
+                # If dep_state should not be cached, compute the results.
                 dep_results_by_dnode = dep_entry.compute(
                     task_key_logger, return_results=True
                 )
@@ -206,13 +235,16 @@ class TaskState:
         # Cached values.
         self.task_keys = task.keys
 
+        # These are set by set_up_caching_flags()
+        self._are_caching_flags_set_up = False
+        self.should_memoize = None
+        self.should_persist = None
+
         # These are set by initialize().
         self._is_initialized = False
         self._provenance = None
         self._queries = None
         self._cache_accessors = None
-        self.should_memoize = None
-        self.should_persist = None
 
         # This can be set by compute() or attempt_to_complete_from_cache().
         #
@@ -222,44 +254,9 @@ class TaskState:
         # This can be set by get_cached_results() or compute().
         self._results_by_dnode = None
 
-    # TODO: We need a coherent story around incomplete states between parallel
-    # and non-parallel mode. We have to compute non-persisted deps inside the
-    # other subprocess for parallel mode but not for non-parallel mode. We should
-    # consider making the way it computes in parallel mode the default.
-    def blocking_dep_states(self):
-        """
-        Returns all of this task state's persisted dependencies that aren't yet completed and
-        non-persisted dependencies that aren't yet completable.
-
-
-        Note that the definition is complicated because dependencies that cannot be
-        persisted can potentially be computed again in case of parallel execution.
-        But we don't want to complete the persisted entities when trying to complete
-        this task state. They should already be complete to avoid doing any unnecessary
-        state tracking for completing this state.
-        """
-        return [
-            dep_state
-            for dep_state in self.dep_states
-            if (dep_state.should_persist and not dep_state.is_cached)
-            or not dep_state.is_completable
-        ]
-
-    def blocking_dep_task_keys(self):
-        blocking_dep_states = self.blocking_dep_states()
-        return set(
-            blocking_dep_state_tk
-            for blocking_dep_state in blocking_dep_states
-            for blocking_dep_state_tk in blocking_dep_state.task_keys
-        )
-
     @property
-    def is_completable(self):
-        """
-        Indicates whether the task state can be completed in its current shape.
-        True when the state is initialized and doesn't have any blocking deps.
-        """
-        return self._is_initialized and len(self.blocking_dep_states()) == 0
+    def should_cache(self):
+        return self.should_memoize or self.should_persist
 
     @property
     def is_cached(self):
@@ -310,9 +307,10 @@ class TaskState:
         If the results are available in persistent cache, populates value hashes
         and marks the task state complete. Otherwise, it does nothing.
         """
-        assert self.is_completable
-        assert not self.is_cached
+        assert self._is_initialized
 
+        if self.is_cached:
+            return
         if not self.should_persist:
             return
         if not all(axr.can_load() for axr in self._cache_accessors):
@@ -418,6 +416,20 @@ class TaskState:
             for task_key in self.task_keys
         ]
 
+        self.set_up_caching_flags(bootstrap)
+
+        # Lastly, set up cache accessors.
+        if self.should_persist:
+            self.refresh_cache_accessors(bootstrap)
+
+        self._is_initialized = True
+
+    def set_up_caching_flags(self, bootstrap):
+        # Setting up the flags is cheap, but it can result in warnings that we don't
+        # need to emit multiple times.
+        if self._are_caching_flags_set_up:
+            return
+
         # In theory different entities for a single task could have different cache
         # settings, but I'm not sure it can happen in practice (given the way
         # grouped entities are created). At any rate, once we have tuple
@@ -479,11 +491,7 @@ class TaskState:
             should_persist = False
         self.should_persist = should_persist
 
-        # Lastly, set up cache accessors.
-        if self.should_persist:
-            self.refresh_cache_accessors(bootstrap)
-
-        self._is_initialized = True
+        self._are_caching_flags_set_up = True
 
     def refresh_cache_accessors(self, bootstrap):
         """

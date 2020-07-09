@@ -60,7 +60,7 @@ class TaskCompletionRunner:
             while self._has_pending_entries():
                 entry = self._activate_next_pending_entry()
 
-                if len(entry.state.blocking_dep_states()) > 0:
+                if len(entry.incomplete_deps) > 0:
                     self._mark_entry_blocked(entry)
                     continue
 
@@ -83,24 +83,16 @@ class TaskCompletionRunner:
     def _process_entry(self, entry):
         assert entry.stage == EntryStage.ACTIVE
 
-        if entry.state.is_cached:
-            self._mark_entry_completed(entry)
-            return
-
         state = entry.state
-        # Initialize the task state before attempting to complete it.
         state.initialize(self._bootstrap, self._flow_instance_uuid)
-
-        # Attempt to complete the task state from persistence cache.
         state.attempt_to_complete_from_cache()
+
         if state.is_cached:
             self._mark_entry_completed(entry)
 
         # If results aren't cached and the results needs to be returned,
         # we compute the results and store them in the runner.
-        elif (
-            entry.is_requested and not state.should_persist and not state.should_memoize
-        ):
+        elif entry.is_requested and not state.should_cache:
             results = entry.compute(self.task_key_logger, return_results=True)
             entry.results_by_dnode = results
             self._mark_entry_completed(entry)
@@ -109,8 +101,12 @@ class TaskCompletionRunner:
         elif (
             # Parallel execution disabled.
             not self._parallel_execution_enabled
-            # This is a non-serializable entity that needs to be returned.
-            or (entry.is_requested and not state.should_persist)
+            # This is a non-serializable entity that has a non-serializable ancestor that
+            # needs to be returned.
+            or (
+                entry.has_unserializable_requested_descendant_chain
+                and not state.should_persist
+            )
             # This is a simple lookup task that looks up a value in a dictionary.
             # We can't run this in a separate process because the value may not be
             # cloudpicklable.
@@ -131,7 +127,6 @@ class TaskCompletionRunner:
             )
             future = self._bootstrap.executor.submit(
                 run_in_subprocess, new_task_completion_runner, new_state_for_subprocess,
-                compute_entry, new_entry_for_subprocess, self.task_key_logger,
             )
             self._mark_entry_in_progress(entry, future)
 
@@ -143,6 +138,7 @@ class TaskCompletionRunner:
     def _get_or_create_entry_for_state(self, state, is_requested=False):
         task_key = state.task_keys[0]
         if task_key not in self._entries_by_task_key:
+            state.set_up_caching_flags(self._bootstrap)
             # Before doing anything with this task state, we should make sure its
             # cache state is up to date.
             state.refresh_all_persistent_cache_state(self._bootstrap)
@@ -151,12 +147,15 @@ class TaskCompletionRunner:
                 for dep_state in state.dep_states
             ]
             self._entries_by_task_key[task_key] = TaskRunnerEntry(
-                state=state, is_requested=is_requested, dep_entries=dep_entries,
+                state=state, dep_entries=dep_entries,
             )
-        # FIXME
+
+        entry = self._entries_by_task_key[task_key]
+        # If another requested entry created the entry, it might not be marked as
+        # requested. We override it here.
         if is_requested:
-            self._entries_by_task_key[task_key].is_requested = True
-        return self._entries_by_task_key[task_key]
+            entry.mark_requested()
+        return entry
 
     def _has_pending_entries(self):
         # While there are no entries in the to-process stack but have any in-progress ones,
@@ -194,7 +193,11 @@ class TaskCompletionRunner:
         assert blocked_entry.stage == EntryStage.ACTIVE
 
         blocked_entry.stage = EntryStage.BLOCKED
-        blocking_tks = blocked_entry.state.blocking_dep_task_keys()
+        blocking_tks = set(
+            incomplete_dep_state_tk
+            for incomplete_dep in blocked_entry.incomplete_deps
+            for incomplete_dep_state_tk in incomplete_dep.state.task_keys
+        )
         blockage = EntryBlockage(blocked_entry, blocking_tks)
         for blocking_tk in blocking_tks:
             self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
@@ -230,14 +233,13 @@ class TaskCompletionRunner:
         self._unblock_entries(completed_entry)
 
     def _mark_blocking_entries_pending(self, blocked_entry):
-        blocking_dep_states = blocked_entry.state.blocking_dep_states()
-        for blocking_dep_state in blocking_dep_states:
-            blocking_entry = self._get_or_create_entry_for_state(blocking_dep_state)
+        blocking_entries = blocked_entry.incomplete_deps
+        for blocking_entry in blocking_entries:
             if blocking_entry.stage == EntryStage.NEW:
                 self._mark_entry_pending(blocking_entry)
 
     def _unblock_entries(self, completed_entry):
-        for completed_tk in completed_entry.state.task.keys:
+        for completed_tk in completed_entry.state.task_keys:
             affected_blockages = self._blockage_lists_by_blocking_tk[completed_tk]
             for blockage in affected_blockages:
                 blockage.mark_task_key_complete(completed_tk)
