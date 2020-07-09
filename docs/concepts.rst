@@ -230,10 +230,9 @@ There are three ways for a cached value to become invalid:
 Bionic can detect cases 1 and 2 automatically: if you update the value of any
 entity in your flow, all downstream cached values will automatically be
 invalidated, and they will be recomputed from scratch next time they're
-requested [#f1]_.  However, case 3 is difficult to detect automatically, so we
-provide a special :func:`@version <bionic.version>` decorator to tell Bionic
-when a function's code has changed.  For example, if we've defined a
-``message`` entity:
+requested [#value_hash]_. However, case 3 is difficult to detect automatically, so we
+provide a special :func:`@version <bionic.version>` decorator to tell Bionic when a
+function's code has changed. For example, if we've defined a ``message`` entity:
 
 .. code-block:: python
 
@@ -255,8 +254,8 @@ If the function has a different ``version`` from the cached value, the cached
 value will be disregarded and a new value will be recomputed.  Each subsequent
 time we change this function, we just increment the version number.
 
-.. [#f1] Bionic detects changes by hashing all of the fixed entity values, and
-  storing each computed value alongside a hash of all its inputs.
+.. [#value_hash] Bionic detects changes by hashing all of the fixed entity
+  values, and storing each computed value alongside a hash of all its inputs.
 
 .. _automatic-versioning:
 
@@ -279,10 +278,10 @@ mode from ``'manual'`` to ``'assist'``:
     builder.set('core__versioning_mode', 'assist')
 
 In this mode, if Bionic finds a cached file created by a function with the
-*same version* but *different code* [#f2]_, it will raise a
-``CodeVersioningError``.  You can resolve this error by updating the
-:func:`@version <bionic.version>`, which tells Bionic to ignore the cached file
-and compute a new value.
+*same version* but *different code* [#code_hash]_, it will raise a
+``CodeVersioningError``. You can resolve this error by updating the :func:`@version
+<bionic.version>`, which tells Bionic to ignore the cached file and compute a new
+value.
 
 .. code-block:: python
 
@@ -338,7 +337,7 @@ changes that it can't detect.)  This mode is more dangerous, but can be useful
 when your functions are small, change fast, and have few external dependencies
 -- for example, when your flow is defined in a notebook.
 
-.. [#f2] Bionic detects code changes by extracting and hashing the Python
+.. [#code_hash] Bionic detects code changes by extracting and hashing the Python
   bytecode of each function decorated by a FlowBuilder.
 
 
@@ -426,9 +425,9 @@ You can tell Bionic that a function is non-deterministic by applying the
 This causes Bionic to recompute the entity's value instead of loading a
 cached value from disk. (However, this recomputation will only happen once
 for any given ``Flow`` instance; after that, the value will be cached in
-memory and reused [#f3]_.)
+memory and reused [#per_run]_.)
 
-.. [#f3] I.e., the value is computed once per "run".  This is a compromise:
+.. [#per_run] I.e., the value is computed once per "run".  This is a compromise:
   although it makes logical sense to recompute the value every single time,
   it's much simpler for each entity to have a consistent value within a single
   flow instance.
@@ -812,15 +811,15 @@ Parallel execution can be enabled like this:
 
     builder.set("core__parallel_execution__enabled", True)
 
-When parallel execution is enabled, Bionic starts up several worker processes [#f5]_,
-each of which can work on one value at a time. Of course, a worker can only start
-computing a value once all its dependencies are complete, so the number of processes
-that can be working at once depends on the :ref:`dependency graph <dagviz>`: if there
-aren't many branches in the graph, then most of the processes won't do much work. It
-does take extra time to set up the processes and move information between them, so
-parallel execution is not guaranteed to be faster overall. However, in general, if
-you have many expensive operations which don't depend on each other, enabling
-parallelism will improve performance.
+When parallel execution is enabled, Bionic starts up several worker processes
+[#workers]_, each of which can work on one value at a time. Of course, a worker can
+only start computing a value once all its dependencies are complete, so the number of
+processes that can be working at once depends on the :ref:`dependency graph
+<dagviz>`: if there aren't many branches in the graph, then most of the processes
+won't do much work. It does take extra time to set up the processes and move
+information between them, so parallel execution is not guaranteed to be faster
+overall. However, in general, if you have many expensive operations which don't
+depend on each other, enabling parallelism will improve performance.
 
 By default, Bionic will create one worker process for each CPU on your machine. This
 is usually a sensible number, but it can also be set directly:
@@ -839,7 +838,7 @@ using the :ref:`protocol<protocols>` specified for the entity. Finally, entities
 marked with :func:`@persist(False) <bionic.persist>` are assumed to be unserializable
 and will always be computed in the main process rather than being parallelized.
 
-.. [#f5] The pool of workers is managed by
+.. [#workers] The pool of workers is managed by
   `Loky <https://loky.readthedocs.io/en/stable/>`_,
   which is built on Python's
   `multiprocessing <https://docs.python.org/3.8/library/multiprocessing.html>`_ module.
