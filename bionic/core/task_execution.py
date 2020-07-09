@@ -20,12 +20,107 @@ class TaskRunnerEntry:
     `TaskState` execution and tracking.
     """
 
-    def __init__(self, state, is_requested):
-        self.state = state
+    def __init__(self, state, is_requested, dep_entries):
         self.stage = EntryStage.NEW
+        self.dep_entries = dep_entries
+
+        self.state = state
         self.future = None
         self.is_requested = is_requested
         self.results_by_dnode = None
+
+    def compute(self, task_key_logger, return_results=False):
+        """
+        Computes the values of the entry by running its task. Requires that all
+        the its dependencies are already complete.
+
+        Returns a dict of computed results by dnode when return_results is True.
+        """
+
+        assert self.state.is_completable
+        assert not self.state.is_cached
+
+        task = self.state.task
+
+        dep_results = []
+        for dep_entry, dep_key in zip(self.dep_entries, task.dep_keys):
+            assert dep_entry.state.is_cached or dep_entry.state.is_completable
+            if dep_entry.state.is_cached:
+                dep_results_by_dnode = dep_entry.state.get_cached_results(
+                    task_key_logger
+                )
+            else:
+                # If dep_state is not complete yet, that's probably because the results
+                # aren't communicated between processes. Compute the results.
+                dep_results_by_dnode = dep_entry.compute(
+                    task_key_logger, return_results=True
+                )
+            dep_results.append(dep_results_by_dnode[dep_key.dnode])
+
+        if not task.is_simple_lookup:
+            for task_key in self.state.task_keys:
+                task_key_logger.log_computing(task_key)
+
+        dep_values = [dep_result.value for dep_result in dep_results]
+
+        # If we have any missing outputs, exit early with a missing result.
+        if self.state.output_would_be_missing():
+            results_by_dnode = {}
+            result_value_hashes_by_dnode = {}
+            for query in self.state._queries:
+                result = Result(query=query, value=None, value_is_missing=True)
+                results_by_dnode[query.dnode] = result
+                result_value_hashes_by_dnode[query.dnode] = ""
+            self.state._results_by_dnode = results_by_dnode
+            self.state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
+            return self.state._results_by_dnode
+
+        else:
+            # If we have no missing outputs, we should not be consuming any missing
+            # inputs either.
+            assert not any(
+                dep_key.case_key.has_missing_values for dep_key in task.dep_keys
+            )
+
+        values = task.compute(dep_values)
+        assert len(values) == len(self.state.task_keys)
+
+        for query in self.state._queries:
+            if task.is_simple_lookup:
+                task_key_logger.log_accessed_from_definition(query.task_key)
+            else:
+                task_key_logger.log_computed(query.task_key)
+
+        results_by_dnode = {}
+        result_value_hashes_by_dnode = {}
+        for ix, (query, value) in enumerate(zip(self.state._queries, values)):
+            query.protocol.validate(value)
+
+            result = Result(query=query, value=value)
+
+            if self.state.should_persist:
+                accessor = self.state._cache_accessors[ix]
+                accessor.save_result(result)
+
+                value_hash = accessor.load_result_value_hash()
+                result_value_hashes_by_dnode[query.dnode] = value_hash
+
+            results_by_dnode[query.dnode] = result
+
+        # We cache the hashed values eagerly since they are cheap to load.
+        if self.state.should_persist:
+            self.state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
+        # Memoize results at this point only if results should not persist.
+        # Otherwise, load it lazily later so that if the serialized/deserialized
+        # value is not exactly the same as the original, we still
+        # always return the same value.
+        elif self.state.should_memoize:
+            self.state._results_by_dnode = results_by_dnode
+
+        if return_results:
+            if self.state.is_cached:
+                return self.state.get_cached_results(task_key_logger)
+            return results_by_dnode
 
 
 class EntryStage(Enum):
@@ -249,97 +344,6 @@ class TaskState:
             self._load_value_hashes()
         else:
             self._result_value_hashes_by_dnode = None
-
-    def compute(self, task_key_logger, return_results=False):
-        """
-        Computes the values of a task state by running its task. Requires that all
-        the task's dependencies are already complete.
-
-        Returns a dict of computed results by dnode when return_results is True.
-        """
-
-        assert self.is_completable
-        assert not self.is_cached
-
-        task = self.task
-
-        dep_results = []
-        for dep_state, dep_key in zip(self.dep_states, task.dep_keys):
-            assert dep_state.is_cached or dep_state.is_completable
-            if dep_state.is_cached:
-                dep_results_by_dnode = dep_state.get_cached_results(task_key_logger)
-            else:
-                # If dep_state is not complete yet, that's probably because the results
-                # aren't communicated between processes. Compute the results.
-                dep_results_by_dnode = dep_state.compute(
-                    task_key_logger, return_results=True
-                )
-            dep_results.append(dep_results_by_dnode[dep_key.dnode])
-
-        if not task.is_simple_lookup:
-            for task_key in self.task_keys:
-                task_key_logger.log_computing(task_key)
-
-        dep_values = [dep_result.value for dep_result in dep_results]
-
-        # If we have any missing outputs, exit early with a missing result.
-        if self.output_would_be_missing():
-            results_by_dnode = {}
-            result_value_hashes_by_dnode = {}
-            for query in self._queries:
-                result = Result(query=query, value=None, value_is_missing=True)
-                results_by_dnode[query.dnode] = result
-                result_value_hashes_by_dnode[query.dnode] = ""
-            self._results_by_dnode = results_by_dnode
-            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-            return self._results_by_dnode
-
-        else:
-            # If we have no missing outputs, we should not be consuming any missing
-            # inputs either.
-            assert not any(
-                dep_key.case_key.has_missing_values for dep_key in task.dep_keys
-            )
-
-        values = task.compute(dep_values)
-        assert len(values) == len(self.task_keys)
-
-        for query in self._queries:
-            if task.is_simple_lookup:
-                task_key_logger.log_accessed_from_definition(query.task_key)
-            else:
-                task_key_logger.log_computed(query.task_key)
-
-        results_by_dnode = {}
-        result_value_hashes_by_dnode = {}
-        for ix, (query, value) in enumerate(zip(self._queries, values)):
-            query.protocol.validate(value)
-
-            result = Result(query=query, value=value)
-
-            if self.should_persist:
-                accessor = self._cache_accessors[ix]
-                accessor.save_result(result)
-
-                value_hash = accessor.load_result_value_hash()
-                result_value_hashes_by_dnode[query.dnode] = value_hash
-
-            results_by_dnode[query.dnode] = result
-
-        # We cache the hashed values eagerly since they are cheap to load.
-        if self.should_persist:
-            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-        # Memoize results at this point only if results should not persist.
-        # Otherwise, load it lazily later so that if the serialized/deserialized
-        # value is not exactly the same as the original, we still
-        # always return the same value.
-        elif self.should_memoize:
-            self._results_by_dnode = results_by_dnode
-
-        if return_results:
-            if self.is_cached:
-                return self.get_cached_results(task_key_logger)
-            return results_by_dnode
 
     def sync_after_subprocess_completion(self):
         """

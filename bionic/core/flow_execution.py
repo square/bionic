@@ -60,14 +60,6 @@ class TaskCompletionRunner:
             while self._has_pending_entries():
                 entry = self._activate_next_pending_entry()
 
-                # Before we decide if the current entry is blocked, we need to create
-                # an entry for each of its dependencies. This has the side effect of
-                # refreshing each of their cache states, so if any of them have had
-                # their cache entries deleted, their status will be correctly updated
-                # to "not complete".
-                for dep_state in entry.state.dep_states:
-                    self._get_or_create_entry_for_state(dep_state)
-
                 if len(entry.state.blocking_dep_states()) > 0:
                     self._mark_entry_blocked(entry)
                     continue
@@ -109,7 +101,7 @@ class TaskCompletionRunner:
         elif (
             entry.is_requested and not state.should_persist and not state.should_memoize
         ):
-            results = state.compute(self.task_key_logger, return_results=True)
+            results = entry.compute(self.task_key_logger, return_results=True)
             entry.results_by_dnode = results
             self._mark_entry_completed(entry)
 
@@ -124,7 +116,7 @@ class TaskCompletionRunner:
             # cloudpicklable.
             or state.task.is_simple_lookup
         ):
-            state.compute(self.task_key_logger)
+            entry.compute(self.task_key_logger)
             self._mark_entry_completed(entry)
 
         # Compute the results for serializable entity in parallel.
@@ -139,6 +131,7 @@ class TaskCompletionRunner:
             )
             future = self._bootstrap.executor.submit(
                 run_in_subprocess, new_task_completion_runner, new_state_for_subprocess,
+                compute_entry, new_entry_for_subprocess, self.task_key_logger,
             )
             self._mark_entry_in_progress(entry, future)
 
@@ -153,9 +146,16 @@ class TaskCompletionRunner:
             # Before doing anything with this task state, we should make sure its
             # cache state is up to date.
             state.refresh_all_persistent_cache_state(self._bootstrap)
+            dep_entries = [
+                self._get_or_create_entry_for_state(dep_state)
+                for dep_state in state.dep_states
+            ]
             self._entries_by_task_key[task_key] = TaskRunnerEntry(
-                state=state, is_requested=is_requested
+                state=state, is_requested=is_requested, dep_entries=dep_entries,
             )
+        # FIXME
+        if is_requested:
+            self._entries_by_task_key[task_key].is_requested = True
         return self._entries_by_task_key[task_key]
 
     def _has_pending_entries(self):
