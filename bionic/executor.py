@@ -5,6 +5,7 @@ contains Logging classes used by the Executor to make logging
 work in a parallel setting.
 """
 
+import copy
 import logging
 import queue
 import sys
@@ -145,7 +146,30 @@ class WorkerProcessLogHandler(logging.Handler):
         self._queue = queue
 
     def emit(self, record):
+        # TODO We send all log records to the main process for logging,
+        # even when logging is disabled for their log levels. This is
+        # expensive as we pay IPC cost for the log records and pay the
+        # cost of formatting the log record, which can be costly for
+        # cases where users have a ton of disabled debug logs.
+        # We should investigate if we can either cache the log levels
+        # for each logger or communicate with main process to get the
+        # log level before we decide to send the logs.
         try:
+            # By adding the LogRecord to the queue, we send it to the
+            # process spawned by the multiprocessing manager. The
+            # communication between processes requires every argument
+            # to be pickleable using cloudpickle. Users can log
+            # unpickleable objects like clients or handlers and expect
+            # the logger to work. To avoid breaking logging, we eagerly
+            # format the log message the way logging does
+            # (check LogRecord.getMessage). This has a side effect of
+            # changing the template and arguments for the log in case
+            # users intercepts the LogRecord in their custom handlers.
+            record = copy.copy(record)
+            record.msg = str(record.msg)
+            if record.args:
+                record.msg = record.msg % record.args
+                record.args = ()
             self._queue.put_nowait(record)
         except Exception:
             self.handleError(record)

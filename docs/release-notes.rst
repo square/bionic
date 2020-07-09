@@ -78,6 +78,8 @@ Bug Fixes
 - Fixed a bug in :meth:`FlowBuilder.add_case <bionic.FlowBuilder.add_case>`: if the
   ordering of the entity names changed from case to case, some values would sometimes
   get assigned to the wrong entity.
+- Parallel execution (introduced in 0.8.0) had a bug in logging where log messages were
+  dropped (with a warning) when any argument to the log message was unpickleable.
 
 0.8.1 (Jul 6, 2020)
 --------------------

@@ -1,6 +1,7 @@
 import pytest
 
 import logging
+import threading
 
 
 class LogChecker:
@@ -88,4 +89,32 @@ def test_logging_details(builder, log_checker, parallel_execution_enabled):
         "Accessed   x_plus_one(x_plus_one=3) from definition",
         "Computing  x_plus_two(x_plus_one=3) ...",
         "Computed   x_plus_two(x_plus_one=3)",
+    )
+
+
+class CannotPickleMe:
+    def __init__(self):
+        # Storing a lock makes it unpickleable
+        self.lock = threading.Lock()
+
+    def __str__(self):
+        return "Cannot pickle me"
+
+
+def test_log_unpickleable_value(builder, log_checker):
+    @builder
+    def log_unpickleable_value():
+        # Test that we handle unpickleable value in `LogRecord.msg`.
+        logging.info(CannotPickleMe())
+        # Test that we handle unpickleable value in `LogRecord.args`.
+        logging.info("Logging unpickleable class: %s", CannotPickleMe())
+        return 5
+
+    assert builder.build().get("log_unpickleable_value") == 5
+
+    log_checker.expect(
+        "Computing  log_unpickleable_value() ...",
+        "Cannot pickle me",
+        "Logging unpickleable class: Cannot pickle me",
+        "Computed   log_unpickleable_value()",
     )
