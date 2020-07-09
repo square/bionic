@@ -17,6 +17,9 @@ Contributor License Agreement
 <https://gist.github.com/square-cla/0dac5a22575ecf5e4f40825e7de51d5d>`_ as part
 of the pull request process.
 
+For Bionic core developers, our internal processes are documented :doc:`here
+<maintaining>`.
+
 Setting Up Your Development Environment
 ---------------------------------------
 
