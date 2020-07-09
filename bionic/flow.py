@@ -187,7 +187,7 @@ class FlowState(pyrs.PClass):
                     {provider.entity_names!r},
                     and all subsequent assignments must be to that same group
                     """
-                    raise IncompatibleEntityError(oneline(message))
+                raise IncompatibleEntityError(oneline(message))
 
             return self
 
