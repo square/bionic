@@ -80,7 +80,7 @@ Bug Fixes
   get assigned to the wrong entity.
 - Parallel execution (introduced in 0.8.0) had a bug in logging where log messages were
   dropped (with a warning) when any argument to the log message was unpickleable.
-- The cache API introduced in 0.8.0 had a bug where if two cache entries point to the
+- The cache API (introduced in 0.8.0) had a bug where if two cache entries point to the
   same artifact, deleting one of them could leave the other in a bad state.
 
 Improvements
