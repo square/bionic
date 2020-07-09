@@ -76,6 +76,8 @@ class CacheTester:
         # can check that it contains the entity name. (Unfortunately it won't
         # necessarily contain the absolute artifact URL; it may be a relative URL
         # instead.)
+        # TODO Hmm, is the above true? On closer inspection, it looks like artifact URLs
+        # are derelativized right away when we load the metadata YAML.
         metadata_str = read_bytes_from_url(entry.metadata_url).decode("utf-8")
         assert entry.entity in metadata_str
 
@@ -191,6 +193,60 @@ def test_flow_handles_delete_gracefully(builder):
     # The goal here is to make sure that Bionic correctly updates its cache state,
     # detects that `b` is deleted, and recomputes it.
     flow.get("c")
+
+
+def test_delete_artifact_with_multiple_metadata_files(builder):
+    builder.assign("a", 1)
+
+    @builder
+    @bn.memoize(False)
+    def b(a):
+        return 2
+
+    # Define `c` several times, each with non-functional version differences. This means
+    # each defintion will have a new metadata entry but the same artifact, so we'll have
+    # many entries pointing to the same artifact.
+    c_entries = []
+    for i in range(4):
+
+        @builder
+        @bn.memoize(False)
+        @bn.version(minor=i)
+        def c(b):
+            return b + 1
+
+        flow = builder.build()
+        flow.get("c")
+
+        (c_entry,) = [
+            entry
+            for entry in flow.cache.get_entries()
+            if entry.entity == "c" and entry not in c_entries
+        ]
+        c_entries.append(c_entry)
+
+    # All the entries should have different metadata files.
+    assert len(set(entry.metadata_url for entry in c_entries)) == len(c_entries)
+    # But they should all share the same artifact file.
+    assert len(set(entry.artifact_url for entry in c_entries)) == 1
+
+    # This deletes the artifact and returns True.
+    assert c_entries[0].delete()
+    # The artifact is already deleted, so this returns False.
+    assert not c_entries[1].delete()
+
+    # This should attempt to load the last entry, detect that the artifact is missing,
+    # and recompute `c`.
+    flow.get("c")
+
+    # Finally, when we look at the cache again, the last of the original entries should
+    # be dropped, leaving only the most recent entry. (We computed a new artifact file,
+    # but it will have a different (random) URL, so the old entry will still be
+    # invalid.)
+    (final_c_entry,) = [
+        entry for entry in flow.cache.get_entries() if entry.entity == "c"
+    ]
+    assert final_c_entry.artifact_path.exists()
 
 
 # It would be nice if we could parameterize the above tests to run with or without GCS.
