@@ -202,11 +202,12 @@ def test_add_case_out_of_order(builder):
     builder.add_case("p", 1, "q", 10, "r", 100)
     builder.add_case("p", 2, "r", 200, "q", 20)
     builder.add_case("r", 300, "q", 30, "p", 3)
+    builder.add_case("r", 400, "p", 4, "q", 40)
 
     flow = builder.build()
-    flow.get("p", set) == {1, 2, 3}
-    flow.get("q", set) == {10, 20, 30}
-    flow.get("r", set) == {100, 200, 300}
+    assert flow.get("p", set) == {1, 2, 3, 4}
+    assert flow.get("q", set) == {10, 20, 30, 40}
+    assert flow.get("r", set) == {100, 200, 300, 400}
 
 
 def test_then_set(preset_builder):

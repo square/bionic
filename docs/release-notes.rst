@@ -63,7 +63,7 @@ For each release, we list the following types of change (in this order):
 - **Development Changes**: Significant changes to Bionic's development process, such
   as changes to our Pytest configuration or our Continuous Integration ("CI").
 
-.. Upcoming Version (Not Yet Released)
+Upcoming Version (Not Yet Released)
 -----------------------------------
 
 .. Record any notable changes in this section. When we update the current version,
@@ -71,6 +71,13 @@ For each release, we list the following types of change (in this order):
    changes are added. This way, the "Upcoming Version" section will be never be visible
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
+
+Bug Fixes
+.........
+
+- Fixed a bug in :meth:`FlowBuilder.add_case <bionic.FlowBuilder.add_case>`: if the
+  ordering of the entity names changed from case to case, some values would sometimes
+  get assigned to the wrong entity.
 
 0.8.1 (Jul 6, 2020)
 --------------------
