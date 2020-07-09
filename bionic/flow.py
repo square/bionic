@@ -187,7 +187,7 @@ class FlowState(pyrs.PClass):
                     {provider.entity_names!r},
                     and all subsequent assignments must be to that same group
                     """
-                    raise IncompatibleEntityError(oneline(message))
+                raise IncompatibleEntityError(oneline(message))
 
             return self
 
@@ -238,11 +238,12 @@ class FlowState(pyrs.PClass):
 
         # We should already have called group_names_together(), so we know the names
         # argument should match the names of the provider. However, the names may not
-        # be in the expected order. If not, we'll reorder the values to correspond to
-        # the expected order.
-        provider_names = provider.entity_names
-        if names != provider_names:
-            values = [values[provider_names.index(name)] for name in names]
+        # be in the expected order. If not, we'll reorder the names and values to
+        # correspond to the expected order.
+        names_in_orig_order = provider.entity_names
+        if names != names_in_orig_order:
+            values = [values[names.index(name)] for name in names_in_orig_order]
+            names = names_in_orig_order
 
         tokens = []
         for name, value in zip(names, values):
