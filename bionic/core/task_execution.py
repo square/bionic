@@ -1,14 +1,92 @@
+"""
+This module contains the core logic that executes individual tasks.
+"""
+
 import copy
-
-from .datatypes import ProvenanceDigest, Query, Result
-from .exception import CodeVersioningError
-from .persistence import Provenance
-from .util import oneline, single_unique_element
-
 import logging
 import warnings
 
-logger = logging.getLogger(__name__)
+from enum import Enum, auto
+
+from ..datatypes import ProvenanceDigest, Query, Result
+from ..exception import CodeVersioningError
+from ..persistence import Provenance
+from ..util import oneline, single_unique_element
+
+
+class TaskRunnerEntry:
+    """
+    Basic unit of `TaskCompletionRunner` that contains the data for
+    `TaskState` execution and tracking.
+    """
+
+    def __init__(self, state, is_requested):
+        self.state = state
+        self.stage = EntryStage.NEW
+        self.future = None
+        self.is_requested = is_requested
+        self.results_by_dnode = None
+
+
+class EntryStage(Enum):
+    """
+    Represents the stage of a `TaskRunnerEntry`.
+    """
+
+    """
+    Entry was just created.
+    This is the always the first stage for an entry.
+    Valid next stages: [PENDING]
+    """
+    NEW = auto()
+
+    """
+    Entry is waiting to be processed.
+    Valid next stages: [ACTIVE]
+    """
+    PENDING = auto()
+
+    """
+    We are actively attempting to start running this entry.
+    There should only be one such entry at a time. Any active entry
+    running concurrently should be moved to IN_PROGRESS.
+    Valid next stages: [BLOCKED, IN_PROGRESS, COMPLETED]
+    """
+    ACTIVE = auto()
+
+    """
+    Entry is blocked by another entry(ies).
+    Valid next stages: [PENDING]
+    """
+    BLOCKED = auto()
+
+    """
+    Entry is currently running in another process.
+    Valid next stages: [COMPLETED]
+    """
+    IN_PROGRESS = auto()
+
+    """
+    Entry has been successfully processed. This is a terminal stage.
+    """
+    COMPLETED = auto()
+
+
+class EntryBlockage:
+    """
+    Represents a blocking relationship between a task state and a collection of
+    not-yet-completed task keys it depends on.
+    """
+
+    def __init__(self, blocked_entry, blocking_tks):
+        self.blocked_entry = blocked_entry
+        self._blocking_tks = set(blocking_tks)
+
+    def mark_task_key_complete(self, blocking_tk):
+        self._blocking_tks.discard(blocking_tk)
+
+    def is_resolved(self):
+        return not self._blocking_tks
 
 
 # TODO Let's reorder the methods here with this order:
