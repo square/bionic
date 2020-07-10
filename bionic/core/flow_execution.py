@@ -19,9 +19,9 @@ from ..util import SynchronizedSet
 logger = logging.getLogger(__name__)
 
 
-def compute_task_state(task_state, task_key_logger):
-    task_state.compute(task_key_logger)
-    return task_state.task.keys[0]
+def run_in_subprocess(task_completion_runner, state):
+    task_completion_runner.run([state])
+    return state.task.keys[0]
 
 
 class TaskCompletionRunner:
@@ -32,11 +32,11 @@ class TaskCompletionRunner:
     using a stack-based state tracking approach.
     """
 
-    def __init__(self, bootstrap, flow_instance_uuid):
+    def __init__(self, bootstrap, flow_instance_uuid, task_key_logger):
         # These are needed to complete entries.
         self._bootstrap = bootstrap
         self._flow_instance_uuid = flow_instance_uuid
-        self.task_key_logger = TaskKeyLogger(bootstrap)
+        self.task_key_logger = task_key_logger
 
         # These are used for caching and tracking.
         self._entries_by_task_key = {}
@@ -44,9 +44,13 @@ class TaskCompletionRunner:
         self._in_progress_entries = {}
         self._blockage_lists_by_blocking_tk = defaultdict(list)
 
+    @property
+    def _parallel_execution_enabled(self):
+        return self._bootstrap is not None and self._bootstrap.executor is not None
+
     def run(self, states):
         try:
-            if self._bootstrap is not None and self._bootstrap.executor is not None:
+            if self._parallel_execution_enabled:
                 self._bootstrap.executor.start_logging()
 
             for state in states:
@@ -81,7 +85,7 @@ class TaskCompletionRunner:
             }
 
         finally:
-            if self._bootstrap is not None and self._bootstrap.executor is not None:
+            if self._parallel_execution_enabled:
                 self._bootstrap.executor.stop_logging()
 
     def _process_entry(self, entry):
@@ -111,10 +115,8 @@ class TaskCompletionRunner:
 
         # Compute the results serially.
         elif (
-            # This is a bootstrap entity.
-            self._bootstrap is None
-            # Complete the task state serially.
-            or self._bootstrap.executor is None
+            # Parallel execution disabled.
+            not self._parallel_execution_enabled
             # This is a non-serializable entity that needs to be returned.
             or (entry.is_requested and not state.should_persist)
             # This is a simple lookup task that looks up a value in a dictionary.
@@ -128,8 +130,15 @@ class TaskCompletionRunner:
         # Compute the results for serializable entity in parallel.
         elif state.should_persist:
             new_state_for_subprocess = state.strip_state_for_subprocess()
+            # We want serial execution in the subprocesses.
+            new_bootstrap = self._bootstrap.evolve(executor=None)
+            new_task_completion_runner = TaskCompletionRunner(
+                bootstrap=new_bootstrap,
+                flow_instance_uuid=self._flow_instance_uuid,
+                task_key_logger=self.task_key_logger,
+            )
             future = self._bootstrap.executor.submit(
-                compute_task_state, new_state_for_subprocess, self.task_key_logger,
+                run_in_subprocess, new_task_completion_runner, new_state_for_subprocess,
             )
             self._mark_entry_in_progress(entry, future)
 
@@ -139,7 +148,7 @@ class TaskCompletionRunner:
             self._mark_entry_completed(entry)
 
     def _get_or_create_entry_for_state(self, state, is_requested=False):
-        task_key = state.task.keys[0]
+        task_key = state.task_keys[0]
         if task_key not in self._entries_by_task_key:
             # Before doing anything with this task state, we should make sure its
             # cache state is up to date.
