@@ -9,7 +9,7 @@ from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .deps.optdep import import_optional_dependency
 from .exception import UndefinedEntityError
-from .core.flow_execution import TaskCompletionRunner
+from .core.flow_execution import TaskCompletionRunner, TaskKeyLogger
 from .core.task_execution import TaskState
 from .protocols import TupleProtocol
 from .provider import TupleConstructionProvider, TupleDeconstructionProvider
@@ -437,7 +437,12 @@ class EntityDeriver:
             self._get_or_create_task_state_for_key(task.keys[0]) for task in dinfo.tasks
         ]
 
-        task_runner = TaskCompletionRunner(self._bootstrap, self._flow_instance_uuid)
+        task_key_logger = TaskKeyLogger(self._bootstrap)
+        task_runner = TaskCompletionRunner(
+            bootstrap=self._bootstrap,
+            flow_instance_uuid=self._flow_instance_uuid,
+            task_key_logger=task_key_logger,
+        )
         results_by_dnode_by_task_key = task_runner.run(requested_task_states)
 
         for state in requested_task_states:
@@ -462,6 +467,9 @@ class Bootstrap:
     versioning_policy = attr.ib()
     executor = attr.ib()
     should_memoize_default = attr.ib()
+
+    def evolve(self, **kwargs):
+        return attr.evolve(self, **kwargs)
 
 
 @attr.s(frozen=True)

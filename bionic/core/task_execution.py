@@ -601,7 +601,6 @@ class TaskState:
         if task_state.is_cached:
             task_state.dep_states = []
             task_state.task = None
-            task_state._queries = None
         else:
             task_state.dep_states = [
                 dep_state.strip_state_for_subprocess(new_task_states_by_key)
