@@ -107,7 +107,7 @@ class FlowState(pyrs.PClass):
             raise AlreadyDefinedEntityError(entity_def.name)
 
         if entity_is_internal(entity_def.name):
-            if entity_def.can_persist:
+            if entity_def.optional_should_persist is True:
                 message = f"""
                 Attempted to set @persist to True for Bionic internal
                 entity {entity_def.name!r}.
@@ -382,7 +382,7 @@ class FlowBuilder:
         self._state = state.touch()
         return flow
 
-    def declare(self, name, protocol=None, doc=None, docstring=None, persist=True):
+    def declare(self, name, protocol=None, doc=None, docstring=None, persist=None):
         """
         Creates a new entity but does not assign it a value.
 
@@ -398,7 +398,7 @@ class FlowBuilder:
             protocol.
         doc: String, optional
             Description of the new entity.
-        persist: Boolean, optional (default: True)
+        persist: Boolean, optional
             Whether this entity's values should be cached persistently.
             The only reason to set this to False is if an internal Bionic
             entity depends on it; in this case, persistence is impossible
@@ -424,7 +424,7 @@ class FlowBuilder:
                 name=name,
                 protocol=protocol,
                 doc=doc,
-                can_persist=persist,
+                optional_should_persist=persist,
                 optional_should_memoize=True,
             )
         ).create_provider(name)
@@ -437,7 +437,7 @@ class FlowBuilder:
         protocol=None,
         doc=None,
         docstring=None,
-        persist=True,
+        persist=None,
     ):
         """
         Creates a new entity and assigns it a value.
@@ -459,7 +459,7 @@ class FlowBuilder:
             protocol.
         doc: String, optional
             Description of the new entity.
-        persist: Boolean, optional (default: True)
+        persist: Boolean, optional
             Whether this entity's values should be cached persistently.
             The only reason to set this to False is if an internal Bionic
             entity depends on it; in this case, persistence is impossible
@@ -495,7 +495,7 @@ class FlowBuilder:
                 name=name,
                 protocol=protocol,
                 doc=doc,
-                can_persist=persist,
+                optional_should_persist=persist,
                 optional_should_memoize=True,
             )
         )
@@ -966,10 +966,6 @@ class FlowBuilder:
             {len(docs)} docs {tuple(docs)!r}"""
             raise ValueError(oneline(message))
 
-        can_persist = acc.can_persist
-        if can_persist is None:
-            can_persist = True
-
         state = self._state
 
         # Delete the original definitions.
@@ -986,7 +982,7 @@ class FlowBuilder:
                 name=name,
                 protocol=protocol,
                 doc=doc,
-                can_persist=can_persist,
+                optional_should_persist=acc.should_persist,
                 optional_should_memoize=acc.should_memoize,
             )
             state = state.define_entity(entity_def)
@@ -1690,6 +1686,7 @@ def create_default_flow_state():
     builder.declare("core__flow_name", persist=False)
 
     builder.assign("core__memoize_by_default", True, persist=False)
+    builder.assign("core__persist_by_default", True, persist=False)
     builder.assign("core__persistent_cache__global_dir", "bndata", persist=False)
     builder.assign("core__versioning_mode", "manual", persist=False)
 

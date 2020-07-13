@@ -19,8 +19,8 @@ class EntityDefinition:
     name = attr.ib()
     protocol = attr.ib()
     doc = attr.ib()
-    can_persist = attr.ib()
     optional_should_memoize = attr.ib()
+    optional_should_persist = attr.ib()
 
 
 @attr.s(frozen=True)

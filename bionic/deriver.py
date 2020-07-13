@@ -201,6 +201,9 @@ class EntityDeriver:
             should_memoize_default=self._bootstrap_singleton_entity(
                 "core__memoize_by_default"
             ),
+            should_persist_default=self._bootstrap_singleton_entity(
+                "core__persist_by_default"
+            ),
         )
 
     def _prevalidate_base_dnodes(self):
@@ -292,7 +295,7 @@ class EntityDeriver:
                 protocol=TupleProtocol(len(dnode.children)),
                 doc=f"A Python tuple with {len(dnode.children)} values.",
                 optional_should_memoize=True,
-                can_persist=False,
+                optional_should_persist=False,
             )
 
         else:
@@ -467,6 +470,7 @@ class Bootstrap:
     versioning_policy = attr.ib()
     executor = attr.ib()
     should_memoize_default = attr.ib()
+    should_persist_default = attr.ib()
 
     def evolve(self, **kwargs):
         return attr.evolve(self, **kwargs)
