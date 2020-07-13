@@ -87,6 +87,7 @@ Built-In Protocol Decorators
 .. autofunction:: bionic.protocol.frame
 .. autofunction:: bionic.protocol.geodataframe
 .. autofunction:: bionic.protocol.image
+.. autofunction:: bionic.protocol.json
 .. autofunction:: bionic.protocol.numpy
 .. autofunction:: bionic.protocol.path
 .. autofunction:: bionic.protocol.picklable

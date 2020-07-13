@@ -1,6 +1,6 @@
 import pytest
 
-import pickle
+import json
 from pathlib import Path
 from subprocess import check_call
 
@@ -56,40 +56,40 @@ def test_copy_file_to_existing_local_dir(flow, tmp_path):
     dir_path.mkdir()
     flow.get("f", mode="FileCopier").copy(destination=dir_path)
 
-    expected_file_path = dir_path / "f.pkl"
-    assert pickle.loads(expected_file_path.read_bytes()) == 5
+    expected_file_path = dir_path / "f.json"
+    assert json.loads(expected_file_path.read_bytes()) == 5
 
 
 def test_copy_file_to_local_file(flow, tmp_path):
-    file_path = tmp_path / "data.pkl"
+    file_path = tmp_path / "data.json"
     flow.get("f", mode="FileCopier").copy(destination=file_path)
 
-    assert pickle.loads(file_path.read_bytes()) == 5
+    assert json.loads(file_path.read_bytes()) == 5
 
 
 def test_copy_file_to_local_file_using_str(flow, tmp_path):
-    file_path = tmp_path / "data.pkl"
+    file_path = tmp_path / "data.json"
     file_path_str = str(file_path)
     flow.get("f", mode="FileCopier").copy(destination=file_path_str)
-    assert pickle.loads(file_path.read_bytes()) == 5
+    assert json.loads(file_path.read_bytes()) == 5
 
 
 @pytest.mark.needs_gcs
 def test_copy_file_to_gcs_dir(flow, tmp_path, tmp_gcs_url_prefix):
     flow.get("f", mode="FileCopier").copy(destination=tmp_gcs_url_prefix)
-    cloud_url = tmp_gcs_url_prefix + "f.pkl"
-    local_path = tmp_path / "f.pkl"
+    cloud_url = tmp_gcs_url_prefix + "f.json"
+    local_path = tmp_path / "f.json"
     check_call(f"gsutil -m cp {cloud_url} {local_path}", shell=True)
-    assert pickle.loads(local_path.read_bytes()) == 5
+    assert json.loads(local_path.read_bytes()) == 5
 
 
 @pytest.mark.needs_gcs
 def test_copy_file_to_gcs_file(flow, tmp_path, tmp_gcs_url_prefix):
-    cloud_url = tmp_gcs_url_prefix + "f.pkl"
+    cloud_url = tmp_gcs_url_prefix + "f.json"
     flow.get("f", mode="FileCopier").copy(destination=cloud_url)
-    local_path = tmp_path / "f.pkl"
+    local_path = tmp_path / "f.json"
     check_call(f"gsutil -m cp {cloud_url} {local_path}", shell=True)
-    assert pickle.loads(local_path.read_bytes()) == 5
+    assert json.loads(local_path.read_bytes()) == 5
 
 
 def test_copy_dask_to_dir(tmp_path, expected_dask_df, dask_flow):
@@ -126,6 +126,6 @@ def test_get_multi_value_entity(builder):
 
     flow = builder.build()
     results = flow.get("multi_entity", collection=set, mode=Path)
-    results = {pickle.loads(res.read_bytes()) for res in results}
+    results = {json.loads(res.read_bytes()) for res in results}
 
     assert results == my_set

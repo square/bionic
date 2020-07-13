@@ -77,6 +77,10 @@ New Features
 
 - Persistence can be globally disabled with the ``core__persist_by_default`` entity,
   which means you can opt-in which entities are persisted instead of opting out.
+- `JSON <https://www.json.org/json-en.html>`_-serializable values are now serialized and
+  cached using the JSON format (instead of the Pickle format). Bionic will do this
+  automatically when an entity function returns a JSON-able value, but it can also be
+  explicitly controlled with the new :func:`@json <bionic.protocol.json>` protocol.
 
 Bug Fixes
 .........

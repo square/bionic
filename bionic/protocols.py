@@ -10,6 +10,7 @@ This module contains a BaseProtocol class and various subclasses.
 """
 
 from collections import Counter
+import json
 import pickle
 import sys
 import tempfile
@@ -195,6 +196,43 @@ class BaseProtocol:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(...)"
+
+
+class JsonProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's values are built-in types that are
+    JSON-serializable: the supported types are int, float, str, bool, list,
+    and dict. Note that dict keys must be strings, and each element of a list
+    or dict must itself be a supported built-in type.
+
+    These values will be serialized to JSON files.
+    """
+
+    def get_fixed_file_extension(self):
+        return "json"
+
+    def validate(self, value):
+        if value is None:
+            return
+        if isinstance(value, list):
+            for elem in value:
+                self.validate(elem)
+            return
+        if isinstance(value, dict):
+            for key, elem in value.items():
+                assert isinstance(key, str)
+                self.validate(elem)
+            return
+
+        assert isinstance(value, (int, float, str, bool))
+
+    def write(self, value, path):
+        with path.open("w", encoding="utf-8") as file_:
+            json.dump(value, file_, ensure_ascii=False)
+
+    def read(self, path):
+        with path.open("r", encoding="utf-8") as file_:
+            return json.load(file_)
 
 
 class PicklableProtocol(BaseProtocol):
@@ -472,11 +510,11 @@ class YamlProtocol(BaseProtocol):
         return "yaml"
 
     def write(self, value, path):
-        with path.open("w") as file_:
+        with path.open("w", encoding="utf-8") as file_:
             yaml.dump(value, file_, **self._kwargs)
 
     def read(self, path):
-        with path.open("r") as file_:
+        with path.open("r", encoding="utf-8") as file_:
             return yaml.safe_load(file_)
 
 

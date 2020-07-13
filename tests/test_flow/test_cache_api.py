@@ -1,6 +1,6 @@
 import pytest
 
-import pickle
+import json
 
 import bionic as bn
 from bionic import interpret
@@ -63,7 +63,7 @@ class CacheTester:
 
     def _validate_entry(self, entry):
         artifact_bytes = read_bytes_from_url(entry.artifact_url)
-        value = pickle.loads(artifact_bytes)
+        value = json.loads(artifact_bytes)
         assert value == self.flow.get(entry.entity)
 
         if entry.tier == "local":
