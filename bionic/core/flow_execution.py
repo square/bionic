@@ -66,9 +66,26 @@ class TaskCompletionRunner:
                 # their cache entries deleted, their status will be correctly updated
                 # to "not complete".
                 for dep_state in entry.state.dep_states:
-                    self._get_or_create_entry_for_state(dep_state)
+                    dep_entry = self._get_or_create_entry_for_state(dep_state)
+                    # If the entry is needed in memory, any non-serializable entry that
+                    # can be memoized is also needed in memory.
+                    if entry.is_needed_in_memory:
+                        if (
+                            dep_entry.state.should_memoize
+                            and not dep_entry.state.should_persist
+                        ):
+                            dep_entry.is_needed_in_memory = True
+                            if dep_entry.stage == EntryStage.DEFERRED:
+                                self._mark_entry_pending(dep_entry)
 
-                if len(entry.state.blocking_dep_states()) > 0:
+                if (
+                    len(
+                        entry.state.blocking_dep_states(
+                            self._parallel_execution_enabled
+                        )
+                    )
+                    > 0
+                ):
                     self._mark_entry_blocked(entry)
                     continue
 
@@ -104,27 +121,17 @@ class TaskCompletionRunner:
         if state.is_cached:
             self._mark_entry_completed(entry)
 
-        # If results aren't cached and the results needs to be returned,
-        # we compute the results and store them in the runner.
         elif (
-            entry.is_requested and not state.should_persist and not state.should_memoize
-        ):
-            results = state.compute(self.task_key_logger, return_results=True)
-            entry.results_by_dnode = results
-            self._mark_entry_completed(entry)
-
-        # Compute the results serially.
-        elif (
-            # Parallel execution disabled.
             not self._parallel_execution_enabled
-            # This is a non-serializable entity that needs to be returned.
-            or (entry.is_requested and not state.should_persist)
+            or entry.is_needed_in_memory
             # This is a simple lookup task that looks up a value in a dictionary.
             # We can't run this in a separate process because the value may not be
             # cloudpicklable.
             or state.task.is_simple_lookup
         ):
-            state.compute(self.task_key_logger)
+            results = state.compute(self.task_key_logger, not entry.state.should_cache)
+            if not entry.state.should_cache:
+                entry.results_by_dnode = results
             self._mark_entry_completed(entry)
 
         # Compute the results for serializable entity in parallel.
@@ -143,13 +150,14 @@ class TaskCompletionRunner:
             self._mark_entry_in_progress(entry, future)
 
         # Do not compute non-serializable entity in parallel. Any entity that
-        # depends on this entity will compute it.
+        # depends on this entity will compute it in the subprocess.
         else:
-            self._mark_entry_completed(entry)
+            self._mark_entry_deferred(entry)
 
     def _get_or_create_entry_for_state(self, state, is_requested=False):
         task_key = state.task_keys[0]
         if task_key not in self._entries_by_task_key:
+            state.set_up_caching_flags(self._bootstrap)
             # Before doing anything with this task state, we should make sure its
             # cache state is up to date.
             state.refresh_all_persistent_cache_state(self._bootstrap)
@@ -194,7 +202,9 @@ class TaskCompletionRunner:
         assert blocked_entry.stage == EntryStage.ACTIVE
 
         blocked_entry.stage = EntryStage.BLOCKED
-        blocking_tks = blocked_entry.state.blocking_dep_task_keys()
+        blocking_tks = blocked_entry.state.blocking_dep_task_keys(
+            self._parallel_execution_enabled
+        )
         blockage = EntryBlockage(blocked_entry, blocking_tks)
         for blocking_tk in blocking_tks:
             self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
@@ -229,8 +239,17 @@ class TaskCompletionRunner:
         completed_entry.stage = EntryStage.COMPLETED
         self._unblock_entries(completed_entry)
 
+    def _mark_entry_deferred(self, deferred_entry):
+        assert deferred_entry.stage == EntryStage.ACTIVE
+        assert not deferred_entry.is_needed_in_memory
+
+        deferred_entry.stage = EntryStage.DEFERRED
+        self._unblock_entries(deferred_entry)
+
     def _mark_blocking_entries_pending(self, blocked_entry):
-        blocking_dep_states = blocked_entry.state.blocking_dep_states()
+        blocking_dep_states = blocked_entry.state.blocking_dep_states(
+            self._parallel_execution_enabled
+        )
         for blocking_dep_state in blocking_dep_states:
             blocking_entry = self._get_or_create_entry_for_state(blocking_dep_state)
             if blocking_entry.stage == EntryStage.NEW:
