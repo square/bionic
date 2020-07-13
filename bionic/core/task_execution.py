@@ -20,12 +20,15 @@ class TaskRunnerEntry:
     `TaskState` execution and tracking.
     """
 
-    def __init__(self, state, is_requested):
+    def __init__(self, state, is_needed_in_memory):
         self.state = state
         self.stage = EntryStage.NEW
         self.future = None
-        self.is_requested = is_requested
         self.results_by_dnode = None
+
+        # This is initially set to None as we don't the entire dependency
+        # graph for entries at once. We create it only when it's computed.
+        self._dep_entries = None
 
         # If an entry is needed in memory, it cannot be deferred. Only
         # applicable to non-serializable entries, serializable entries
@@ -34,7 +37,123 @@ class TaskRunnerEntry:
         # be needed in memory by another entry. Depending on our
         # execution order of such entities, this flag can change from
         # `False` to `True` in between execution.
-        self.is_needed_in_memory = is_requested and not state.should_persist
+        self.is_needed_in_memory = is_needed_in_memory
+
+    @property
+    def is_cached(self):
+        return self.results_by_dnode is not None or self.state.is_cached
+
+    def are_dep_entries_set(self):
+        return self._dep_entries is not None
+
+    def set_dep_entries(self, dep_entries):
+        assert not self.are_dep_entries_set()
+        self._dep_entries = dep_entries
+
+    def blocking_dep_entries(self):
+        assert self._dep_entries is not None
+        return [
+            dep_entry
+            for dep_entry in self._dep_entries
+            if dep_entry.stage not in [EntryStage.COMPLETED, EntryStage.DEFERRED]
+        ]
+
+    def blocking_dep_task_keys(self):
+        blocking_dep_entries = self.blocking_dep_entries()
+        return set(
+            blocking_dep_entry_tk
+            for blocking_dep_entry in blocking_dep_entries
+            for blocking_dep_entry_tk in blocking_dep_entry.state.task_keys
+        )
+
+    def compute(self, task_key_logger):
+        """
+        Computes the values of an entry by running its task. Requires that all
+        the task's dependencies are already complete.
+        """
+
+        state = self.state
+        task = self.state.task
+
+        assert state._is_initialized
+        assert not state.is_cached
+
+        dep_results = []
+        for dep_entry, dep_key in zip(self._dep_entries, task.dep_keys):
+            assert dep_entry.is_cached
+            dep_results_by_dnode = dep_entry.get_cached_results(task_key_logger)
+            dep_results.append(dep_results_by_dnode[dep_key.dnode])
+
+        if not task.is_simple_lookup:
+            for task_key in state.task_keys:
+                task_key_logger.log_computing(task_key)
+
+        dep_values = [dep_result.value for dep_result in dep_results]
+
+        # If we have any missing outputs, exit early with a missing result.
+        if state.output_would_be_missing():
+            results_by_dnode = {}
+            result_value_hashes_by_dnode = {}
+            for query in state._queries:
+                result = Result(query=query, value=None, value_is_missing=True)
+                results_by_dnode[query.dnode] = result
+                result_value_hashes_by_dnode[query.dnode] = ""
+            state._results_by_dnode = results_by_dnode
+            state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
+            return state._results_by_dnode
+
+        else:
+            # If we have no missing outputs, we should not be consuming any missing
+            # inputs either.
+            assert not any(
+                dep_key.case_key.has_missing_values for dep_key in task.dep_keys
+            )
+
+        values = task.compute(dep_values)
+        assert len(values) == len(state.task_keys)
+
+        for query in state._queries:
+            if task.is_simple_lookup:
+                task_key_logger.log_accessed_from_definition(query.task_key)
+            else:
+                task_key_logger.log_computed(query.task_key)
+
+        results_by_dnode = {}
+        result_value_hashes_by_dnode = {}
+        for ix, (query, value) in enumerate(zip(state._queries, values)):
+            query.protocol.validate(value)
+
+            result = Result(query=query, value=value)
+
+            if state.should_persist:
+                accessor = state._cache_accessors[ix]
+                accessor.save_result(result)
+
+                value_hash = accessor.load_result_value_hash()
+                result_value_hashes_by_dnode[query.dnode] = value_hash
+
+            results_by_dnode[query.dnode] = result
+
+        # We cache the hashed values eagerly since they are cheap to load.
+        if state.should_persist:
+            state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
+        # Memoize results at this point only if results should not persist.
+        # Otherwise, load it lazily later so that if the serialized/deserialized
+        # value is not exactly the same as the original, we still
+        # always return the same value.
+        elif state.should_memoize:
+            state._results_by_dnode = results_by_dnode
+        else:
+            self.results_by_dnode = results_by_dnode
+
+    def get_cached_results(self, task_key_logger):
+        "Returns the results of an already-completed entry."
+
+        assert self.is_cached
+
+        if self.results_by_dnode:
+            return self.results_by_dnode
+        return self.state.get_cached_results(task_key_logger)
 
 
 class EntryStage(Enum):
@@ -146,59 +265,6 @@ class TaskState:
         # This can be set by get_cached_results() or compute().
         self._results_by_dnode = None
 
-    # TODO: We need a coherent story around incomplete states between parallel
-    # and non-parallel mode. We have to compute non-persisted deps inside the
-    # other subprocess for parallel mode but not for non-parallel mode. We should
-    # consider making the way it computes in parallel mode the default.
-    def blocking_dep_states(self, parallel_execution_enabled):
-        """
-        Returns all of this task state's persisted dependencies that aren't yet
-        initialized and not completed. In case of parallel execution, it completed and
-        non-persisted dependencies that aren't yet completable.
-
-        Note that the definition is complicated because dependencies that cannot be
-        persisted can potentially be computed again in case of parallel execution.
-        But we don't want to complete the persisted entities when trying to complete
-        this task state. They should already be complete to avoid doing any unnecessary
-        state tracking for completing this state.
-
-        This logic should simplify once we move all this logic to `TaskRunnerEntry`.
-        We should be able to use `is_needed_in_memory` property.
-        """
-        blocking_states = []
-        for dep_state in self.dep_states:
-            if dep_state.is_cached:
-                continue
-            if (
-                (dep_state.should_persist and not dep_state.is_cached)
-                or (
-                    dep_state.should_memoize
-                    and not dep_state.is_cached
-                    and not parallel_execution_enabled
-                )
-                or not dep_state.is_completable(parallel_execution_enabled)
-            ):
-                blocking_states.append(dep_state)
-        return blocking_states
-
-    def blocking_dep_task_keys(self, parallel_execution_enabled):
-        blocking_dep_states = self.blocking_dep_states(parallel_execution_enabled)
-        return set(
-            blocking_dep_state_tk
-            for blocking_dep_state in blocking_dep_states
-            for blocking_dep_state_tk in blocking_dep_state.task_keys
-        )
-
-    def is_completable(self, parallel_execution_enabled):
-        """
-        Indicates whether the task state can be completed in its current shape.
-        True when the state is initialized and doesn't have any blocking deps.
-        """
-        return (
-            self._is_initialized
-            and len(self.blocking_dep_states(parallel_execution_enabled)) == 0
-        )
-
     @property
     def should_cache(self):
         return self.should_memoize or self.should_persist
@@ -286,96 +352,6 @@ class TaskState:
             self._load_value_hashes()
         else:
             self._result_value_hashes_by_dnode = None
-
-    def compute(self, task_key_logger, return_results=False):
-        """
-        Computes the values of a task state by running its task. Requires that all
-        the task's dependencies are already complete.
-
-        Returns a dict of computed results by dnode when return_results is True.
-        """
-
-        assert self._is_initialized
-        assert not self.is_cached
-
-        task = self.task
-
-        dep_results = []
-        for dep_state, dep_key in zip(self.dep_states, task.dep_keys):
-            if dep_state.should_cache:
-                assert dep_state.is_cached
-                dep_results_by_dnode = dep_state.get_cached_results(task_key_logger)
-            else:
-                # If dep_state should not be cached, compute the results.
-                dep_results_by_dnode = dep_state.compute(
-                    task_key_logger, return_results=True
-                )
-            dep_results.append(dep_results_by_dnode[dep_key.dnode])
-
-        if not task.is_simple_lookup:
-            for task_key in self.task_keys:
-                task_key_logger.log_computing(task_key)
-
-        dep_values = [dep_result.value for dep_result in dep_results]
-
-        # If we have any missing outputs, exit early with a missing result.
-        if self.output_would_be_missing():
-            results_by_dnode = {}
-            result_value_hashes_by_dnode = {}
-            for query in self._queries:
-                result = Result(query=query, value=None, value_is_missing=True)
-                results_by_dnode[query.dnode] = result
-                result_value_hashes_by_dnode[query.dnode] = ""
-            self._results_by_dnode = results_by_dnode
-            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-            return self._results_by_dnode
-
-        else:
-            # If we have no missing outputs, we should not be consuming any missing
-            # inputs either.
-            assert not any(
-                dep_key.case_key.has_missing_values for dep_key in task.dep_keys
-            )
-
-        values = task.compute(dep_values)
-        assert len(values) == len(self.task_keys)
-
-        for query in self._queries:
-            if task.is_simple_lookup:
-                task_key_logger.log_accessed_from_definition(query.task_key)
-            else:
-                task_key_logger.log_computed(query.task_key)
-
-        results_by_dnode = {}
-        result_value_hashes_by_dnode = {}
-        for ix, (query, value) in enumerate(zip(self._queries, values)):
-            query.protocol.validate(value)
-
-            result = Result(query=query, value=value)
-
-            if self.should_persist:
-                accessor = self._cache_accessors[ix]
-                accessor.save_result(result)
-
-                value_hash = accessor.load_result_value_hash()
-                result_value_hashes_by_dnode[query.dnode] = value_hash
-
-            results_by_dnode[query.dnode] = result
-
-        # We cache the hashed values eagerly since they are cheap to load.
-        if self.should_persist:
-            self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-        # Memoize results at this point only if results should not persist.
-        # Otherwise, load it lazily later so that if the serialized/deserialized
-        # value is not exactly the same as the original, we still
-        # always return the same value.
-        elif self.should_memoize:
-            self._results_by_dnode = results_by_dnode
-
-        if return_results:
-            if self.is_cached:
-                return self.get_cached_results(task_key_logger)
-            return results_by_dnode
 
     def sync_after_subprocess_completion(self):
         """

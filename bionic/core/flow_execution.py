@@ -54,7 +54,10 @@ class TaskCompletionRunner:
                 self._bootstrap.executor.start_logging()
 
             for state in states:
-                entry = self._get_or_create_entry_for_state(state, is_requested=True)
+                state.set_up_caching_flags(self._bootstrap)
+                entry = self._get_or_create_entry_for_state(
+                    state, is_needed_in_memory=not state.should_persist
+                )
                 self._mark_entry_pending(entry)
 
             while self._has_pending_entries():
@@ -65,27 +68,26 @@ class TaskCompletionRunner:
                 # refreshing each of their cache states, so if any of them have had
                 # their cache entries deleted, their status will be correctly updated
                 # to "not complete".
+                dep_entries = []
                 for dep_state in entry.state.dep_states:
-                    dep_entry = self._get_or_create_entry_for_state(dep_state)
-                    # If the entry is needed in memory, any non-serializable entry that
-                    # can be memoized is also needed in memory.
-                    if entry.is_needed_in_memory:
-                        if (
-                            dep_entry.state.should_memoize
-                            and not dep_entry.state.should_persist
-                        ):
-                            dep_entry.is_needed_in_memory = True
-                            if dep_entry.stage == EntryStage.DEFERRED:
-                                self._mark_entry_pending(dep_entry)
-
-                if (
-                    len(
-                        entry.state.blocking_dep_states(
-                            self._parallel_execution_enabled
-                        )
+                    dep_state.set_up_caching_flags(self._bootstrap)
+                    # If the entry is needed in memory, any non-serializable entries are
+                    # also needed in memory.
+                    dep_entry_needed_in_memory = (
+                        entry.is_needed_in_memory and not dep_state.should_persist
                     )
-                    > 0
-                ):
+                    dep_entry = self._get_or_create_entry_for_state(
+                        dep_state, dep_entry_needed_in_memory
+                    )
+                    dep_entries.append(dep_entry)
+                if not entry.are_dep_entries_set():
+                    entry.set_dep_entries(dep_entries)
+
+                if entry.state.is_cached:
+                    self._mark_entry_completed(entry)
+                    continue
+
+                if len(entry.blocking_dep_entries()) > 0:
                     self._mark_entry_blocked(entry)
                     continue
 
@@ -95,11 +97,12 @@ class TaskCompletionRunner:
             assert len(self._in_progress_entries) == 0
             assert len(self._get_all_blocked_entries()) == 0
 
-            return {
-                task_key: entry.results_by_dnode
-                for (task_key, entry) in self._entries_by_task_key.items()
-                if entry.is_requested
-            }
+            results = {}
+            for state in states:
+                task_key = state.task_keys[0]
+                entry = self._entries_by_task_key[task_key]
+                results[task_key] = entry.get_cached_results(self.task_key_logger)
+            return results
 
         finally:
             if self._parallel_execution_enabled:
@@ -107,10 +110,6 @@ class TaskCompletionRunner:
 
     def _process_entry(self, entry):
         assert entry.stage == EntryStage.ACTIVE
-
-        if entry.state.is_cached:
-            self._mark_entry_completed(entry)
-            return
 
         state = entry.state
         # Initialize the task state before attempting to complete it.
@@ -129,9 +128,7 @@ class TaskCompletionRunner:
             # cloudpicklable.
             or state.task.is_simple_lookup
         ):
-            results = state.compute(self.task_key_logger, not entry.state.should_cache)
-            if not entry.state.should_cache:
-                entry.results_by_dnode = results
+            entry.compute(self.task_key_logger)
             self._mark_entry_completed(entry)
 
         # Compute the results for serializable entity in parallel.
@@ -154,17 +151,23 @@ class TaskCompletionRunner:
         else:
             self._mark_entry_deferred(entry)
 
-    def _get_or_create_entry_for_state(self, state, is_requested=False):
+    def _get_or_create_entry_for_state(self, state, is_needed_in_memory):
         task_key = state.task_keys[0]
         if task_key not in self._entries_by_task_key:
-            state.set_up_caching_flags(self._bootstrap)
             # Before doing anything with this task state, we should make sure its
             # cache state is up to date.
             state.refresh_all_persistent_cache_state(self._bootstrap)
             self._entries_by_task_key[task_key] = TaskRunnerEntry(
-                state=state, is_requested=is_requested
+                state=state, is_needed_in_memory=is_needed_in_memory,
             )
-        return self._entries_by_task_key[task_key]
+        entry = self._entries_by_task_key[task_key]
+
+        if is_needed_in_memory:
+            entry.is_needed_in_memory = is_needed_in_memory
+            if entry.stage == EntryStage.DEFERRED:
+                self._mark_entry_pending(entry)
+
+        return entry
 
     def _has_pending_entries(self):
         # While there are no entries in the to-process stack but have any in-progress ones,
@@ -202,9 +205,7 @@ class TaskCompletionRunner:
         assert blocked_entry.stage == EntryStage.ACTIVE
 
         blocked_entry.stage = EntryStage.BLOCKED
-        blocking_tks = blocked_entry.state.blocking_dep_task_keys(
-            self._parallel_execution_enabled
-        )
+        blocking_tks = blocked_entry.blocking_dep_task_keys()
         blockage = EntryBlockage(blocked_entry, blocking_tks)
         for blocking_tk in blocking_tks:
             self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
@@ -223,19 +224,13 @@ class TaskCompletionRunner:
         ] = in_progress_entry
 
     def _mark_entry_completed(self, completed_entry):
-        assert completed_entry.stage == EntryStage.ACTIVE or EntryStage.IN_PROGRESS
+        assert completed_entry.stage in [EntryStage.ACTIVE, EntryStage.IN_PROGRESS]
 
         if completed_entry.stage == EntryStage.IN_PROGRESS:
             completed_entry.future = None
             del self._in_progress_entries[completed_entry.state.task.keys[0]]
 
-        if completed_entry.is_requested:
-            if completed_entry.state.is_cached:
-                results = completed_entry.state.get_cached_results(self.task_key_logger)
-                completed_entry.results_by_dnode = results
-            else:
-                assert completed_entry.results_by_dnode is not None
-
+        assert completed_entry.is_cached
         completed_entry.stage = EntryStage.COMPLETED
         self._unblock_entries(completed_entry)
 
@@ -247,16 +242,13 @@ class TaskCompletionRunner:
         self._unblock_entries(deferred_entry)
 
     def _mark_blocking_entries_pending(self, blocked_entry):
-        blocking_dep_states = blocked_entry.state.blocking_dep_states(
-            self._parallel_execution_enabled
-        )
-        for blocking_dep_state in blocking_dep_states:
-            blocking_entry = self._get_or_create_entry_for_state(blocking_dep_state)
+        blocking_entries = blocked_entry.blocking_dep_entries()
+        for blocking_entry in blocking_entries:
             if blocking_entry.stage == EntryStage.NEW:
                 self._mark_entry_pending(blocking_entry)
 
     def _unblock_entries(self, completed_entry):
-        for completed_tk in completed_entry.state.task.keys:
+        for completed_tk in completed_entry.state.task_keys:
             affected_blockages = self._blockage_lists_by_blocking_tk[completed_tk]
             for blockage in affected_blockages:
                 blockage.mark_task_key_complete(completed_tk)
