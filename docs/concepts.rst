@@ -359,6 +359,24 @@ we can disable persistent caching altogether:
 If your goal is just to force an entity to be recomputed more frequently, you may
 want :ref:`@changes_per_run <changes_per_run>` instead.
 
+Persistent caching can also be globally disabled:
+
+.. code-block:: python
+
+    builder.set('core__persist_by_default', False)
+
+This only changes the default behavior, so it can be explicitly re-enabled for
+individual entities:
+
+.. code-block:: python
+
+    builder.set('core__persist_by_default', False)
+
+    @builder
+    @bionic.persist(True)
+    def message(subject):
+        return f'Hello {subject}.'
+
 
 Disabling In-Memory Caching
 ............................
@@ -375,14 +393,13 @@ cases, we can disable in-memory caching:
     def message(subject):
         return f'Hello {subject}.'
 
-In-memory caching can also be globally disabled:
+Like persistent caching, in-memory caching can also be globally disabled:
 
 .. code-block:: python
 
     builder.set('core__memoize_by_default', False)
 
-This only changes the default behavior, so it can be explicitly re-enabled for
-individual entities:
+This can also be explicitly re-enabled for individual entities:
 
 .. TODO: We should be consistent between the usage of @bn and @bionic.
 
@@ -394,6 +411,11 @@ individual entities:
     @bionic.memoize(True)
     def message(subject):
         return f'Hello {subject}.'
+
+When both persistent and in-memory caching are disabled for an entity, Bionic
+will cache its values in a temporary in-memory cache that only lasts for the
+duration of the :meth:`Flow.get <bionic.Flow.get>` call. These temporarily-cached
+values are discarded when the call is completed.
 
 
 .. _changes_per_run :

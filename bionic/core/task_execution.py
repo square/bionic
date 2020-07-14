@@ -446,17 +446,17 @@ class TaskState:
         # grouped entities are created). At any rate, once we have tuple
         # descriptors, each task state will only be responsible for a single entity
         # and this won't be an issue.
-        optional_should_memoize, can_persist = single_unique_element(
-            (entity_def.optional_should_memoize, entity_def.can_persist)
+        optional_should_memoize, optional_should_persist = single_unique_element(
+            (entity_def.optional_should_memoize, entity_def.optional_should_persist)
             for entity_def in self.entity_defs_by_dnode.values()
         )
 
-        should_memoize = optional_should_memoize
-        if should_memoize is None:
-            if bootstrap is None:
-                should_memoize = True
-            else:
-                should_memoize = bootstrap.should_memoize_default
+        if optional_should_memoize is not None:
+            should_memoize = optional_should_memoize
+        elif bootstrap is not None:
+            should_memoize = bootstrap.should_memoize_default
+        else:
+            should_memoize = True
         if self.provider.attrs.changes_per_run and not should_memoize:
             descriptors = [
                 task_key.dnode.to_descriptor() for task_key in self.task_keys
@@ -478,7 +478,14 @@ class TaskState:
             should_memoize = True
         self.should_memoize = should_memoize
 
-        should_persist = can_persist and not self.output_would_be_missing()
+        if self.output_would_be_missing():
+            should_persist = False
+        elif optional_should_persist is not None:
+            should_persist = optional_should_persist
+        elif bootstrap is not None:
+            should_persist = bootstrap.should_persist_default
+        else:
+            should_persist = False
         if should_persist and bootstrap is None:
             descriptors = [
                 task_key.dnode.to_descriptor() for task_key in self.task_keys

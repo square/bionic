@@ -75,6 +75,7 @@ def version(major=None, minor=None):
 def persist(enabled):
     """
     Indicates whether computed values should be cached persistently.
+    Overrides the value of `core__persist_by_default` when set.
 
     Parameters
     ----------
@@ -93,7 +94,7 @@ def persist(enabled):
         raise ValueError(f"Argument must be a boolean; got {enabled!r}")
 
     return decorator_updating_accumulator(
-        lambda acc: acc.update_attr("can_persist", enabled, "@persist")
+        lambda acc: acc.update_attr("should_persist", enabled, "@persist")
     )
 
 
