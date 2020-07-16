@@ -17,34 +17,47 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "slow: mark test as slow to run")
-    config.addinivalue_line("markers", "needs_gcs: mark test as requiring GCS to run")
-    config.addinivalue_line(
-        "markers",
-        "run_with_all_execution_modes_by_default: mark test to always run all execution modes",
+    def add_mark(name, description):
+        config.addinivalue_line("markers", f"{name}: given test {description}")
+
+    # These markers are added manually.
+    add_mark("slow", "runs slowly")
+    add_mark("needs_gcs", "requires GCS to run")
+    add_mark("needs_parallel", "requires parallel execution to run")
+    add_mark(
+        "allows_parallel",
+        "can run with parallel execution even when that's not explicitly enabled",
     )
+
+    # These markers are added automatically based on parametric fixtures.
+    add_mark("serial", "will run using serial execution")
+    add_mark("parallel", "will run using parallel execution")
 
 
 def pytest_collection_modifyitems(config, items):
-    if not config.getoption("--slow"):
-        skip_slow = pytest.mark.skip(reason="only runs when --slow is set")
-        for item in items:
-            if "slow" in item.keywords:
-                item.add_marker(skip_slow)
+    also_run_slow = config.getoption("--slow")
+    skip_slow = pytest.mark.skip(reason="only runs when --slow is set")
 
-    if not config.getoption("--bucket"):
-        skip_gcs = pytest.mark.skip(reason="only runs when --bucket is set")
-        for item in items:
-            if "needs_gcs" in item.keywords:
-                item.add_marker(skip_gcs)
+    has_gcs = config.getoption("--bucket")
+    skip_needs_gcs = pytest.mark.skip(reason="only runs when --bucket is set")
 
-    if not config.getoption("--all-execution-modes"):
-        skip_execution_mode = pytest.mark.skip(
-            reason="only runs when --all-execution-modes is set"
-        )
-        for item in items:
-            if (
-                any("ExecutionMode.PARALLEL" in keyword for keyword in item.keywords)
-                and "run_with_all_execution_modes_by_default" not in item.keywords
-            ):
-                item.add_marker(skip_execution_mode)
+    also_run_parallel = config.getoption("--all-execution-modes")
+    skip_parallel = pytest.mark.skip(
+        reason="only runs when --all-execution-modes is set"
+    )
+    skip_needs_parallel = pytest.mark.skip(
+        reason="needs a parallel fixture but doesn't have one"
+    )
+
+    for item in items:
+        if "slow" in item.keywords and not also_run_slow:
+            item.add_marker(skip_slow)
+
+        if "needs_gcs" in item.keywords and not has_gcs:
+            item.add_marker(skip_needs_gcs)
+
+        if "parallel" in item.keywords:
+            if not (also_run_parallel or "allows_parallel" in item.keywords):
+                item.add_marker(skip_parallel)
+        elif "needs_parallel" in item.keywords:
+            item.add_marker(skip_needs_parallel)

@@ -5,7 +5,6 @@ from multiprocessing.managers import SyncManager
 import random
 
 from ..helpers import (
-    ExecutionMode,
     gsutil_path_exists,
     gsutil_wipe_path,
     ResettingCounter,
@@ -18,9 +17,14 @@ import bionic as bn
 # like test_name[PARALLEL] and test_name[SERIAL]. This is super helpful while
 # debugging and much clearer than parameterizing `parallel_execution_enabled`
 # which suffixes [TRUE] / [FALSE].
-@pytest.fixture(params=[ExecutionMode.PARALLEL, ExecutionMode.SERIAL])
+@pytest.fixture(
+    params=[
+        pytest.param("serial", marks=pytest.mark.serial),
+        pytest.param("parallel", marks=pytest.mark.parallel),
+    ],
+)
 def parallel_execution_enabled(request):
-    return request.param == ExecutionMode.PARALLEL
+    return request.param == "parallel"
 
 
 # We provide this at the top level because we want everyone using FlowBuilder

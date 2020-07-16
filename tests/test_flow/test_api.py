@@ -372,7 +372,7 @@ def test_get_multiple(preset_flow):
     assert flow.get("q", set) == {5}
 
 
-@pytest.mark.run_with_all_execution_modes_by_default
+@pytest.mark.allows_parallel
 def test_get_collections(preset_flow):
     flow = preset_flow
 
@@ -686,7 +686,7 @@ def test_unpicklable_non_persisted_entity(builder):
     assert builder.build().get("uses_lock")
 
 
-@pytest.mark.run_with_all_execution_modes_by_default
+@pytest.mark.allows_parallel
 def test_entity_serialization_exception(builder, parallel_execution_enabled):
     @builder
     def unpicklable_value():
@@ -705,7 +705,7 @@ def test_entity_serialization_exception(builder, parallel_execution_enabled):
             assert isinstance(e.__cause__, AttributeError)
 
 
-@pytest.mark.run_with_all_execution_modes_by_default
+@pytest.mark.allows_parallel
 def test_entity_computation_exception(builder, parallel_execution_enabled):
     @builder
     def uncomputable_value():
