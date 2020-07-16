@@ -15,8 +15,7 @@ import os
 
 import bionic as bn
 
-from ..conftest import ResettingCounter
-from ..helpers import count_calls
+from ..helpers import count_calls, ResettingCounter
 
 
 CACHE_TEST_DIR = os.path.join(

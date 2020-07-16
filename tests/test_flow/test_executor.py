@@ -1,6 +1,6 @@
 import pytest
 
-from ..conftest import ExecutionMode
+from ..helpers import ExecutionMode
 
 from bionic.executor import get_singleton_manager, logging_initializer
 from bionic.deps.optdep import import_optional_dependency

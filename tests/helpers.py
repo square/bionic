@@ -1,3 +1,4 @@
+from enum import Enum
 from io import BytesIO
 from textwrap import dedent
 import re
@@ -232,3 +233,8 @@ def gsutil_path_exists(url):
 def local_wipe_path(path_str):
     assert "BNTESTDATA" in path_str
     shutil.rmtree(path_str)
+
+
+class ExecutionMode(Enum):
+    PARALLEL = "PARALLEL"
+    SERIAL = "SERIAL"
