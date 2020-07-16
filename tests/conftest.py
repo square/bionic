@@ -42,13 +42,8 @@ def pytest_collection_modifyitems(config, items):
     skip_needs_gcs = pytest.mark.skip(reason="only runs when --bucket is set")
 
     also_run_parallel = config.getoption("--all-execution-modes")
-    skip_parallel = pytest.mark.skip(
-        reason="only runs when --all-execution-modes is set"
-    )
-    skip_needs_parallel = pytest.mark.skip(
-        reason="needs a parallel fixture but doesn't have one"
-    )
 
+    items_to_keep = []
     for item in items:
         if "slow" in item.keywords and not also_run_slow:
             item.add_marker(skip_slow)
@@ -58,6 +53,11 @@ def pytest_collection_modifyitems(config, items):
 
         if "parallel" in item.keywords:
             if not (also_run_parallel or "allows_parallel" in item.keywords):
-                item.add_marker(skip_parallel)
+                continue
         elif "needs_parallel" in item.keywords:
-            item.add_marker(skip_needs_parallel)
+            continue
+
+        items_to_keep.append(item)
+
+    items.clear()
+    items.extend(items_to_keep)
