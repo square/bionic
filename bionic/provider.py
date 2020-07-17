@@ -23,12 +23,13 @@ from .datatypes import (
     CodeFingerprint,
     CodeVersion,
 )
-from .exception import EntityComputationError, IncompatibleEntityError
+from .bytecode import canonical_bytecode_bytes_from_func
+from .deps.optdep import import_optional_dependency
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
-from .bytecode import canonical_bytecode_bytes_from_func
-from .util import groups_dict, hash_to_hex, oneline
-from .deps.optdep import import_optional_dependency
+from .exception import EntityComputationError, IncompatibleEntityError
+from .oneline import oneline
+from .util.misc import groups_dict, hash_to_hex
 
 import logging
 

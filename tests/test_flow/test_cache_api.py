@@ -10,7 +10,7 @@ from bionic.persistence import (
     is_gcs_url,
     bucket_and_object_names_from_gs_url,
 )
-from bionic.util import get_gcs_client_without_warnings
+from bionic.util.misc import get_gcs_client_without_warnings
 
 
 class CacheTester:

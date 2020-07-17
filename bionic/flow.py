@@ -41,13 +41,13 @@ from .provider import (
 from .deriver import EntityDeriver, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
-from .util import (
+from .oneline import oneline
+from .util.misc import (
     group_pairs,
     check_exactly_one_present,
     check_at_most_one_present,
     copy_to_gcs,
     FileCopier,
-    oneline,
 )
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(

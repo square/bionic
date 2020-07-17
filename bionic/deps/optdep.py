@@ -2,23 +2,10 @@ import re
 import importlib
 
 from .extras import extras_require as package_desc_lists_by_extra
+from ..oneline import oneline
 
 
 ILLEGAL_NAME_CHAR = re.compile("[^a-zA-Z0-9\\-._\\[\\]]")
-
-
-# This really belongs in util.py, but that module depends on this one, so
-# we define it here and then import it there.
-def oneline(string):
-    """
-    Shorten a multiline string into a single line, by replacing all newlines
-    (and their surrounding whitespace) into single spaces. Convenient for
-    rendering error messages, which are most easily written as multiline
-    string literals but more readable as single-line strings.
-    """
-    return " ".join(
-        substring.strip() for substring in string.split("\n") if substring.split()
-    )
 
 
 def first_token_from_package_desc(desc):

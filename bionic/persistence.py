@@ -17,11 +17,11 @@ from urllib.parse import urlparse
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import (
+from .oneline import oneline
+from .util.misc import (
     get_gcs_client_without_warnings,
     ensure_dir_exists,
     ensure_parent_dir_exists,
-    oneline,
 )
 from .tokenization import tokenize
 

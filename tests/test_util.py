@@ -2,11 +2,9 @@ import pytest
 
 from .helpers import equal_when_sorted
 
-import bionic.util as util
-
 
 def test_group_pairs():
-    from bionic.util import group_pairs
+    from bionic.util.misc import group_pairs
 
     assert group_pairs([]) == []
     assert group_pairs([1, 2]) == [(1, 2)]
@@ -19,7 +17,9 @@ def test_group_pairs():
 
 
 def test_immutable_sequence():
-    class Seq(util.ImmutableSequence):
+    from bionic.util.misc import ImmutableSequence
+
+    class Seq(ImmutableSequence):
         def __init__(self, items):
             super(Seq, self).__init__(items)
 
@@ -48,7 +48,9 @@ def test_immutable_sequence():
 
 
 def test_immutable_mapping():
-    class Mapping(util.ImmutableMapping):
+    from bionic.util.misc import ImmutableMapping
+
+    class Mapping(ImmutableMapping):
         def __init__(self, values_by_key):
             super(Mapping, self).__init__(values_by_key)
 
@@ -82,8 +84,9 @@ def test_immutable_mapping():
     assert Mapping({"b": 1, "a": 2}) >= mapping
 
 
+# This function is not in util.misc.py but it's convenient to test it here too.
 def test_oneline():
-    from bionic.util import oneline
+    from bionic.oneline import oneline
 
     assert oneline("one two") == "one two"
     assert oneline(" one two ") == "one two"
@@ -110,7 +113,7 @@ def test_oneline():
 
 
 def test_clean_docstring():
-    from bionic.util import rewrap_docstring
+    from bionic.util.misc import rewrap_docstring
 
     assert rewrap_docstring("") == ""
     assert rewrap_docstring("test") == "test"
@@ -230,7 +233,7 @@ def test_clean_docstring():
     assert rewrap_docstring(doc) == "test\n- one\ntwo"
 
 
-# These functions are not in util.py but it's convenient to test them here too.
+# These functions are not in util.misc.py but it's convenient to test them here too.
 def test_longest_regex_prefix():
     from .helpers import longest_regex_prefix_match
 

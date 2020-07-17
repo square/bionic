@@ -1,5 +1,5 @@
 from . import protocols
-from .util import oneline
+from .oneline import oneline
 
 # These are callable with or without arguments.  See BaseProtocol.__call__ for
 # why we instantiate them here.

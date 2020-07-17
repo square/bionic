@@ -11,7 +11,8 @@ import threading
 import warnings
 import shutil
 
-from .deps.optdep import import_optional_dependency, oneline
+from ..deps.optdep import import_optional_dependency
+from ..oneline import oneline
 
 import logging
 

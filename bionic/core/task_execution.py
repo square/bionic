@@ -10,8 +10,9 @@ from enum import Enum, auto
 
 from ..datatypes import ProvenanceDigest, Query, Result
 from ..exception import CodeVersioningError
+from ..oneline import oneline
 from ..persistence import Provenance
-from ..util import oneline, single_unique_element
+from ..util.misc import single_unique_element
 
 
 class TaskRunnerEntry:
