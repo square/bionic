@@ -26,9 +26,9 @@ from .decoration import decorator_updating_accumulator
 from .exception import UnsupportedSerializedValueError
 from .deps.optdep import import_optional_dependency
 from .oneline import oneline
+from .util.files import recursively_copy_path
 from .util.misc import (
     read_hashable_bytes_from_file_or_dir,
-    recursively_copy_path,
     single_element,
 )
 from . import tokenization

@@ -19,7 +19,7 @@ from bionic.exception import (
     UnsupportedSerializedValueError,
 )
 from bionic.protocols import CombinedProtocol, PicklableProtocol
-from bionic.util.misc import recursively_delete_path
+from bionic.util.files import recursively_delete_path
 
 
 PICKLABLE_VALUES = [

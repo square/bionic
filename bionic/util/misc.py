@@ -6,12 +6,8 @@ from collections import defaultdict
 from hashlib import sha256
 from binascii import hexlify
 import re
-import subprocess
 import threading
-import warnings
-import shutil
 
-from ..deps.optdep import import_optional_dependency
 from ..oneline import oneline
 
 import logging
@@ -110,47 +106,6 @@ def hash_to_hex(bytestring, n_bytes=None):
     return hex_str
 
 
-_cached_gcs_client = None
-
-
-def get_gcs_client_without_warnings(cache_value=True):
-    # TODO This caching saves a lot of time, especially in tests.  But it would
-    # be better if Bionic were able to re-use its in-memory cache when creating
-    # new flows, instead of resetting the cache each time.
-    if cache_value:
-        global _cached_gcs_client
-        if _cached_gcs_client is None:
-            _cached_gcs_client = get_gcs_client_without_warnings(cache_value=False)
-        return _cached_gcs_client
-
-    gcs = import_optional_dependency("google.cloud.storage", purpose="caching to GCS")
-
-    with warnings.catch_warnings():
-        # Google's SDK warns if you use end user credentials instead of a
-        # service account.  I think this warning is intended for production
-        # server code, where you don't want GCP access to be tied to a
-        # particular user.  However, this code is intended to be run by
-        # individuals, so using end user credentials seems appropriate.
-        # Hence, we'll suppress this warning.
-        warnings.filterwarnings(
-            "ignore", "Your application has authenticated using end user credentials"
-        )
-        logger.info("Initializing GCS client ...")
-        return gcs.Client()
-
-
-def copy_to_gcs(src, dst):
-    """ Copy a local file at src to GCS at dst
-    """
-    bucket = dst.replace("gs://", "").split("/")[0]
-    prefix = f"gs://{bucket}"
-    path = dst[len(prefix) + 1 :]
-
-    client = get_gcs_client_without_warnings()
-    blob = client.get_bucket(bucket).blob(path)
-    blob.upload_from_filename(src)
-
-
 def num_as_bytes(n):
     """
     Encodes an integer in UTF-8 bytes.
@@ -202,32 +157,44 @@ def read_hashable_bytes_from_file_or_dir(path):
         )
 
 
-def ensure_parent_dir_exists(path):
-    ensure_dir_exists(path.parent)
+def hash_simple_obj_to_hex(obj):
+    """
+    Generates a hash digest of an object, as a hex string.  The object must
+    be a "simple" type, i.e., of one of the following types: None, text, bytes,
+    int, or a list or dict of simple types.
+    """
+
+    hash_ = sha256()
+    try:
+        update_hash(hash_, obj)
+    except ValueError as e:
+        raise ValueError(f"{e} (full object was {obj!r})")
+    return hash_.hexdigest()
 
 
-def ensure_dir_exists(path):
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def recursively_copy_path(src_path, dst_path):
-    if not src_path.exists():
-        raise ValueError(f"Path does not exist: {src_path}")
-
-    if src_path.is_file():
-        shutil.copyfile(str(src_path), str(dst_path))
+def update_hash(hash_, obj):
+    if obj is None:
+        hash_.update(b"N")
+    elif isinstance(obj, str):
+        hash_.update(b"S")
+        hash_.update(obj.encode("utf8"))
+    elif isinstance(obj, bytes):
+        hash_.update(b"B")
+        hash_.update(obj.encode("utf8"))
+    elif isinstance(obj, int):
+        hash_.update(b"I")
+        hash_.update(str(obj).encode("utf8"))
+    elif isinstance(obj, list):
+        hash_.update(b"L")
+        for item in obj:
+            update_hash(hash_, item)
+    elif isinstance(obj, dict):
+        hash_.update(b"D")
+        for key, value in obj.items():
+            update_hash(hash_, key)
+            update_hash(hash_, value)
     else:
-        shutil.copytree(str(src_path), str(dst_path))
-
-
-def recursively_delete_path(path):
-    if not path.exists():
-        raise ValueError(f"Path does not exist: {path}")
-
-    if path.is_file():
-        path.unlink()
-    else:
-        shutil.rmtree(path)
+        raise ValueError(f"Unable to hash object {obj!r} of type {type(obj)!r}")
 
 
 # Matches a line that looks like the start of a new paragraph.
@@ -367,46 +334,6 @@ class ImmutableMapping(ImmutableSequence):
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.__values_by_key!r})"
-
-
-class FileCopier:
-    """
-    A wrapper for a Path object, exposing a ``copy`` method that will copy
-    the underlying file to a local or cloud destination.
-
-    Parameters
-    ----------
-    src_file_path: Path
-        A path to a file.
-    """
-
-    def __init__(self, src_file_path):
-        self.src_file_path = src_file_path
-
-    def copy(self, destination):
-        """
-        Copies file that FileCopier represents to `destination`
-
-        This supports both local and GCS destinations.  For the former, we follow cp's conventions
-        and for the latter we follow gsutil cp's conventions.  For example, trying to copy a
-        file locally to a non-existent directory will fail.
-
-        Parameters
-        ----------
-
-        destination: Path or str
-            Where to copy the underlying file
-        """
-
-        #  handle gcs
-        if str(destination).startswith("gs://"):
-            subprocess.check_call(
-                ["gsutil", "-mq", "cp", "-R", str(self.src_file_path), str(destination)]
-            )
-        else:
-            subprocess.check_call(
-                ["cp", "-R", str(self.src_file_path), str(destination)]
-            )
 
 
 def init_basic_logging(level=logging.INFO):
