@@ -216,11 +216,6 @@ class CacheAccessor:
     def _save_or_reregister_result(self, result):
         local_entry = self._get_local_entry()
         cloud_entry = self._get_cloud_entry()
-        # TODO Hmmm: here we flush the entries and don't reconstruct them, which means
-        # they'll need to be reloaded later. I don't remember my original thinking here,
-        # but intuitively it seems like by the time we exit the current function, we
-        # have enough information to construct valid entries and save ourselves a
-        # round-trip later.
         self.flush_stored_entries()
 
         if result is not None:
@@ -259,7 +254,10 @@ class CacheAccessor:
 
         if not local_entry.exactly_matches_query:
             file_url = url_from_path(file_path)
-            self._local.inventory.register_url(self.query, file_url, value_hash)
+            local_entry = self._local.inventory.register_url(
+                self.query, file_url, value_hash,
+            )
+        self._stored_local_entry = local_entry
 
         if self._cloud:
             assert cloud_entry is not None
@@ -269,7 +267,10 @@ class CacheAccessor:
                         blob_url = cloud_entry.artifact_url
                     else:
                         blob_url = self._blob_from_file(file_path)
-                self._cloud.inventory.register_url(self.query, blob_url, value_hash)
+                cloud_entry = self._cloud.inventory.register_url(
+                    self.query, blob_url, value_hash,
+                )
+            self._stored_cloud_entry = cloud_entry
 
     def _get_nearest_entry_with_artifact(self):
         """
@@ -451,7 +452,7 @@ class Inventory:
     def register_url(self, query, url, value_hash):
         """
         Records metadata indicating that the provided Query is satisfied
-        by the provided URL.
+        by the provided URL, and returns a corresponding InventoryEntry.
         """
 
         logger.debug(
@@ -461,7 +462,9 @@ class Inventory:
             url,
         )
 
-        if self._fs.exists(self._exact_metadata_url_for_query(query)):
+        expected_metadata_url = self._exact_metadata_url_for_query(query)
+        metadata_record = None
+        if self._fs.exists(expected_metadata_url):
             # This shouldn't happen, because the CacheAccessor shouldn't write
             # to this inventory if we already have an exact match.
             logger.warn(
@@ -470,14 +473,30 @@ class Inventory:
                 query,
                 url,
             )
-            return
-        metadata_url = self._create_and_write_metadata(query, url, value_hash)
+            metadata_record = self._load_metadata_if_valid_else_delete(
+                expected_metadata_url,
+            )
 
-        logger.debug(
-            "... in %s inventory for %r, created metadata record at %s",
-            self.tier,
-            query,
-            metadata_url,
+        if metadata_record is None:
+            metadata_url, metadata_record = self._create_and_write_metadata(
+                query, url, value_hash,
+            )
+
+            assert metadata_url == expected_metadata_url
+            logger.debug(
+                "... in %s inventory for %r, created metadata record at %s",
+                self.tier,
+                query,
+                metadata_url,
+            )
+
+        return InventoryEntry(
+            tier=self.tier,
+            has_artifact=True,
+            artifact_url=url,
+            provenance=metadata_record.provenance,
+            exactly_matches_query=True,
+            value_hash=metadata_record.value_hash,
         )
 
     def find_entry(self, query):
@@ -652,7 +671,7 @@ class Inventory:
 
         self._fs.write_bytes(metadata_record.to_yaml().encode("utf8"), metadata_url)
 
-        return metadata_url
+        return metadata_url, metadata_record
 
 
 class LocalStore:

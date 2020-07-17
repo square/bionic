@@ -87,6 +87,13 @@ Bug Fixes
   :func:`@dask <bionic.protocol.dask>` and :func:`@path <bionic.protocol.path>`
   protocols.)
 
+Improvements
+.........
+
+- Bionic's cache now makes fewer round-trip calls to the storage system (local disk
+  or GCS) while reading and writing data. This might (or might not) improve performance
+  if your connection to GCS is slow.
+
 0.8.2 (Jul 10, 2020)
 --------------------
 
