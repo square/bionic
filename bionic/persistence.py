@@ -18,7 +18,7 @@ from .oneline import oneline
 from .util.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
-    recursive_file_copy,
+    recursively_copy_path,
 )
 from .util.gcs import GcsTool
 from .util.misc import hash_simple_obj_to_hex
@@ -802,13 +802,13 @@ class FakeCloudStore(LocalStore):
         src_path = path
         dst_path = path_from_url(url)
 
-        recursive_file_copy(src_path, dst_path)
+        recursively_copy_path(src_path, dst_path)
 
     def download(self, path, url):
         src_path = path_from_url(url)
         dst_path = path
 
-        recursive_file_copy(src_path, dst_path)
+        recursively_copy_path(src_path, dst_path)
 
 
 class LocalFilesystem:
