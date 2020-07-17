@@ -78,6 +78,15 @@ New Features
 - Persistence can be globally disabled with the ``core__persist_by_default`` entity,
   which means you can opt-in which entities are persisted instead of opting out.
 
+Bug Fixes
+.........
+
+- The previous release introduced a bug where Bionic would fail to recognize
+  directory artifacts when they were stored in GCS, and would just recompute the values
+  instead. (Most artifacts are stored as a single file, so this mainly affected the
+  :func:`@dask <bionic.protocol.dask>` and :func:`@path <bionic.protocol.path>`
+  protocols.)
+
 0.8.2 (Jul 10, 2020)
 --------------------
 
