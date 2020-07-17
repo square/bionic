@@ -47,23 +47,32 @@ def bucket_and_object_names_from_gs_url(url):
     return result.netloc, result_path[1:]
 
 
-# TODO Make these arg names and docstrings more general.
-def relativize_url(artifact_url, metadata_url):
-    """Returns the relative artifact url wrt to metadata url
-    when both urls are file urls. Otherwise, returns the original url."""
-    if not is_file_url(artifact_url) or not is_file_url(metadata_url):
-        return artifact_url
-    artifact_path = path_from_url(artifact_url)
-    metadata_path = path_from_url(metadata_url)
-    return os.path.relpath(artifact_path, metadata_path.parent)
+def relativize_url(absolute_url, base_url):
+    """
+    Converts an absolute file URL to one relative to a base file URL.
+
+    If either URL is not a file URL, this returns the original absolute URL.
+    """
+
+    if not is_file_url(absolute_url) or not is_file_url(base_url):
+        return absolute_url
+    absolute_path = path_from_url(absolute_url)
+    base_path = path_from_url(base_url)
+    # Using str(absolute_path.relative_to(base_path.parent)) doesn't work as well here,
+    # because it throws an exception if base_path is not a parent of absolute_path.
+    return os.path.relpath(absolute_path, base_path.parent)
 
 
-def derelativize_url(artifact_url, metadata_url):
-    """Returns the absolute artifact url when it is relative wrt metadata url.
-    Otherwise returns the original url."""
-    if is_absolute_url(artifact_url):
-        return artifact_url
-    metadata_path = path_from_url(metadata_url)
-    artifact_path = path_from_url(artifact_url)
-    abspath = os.path.normpath(metadata_path.parent.joinpath(artifact_path))
-    return url_from_path(abspath)
+def derelativize_url(relative_url, base_url):
+    """
+    Given a URL relative to another base URL, returns an absolute URL.
+
+    If the first URL is not relative, it is returned unchanged.
+    """
+
+    if is_absolute_url(relative_url):
+        return relative_url
+    base_path = path_from_url(base_url)
+    relative_path = path_from_url(relative_url)
+    absolute_path = os.path.normpath(base_path.parent.joinpath(relative_path))
+    return url_from_path(absolute_path)
