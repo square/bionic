@@ -28,7 +28,7 @@ import attr
 
 from .ast import EntityNode, TupleNode
 from ..exception import MalformedDescriptorError
-from ..oneline import oneline
+from ..utils.misc import oneline
 
 
 def dnode_from_descriptor(descriptor):

@@ -13,7 +13,7 @@ from .core.flow_execution import TaskCompletionRunner, TaskKeyLogger
 from .core.task_execution import TaskState
 from .protocols import TupleProtocol
 from .provider import TupleConstructionProvider, TupleDeconstructionProvider
-from .oneline import oneline
+from .utils.misc import oneline
 
 
 def entity_is_internal(entity_name):

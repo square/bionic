@@ -28,8 +28,7 @@ from .deps.optdep import import_optional_dependency
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .exception import EntityComputationError, IncompatibleEntityError
-from .oneline import oneline
-from .utils.misc import groups_dict, hash_to_hex
+from .utils.misc import groups_dict, hash_to_hex, oneline
 
 import logging
 

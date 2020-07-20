@@ -42,12 +42,12 @@ from .deriver import EntityDeriver, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .filecopier import FileCopier
-from .oneline import oneline
-from .utils.gcs import copy_to_gcs
+from .gcs import copy_to_gcs
 from .utils.misc import (
     group_pairs,
     check_exactly_one_present,
     check_at_most_one_present,
+    oneline,
 )
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(

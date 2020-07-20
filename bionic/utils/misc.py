@@ -8,11 +8,21 @@ from binascii import hexlify
 import re
 import threading
 
-from ..oneline import oneline
-
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def oneline(string):
+    """
+    Shorten a multiline string into a single line, by replacing all newlines
+    (and their surrounding whitespace) into single spaces. Convenient for
+    rendering error messages, which are most easily written as multiline
+    string literals but more readable as single-line strings.
+    """
+    return " ".join(
+        substring.strip() for substring in string.split("\n") if substring.split()
+    )
 
 
 def n_present(*items):

@@ -25,9 +25,9 @@ import pandas as pd
 from .decoration import decorator_updating_accumulator
 from .exception import UnsupportedSerializedValueError
 from .deps.optdep import import_optional_dependency
-from .oneline import oneline
 from .utils.files import recursively_copy_path
 from .utils.misc import (
+    oneline,
     read_hashable_bytes_from_file_or_dir,
     single_element,
 )

@@ -6,7 +6,7 @@ with Bionic's cache.
 from functools import total_ordering
 
 from .descriptors.parsing import entity_dnode_from_descriptor
-from .oneline import oneline
+from .utils.misc import oneline
 from .utils.urls import path_from_url, is_file_url
 
 

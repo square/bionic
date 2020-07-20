@@ -20,7 +20,7 @@ import warnings
 
 from .exception import AttributeValidationError
 from .provider import FunctionProvider
-from .oneline import oneline
+from .utils.misc import oneline
 
 
 @attr.s

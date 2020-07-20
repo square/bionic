@@ -15,8 +15,7 @@ import traceback
 from multiprocessing.managers import SyncManager
 
 from .deps.optdep import import_optional_dependency
-from .oneline import oneline
-from .utils.misc import SynchronizedSet
+from .utils.misc import oneline, SynchronizedSet
 
 
 class Executor:

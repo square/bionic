@@ -5,8 +5,8 @@ Utilities for working with Google Cloud Storage.
 import subprocess
 import warnings
 
-from ..deps.optdep import import_optional_dependency
-from .urls import bucket_and_object_names_from_gs_url
+from .deps.optdep import import_optional_dependency
+from .utils.urls import bucket_and_object_names_from_gs_url
 
 import logging
 

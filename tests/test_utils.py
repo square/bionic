@@ -84,9 +84,8 @@ def test_immutable_mapping():
     assert Mapping({"b": 1, "a": 2}) >= mapping
 
 
-# This function is not in utils.misc.py but it's convenient to test it here too.
 def test_oneline():
-    from bionic.oneline import oneline
+    from bionic.utils.misc import oneline
 
     assert oneline("one two") == "one two"
     assert oneline(" one two ") == "one two"

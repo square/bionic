@@ -2,7 +2,7 @@ import re
 import importlib
 
 from .extras import extras_require as package_desc_lists_by_extra
-from ..oneline import oneline
+from ..utils.misc import oneline
 
 
 ILLEGAL_NAME_CHAR = re.compile("[^a-zA-Z0-9\\-._\\[\\]]")
