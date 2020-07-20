@@ -216,6 +216,11 @@ class CacheAccessor:
     def _save_or_reregister_result(self, result):
         local_entry = self._get_local_entry()
         cloud_entry = self._get_cloud_entry()
+        # TODO Hmmm: here we flush the entries and don't reconstruct them, which means
+        # they'll need to be reloaded later. I don't remember my original thinking here,
+        # but intuitively it seems like by the time we exit the current function, we
+        # have enough information to construct valid entries and save ourselves a
+        # round-trip later.
         self.flush_stored_entries()
 
         if result is not None:
@@ -841,7 +846,14 @@ class GcsFilesystem:
         self.root_url = self._tool.url + object_prefix_extension
 
     def exists(self, url):
-        return self._tool.blob_from_url(url).exists()
+        # Checking for "existence" on GCS is slightly complicated. If the URL in
+        # question corresponds to a single file, we should find an object with a
+        # matching name. If it corresponds to directory of files, we should find one or
+        # more objects with a matching prefix (the expected name followed by a slash).
+        return any(
+            found_url == url or found_url.startswith(url + "/")
+            for found_url in self.search(url)
+        )
 
     def search(self, url_prefix):
         return [
