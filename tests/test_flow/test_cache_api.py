@@ -4,8 +4,8 @@ import pickle
 
 import bionic as bn
 from bionic import interpret
-from bionic.util.gcs import get_gcs_client_without_warnings
-from bionic.util.urls import (
+from bionic.utils.gcs import get_gcs_client_without_warnings
+from bionic.utils.urls import (
     path_from_url,
     is_file_url,
     is_gcs_url,

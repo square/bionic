@@ -16,7 +16,7 @@ from multiprocessing.managers import SyncManager
 
 from .deps.optdep import import_optional_dependency
 from .oneline import oneline
-from .util.misc import SynchronizedSet
+from .utils.misc import SynchronizedSet
 
 
 class Executor:

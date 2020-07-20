@@ -15,14 +15,14 @@ from pathlib import Path
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import Result
 from .oneline import oneline
-from .util.files import (
+from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
     recursively_copy_path,
 )
-from .util.gcs import GcsTool
-from .util.misc import hash_simple_obj_to_hex
-from .util.urls import (
+from .utils.gcs import GcsTool
+from .utils.misc import hash_simple_obj_to_hex
+from .utils.urls import (
     derelativize_url,
     path_from_url,
     relativize_url,

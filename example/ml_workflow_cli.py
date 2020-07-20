@@ -60,7 +60,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if not args.quiet:
-        bn.util.init_basic_logging()
+        bn.utils.misc.init_basic_logging()
     if args.bucket is not None:
         flow = flow.setting(
             "core__persistent_cache__gcs__bucket_name", args.bucket
