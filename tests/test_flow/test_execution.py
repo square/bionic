@@ -3,7 +3,7 @@ import pytest
 import os
 
 
-@pytest.mark.run_with_all_execution_modes_by_default
+@pytest.mark.allows_parallel
 def test_execution_mode(builder, parallel_execution_enabled):
     @builder
     def pid():

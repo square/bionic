@@ -20,7 +20,7 @@ def log_checker(caplog):
     return LogChecker(caplog)
 
 
-@pytest.mark.run_with_all_execution_modes_by_default
+@pytest.mark.allows_parallel
 def test_logging_details(builder, log_checker, parallel_execution_enabled):
     """
     Test the details of the log messages we emit. Since these messages are currently the

@@ -11,7 +11,7 @@ import bionic as bn
 
 
 # This is detected by pytest and applied to all the tests in this module.
-pytestmark = pytest.mark.run_with_all_execution_modes_by_default
+pytestmark = pytest.mark.allows_parallel
 
 
 class ReadCountingProtocol(bn.protocols.PicklableProtocol):

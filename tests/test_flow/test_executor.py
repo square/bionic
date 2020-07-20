@@ -1,16 +1,7 @@
 import pytest
 
-from ..conftest import ExecutionMode
-
 from bionic.executor import get_singleton_manager, logging_initializer
 from bionic.deps.optdep import import_optional_dependency
-
-
-# TODO use a marker to run parallel execution mode tests.
-# This overrides the fixture defined in conftest.py.
-@pytest.fixture(params=[ExecutionMode.PARALLEL])
-def parallel_execution_enabled(request):
-    return request.param == ExecutionMode.PARALLEL
 
 
 @pytest.fixture
@@ -23,6 +14,7 @@ def loky_executor():
     )
 
 
+@pytest.mark.needs_parallel
 def test_executor_resizes(builder, loky_executor):
     builder.assign("a", 1)
 

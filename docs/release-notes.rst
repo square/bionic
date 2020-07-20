@@ -88,11 +88,16 @@ Bug Fixes
   protocols.)
 
 Improvements
-.........
+............
 
 - Bionic's cache now makes fewer round-trip calls to the storage system (local disk
   or GCS) while reading and writing data. This might (or might not) improve performance
   if your connection to GCS is slow.
+
+Development Changes
+...................
+
+- When parallel tests are not enabled, the extra tests are ignored, not skipped.
 
 0.8.2 (Jul 10, 2020)
 --------------------
