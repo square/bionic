@@ -9,7 +9,7 @@ from concurrent.futures import wait, FIRST_COMPLETED
 import logging
 
 from .task_execution import EntryBlockage, EntryStage, TaskRunnerEntry
-from ..util import SynchronizedSet
+from ..utils.misc import SynchronizedSet
 
 
 # TODO At some point it might be good to have the option of Bionic handling its

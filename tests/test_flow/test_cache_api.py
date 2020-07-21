@@ -4,13 +4,13 @@ import pickle
 
 import bionic as bn
 from bionic import interpret
-from bionic.persistence import (
+from bionic.gcs import get_gcs_client_without_warnings
+from bionic.utils.urls import (
     path_from_url,
     is_file_url,
     is_gcs_url,
     bucket_and_object_names_from_gs_url,
 )
-from bionic.util import get_gcs_client_without_warnings
 
 
 class CacheTester:

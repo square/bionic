@@ -9,7 +9,7 @@ from collections import defaultdict
 from io import BytesIO, IOBase
 
 from .deps.optdep import import_optional_dependency
-from .util import rewrap_docstring
+from .utils.misc import rewrap_docstring
 
 module_purpose = "rendering the flow DAG"
 hsluv = import_optional_dependency("hsluv", purpose=module_purpose)

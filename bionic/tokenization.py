@@ -3,7 +3,7 @@ Contains a tokenize() function which can be used to convert arbitrary values
 into nice strings, suitable for use as filenames.
 """
 
-from .util import hash_to_hex
+from .utils.misc import hash_to_hex
 
 
 def char_range(first, last):

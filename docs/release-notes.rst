@@ -72,6 +72,15 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
+Deprecated Features
+...................
+
+- The utility function ``bionic.util.init_basic_logging`` has been moved to
+  ``bionic.utils.misc.init_basic_logging`. However, the original name is still
+  supported for now. (The only reason we mention this here and provide a deprecation
+  path is because this function is currently mentioned in our documentation. Other
+  internal functions are regularly moved and renamed without comment.)
+
 New Features
 ............
 

@@ -4,7 +4,7 @@ Contains various data structures used by Bionic's infrastructure.
 
 import attr
 
-from .util import ImmutableSequence, ImmutableMapping
+from .utils.misc import ImmutableSequence, ImmutableMapping
 
 
 @attr.s(frozen=True)

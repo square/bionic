@@ -3,25 +3,29 @@ This module provides local and cloud storage of computed values.  The main
 point of entry is the PersistentCache, which encapsulates this functionality.
 """
 
-from hashlib import sha256
 import attr
 import os
 import shutil
-import subprocess
 import tempfile
 import yaml
 import warnings
 from uuid import uuid4
 from pathlib import Path
-from urllib.parse import urlparse
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import Result
-from .util import (
-    get_gcs_client_without_warnings,
+from .gcs import GcsTool
+from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
-    oneline,
+    recursively_copy_path,
+)
+from .utils.misc import hash_simple_obj_to_hex, oneline
+from .utils.urls import (
+    derelativize_url,
+    path_from_url,
+    relativize_url,
+    url_from_path,
 )
 from .tokenization import tokenize
 
@@ -797,13 +801,13 @@ class FakeCloudStore(LocalStore):
         src_path = path
         dst_path = path_from_url(url)
 
-        recursive_file_copy(src_path, dst_path)
+        recursively_copy_path(src_path, dst_path)
 
     def download(self, path, url):
         src_path = path_from_url(url)
         dst_path = path
 
-        recursive_file_copy(src_path, dst_path)
+        recursively_copy_path(src_path, dst_path)
 
 
 class LocalFilesystem:
@@ -892,76 +896,6 @@ class GcsFilesystem:
 
     def read_bytes(self, url):
         return self._tool.blob_from_url(url).download_as_string()
-
-
-class GcsTool:
-    """
-    A helper object providing utility methods for accessing GCS.  Maintains
-    a GCS client, and a prefix defining a default namespace to read/write on.
-    """
-
-    _GS_URL_PREFIX = "gs://"
-
-    def __init__(self, url):
-        if url.endswith("/"):
-            url = url[:-1]
-        self.url = url
-        bucket_name, object_prefix = bucket_and_object_names_from_gs_url(url)
-
-        self._bucket_name = bucket_name
-        self._object_prefix = object_prefix
-        self._init_client()
-
-    def __getstate__(self):
-        # Copy the object's state from self.__dict__ which contains
-        # all our instance attributes. Always use the dict.copy()
-        # method to avoid modifying the original state.
-        state = self.__dict__.copy()
-        # Remove the unpicklable entries.
-        del state["_client"]
-        del state["_bucket"]
-        return state
-
-    def __setstate__(self, state):
-        # Restore instance attributes.
-        self.__dict__.update(state)
-        # Restore the client and bucket.
-        self._init_client()
-
-    def _init_client(self):
-        self._client = get_gcs_client_without_warnings()
-        self._bucket = self._client.get_bucket(self._bucket_name)
-
-    def blob_from_url(self, url):
-        object_name = self._validated_object_name_from_url(url)
-        return self._bucket.blob(object_name)
-
-    def url_from_object_name(self, object_name):
-        return self._GS_URL_PREFIX + self._bucket.name + "/" + object_name
-
-    def blobs_matching_url_prefix(self, url_prefix):
-        obj_prefix = self._validated_object_name_from_url(url_prefix)
-        return self._bucket.list_blobs(prefix=obj_prefix)
-
-    def gsutil_cp(self, src_url, dst_url):
-        args = [
-            "gsutil",
-            "-q",  # Don't log anything but errors.
-            "-m",  # Transfer files in paralle.
-            "cp",
-            "-r",  # Recursively sync sub-directories.
-            src_url,
-            dst_url,
-        ]
-        logger.debug("Running command: %s" % " ".join(args))
-        subprocess.check_call(args)
-        logger.debug("Finished running gsutil")
-
-    def _validated_object_name_from_url(self, url):
-        bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
-        assert bucket_name == self._bucket.name
-        assert object_name.startswith(self._object_prefix)
-        return object_name
 
 
 class InternalCacheStateError(Exception):
@@ -1182,115 +1116,3 @@ class Provenance:
 
     def dependencies_exactly_match(self, prov):
         return self.exact_deps_hash == prov.exact_deps_hash
-
-
-# Helpers for managing files.
-FILE_SCHEME = "file"
-GCS_SCHEME = "gs"
-SUPPORTED_SCHEMES = [FILE_SCHEME, GCS_SCHEME]
-
-
-def is_file_url(url):
-    result = urlparse(url)
-    return result.scheme == FILE_SCHEME
-
-
-def is_gcs_url(url):
-    result = urlparse(url)
-    return result.scheme == GCS_SCHEME
-
-
-def is_absolute_url(url):
-    result = urlparse(url)
-    if not result.scheme:
-        return False
-    if result.scheme not in SUPPORTED_SCHEMES:
-        raise ValueError(f"Found a URL with unsupported scheme {result.scheme!r}.")
-    return True
-
-
-def path_from_url(url):
-    result = urlparse(url)
-    return Path(result.path)
-
-
-def url_from_path(path):
-    return Path(path).as_uri()
-
-
-def bucket_and_object_names_from_gs_url(url):
-    if not is_gcs_url(url):
-        raise ValueError(f'url must have schema "{GCS_SCHEME}": got {url}')
-    result = urlparse(url)
-    result_path = result.path
-    return result.netloc, result_path[1:]
-
-
-def recursive_file_copy(src_path, dst_path):
-    ensure_parent_dir_exists(dst_path)
-    if src_path.is_file():
-        shutil.copy(str(src_path), str(dst_path))
-    else:
-        shutil.copytree(str(src_path), str(dst_path))
-
-
-# Helpers for generating hashes from objects.
-def hash_simple_obj_to_hex(obj):
-    """
-    Generates a hash digest of an object, as a hex string.  The object must
-    be a "simple" type, i.e., of one of the following types: None, text, bytes,
-    int, or a list or dict of simple types.
-    """
-
-    hash_ = sha256()
-    try:
-        update_hash(hash_, obj)
-    except ValueError as e:
-        raise ValueError(f"{e} (full object was {obj!r})")
-    return hash_.hexdigest()
-
-
-def update_hash(hash_, obj):
-    if obj is None:
-        hash_.update(b"N")
-    elif isinstance(obj, str):
-        hash_.update(b"S")
-        hash_.update(obj.encode("utf8"))
-    elif isinstance(obj, bytes):
-        hash_.update(b"B")
-        hash_.update(obj.encode("utf8"))
-    elif isinstance(obj, int):
-        hash_.update(b"I")
-        hash_.update(str(obj).encode("utf8"))
-    elif isinstance(obj, list):
-        hash_.update(b"L")
-        for item in obj:
-            update_hash(hash_, item)
-    elif isinstance(obj, dict):
-        hash_.update(b"D")
-        for key, value in obj.items():
-            update_hash(hash_, key)
-            update_hash(hash_, value)
-    else:
-        raise ValueError(f"Unable to hash object {obj!r} of type {type(obj)!r}")
-
-
-def relativize_url(artifact_url, metadata_url):
-    """Returns the relative artifact url wrt to metadata url
-    when both urls are file urls. Otherwise, returns the original url."""
-    if not is_file_url(artifact_url) or not is_file_url(metadata_url):
-        return artifact_url
-    artifact_path = path_from_url(artifact_url)
-    metadata_path = path_from_url(metadata_url)
-    return os.path.relpath(artifact_path, metadata_path.parent)
-
-
-def derelativize_url(artifact_url, metadata_url):
-    """Returns the absolute artifact url when it is relative wrt metadata url.
-    Otherwise returns the original url."""
-    if is_absolute_url(artifact_url):
-        return artifact_url
-    metadata_path = path_from_url(metadata_url)
-    artifact_path = path_from_url(artifact_url)
-    abspath = os.path.normpath(metadata_path.parent.joinpath(artifact_path))
-    return url_from_path(abspath)
