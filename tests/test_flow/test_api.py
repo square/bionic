@@ -2,7 +2,7 @@ import pytest
 from pytest import raises
 
 import io
-import pickle
+import json
 from pathlib import Path
 import contextlib
 import threading
@@ -424,12 +424,12 @@ def test_get_modes_persisted(preset_flow, name, tmp_path):
 
     for mode in [Path, "path"]:
         path = flow.get(name, mode=mode)
-        assert pickle.loads(path.read_bytes()) == 1
+        assert json.loads(path.read_bytes()) == 1
 
     flow.get(name, mode="FileCopier").copy(destination=tmp_path)
-    serialized_fname = name + ".pkl"
+    serialized_fname = name + ".json"
     expected_file_path = tmp_path / serialized_fname
-    assert pickle.loads(expected_file_path.read_bytes()) == 1
+    assert json.loads(expected_file_path.read_bytes()) == 1
 
     filename = flow.get(name, mode="filename")
     assert isinstance(filename, str)
@@ -458,16 +458,16 @@ def test_export(preset_flow, tmp_path, recwarn):
     flow = preset_flow
 
     value_path = flow.export("y_fxn")
-    assert value_path.name == "y_fxn.pkl"
-    assert pickle.loads(value_path.read_bytes()) == 1
+    assert value_path.name == "y_fxn.json"
+    assert json.loads(value_path.read_bytes()) == 1
 
     flow.export("y_fxn", dir_path=tmp_path)
-    expected_path = tmp_path / "y_fxn.pkl"
-    assert pickle.loads(expected_path.read_bytes()) == 1
+    expected_path = tmp_path / "y_fxn.json"
+    assert json.loads(expected_path.read_bytes()) == 1
 
     explicit_path = tmp_path / "some_filename"
     flow.export("y_fxn", file_path=explicit_path)
-    assert pickle.loads(explicit_path.read_bytes()) == 1
+    assert json.loads(explicit_path.read_bytes()) == 1
 
     (warning,) = recwarn
     assert "deprecated" in str(warning.message)

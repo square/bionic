@@ -584,6 +584,8 @@ object types it's more efficient or more idiomatic to use a different format.
 There are also some types of objects that can't be pickled at all.  Bionic uses
 ``pickle`` by default, but handles some types specially:
 
+- `JSON <https://www.json.org/json-en.html>`_-serializable built-in types (int, float,
+  str, bool, list, and dict) are serialized as JSON files.
 - `Pandas <https://pandas.pydata.org/>`_ DataFrames are serialized as
   `Parquet <https://parquet.apache.org/>`_ files.
 - `NumPy <https://numpy.org/>`_ Arrays are serialized as `NPY

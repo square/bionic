@@ -11,6 +11,7 @@ numpy = protocols.NumPyProtocol()  # noqa: F401
 yaml = protocols.YamlProtocol()  # noqa: F401
 path = protocols.PathProtocol()  # noqa: F401
 geodataframe = protocols.GeoPandasProtocol()  # noqa: F401
+json = protocols.JsonProtocol()  # noqa: F401
 
 
 def frame(func=None, file_format=None, check_dtypes=None):

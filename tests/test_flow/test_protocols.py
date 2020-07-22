@@ -22,6 +22,18 @@ from bionic.protocols import CombinedProtocol, PicklableProtocol
 from bionic.utils.files import recursively_delete_path
 
 
+JSONABLE_VALUES = [
+    None,
+    1,
+    1.1,
+    "string",
+    True,
+    [1, 2, [3]],
+    {"a": 1, "b": {"c": [2]}, "d": None},
+    {"ń": "ņ"},
+]
+
+
 PICKLABLE_VALUES = [
     1,
     "string",
@@ -52,6 +64,34 @@ def test_picklable_value(builder, make_counter, protocol, value):
     assert builder.build().get("picklable_value") == value
     assert builder.build().get("picklable_value") == value
     assert counter.times_called() == 1
+
+
+@pytest.mark.parametrize("value", JSONABLE_VALUES)
+@pytest.mark.parametrize("protocol", [bn.protocol.json, passthrough])
+def test_jsonable_value(builder, make_counter, protocol, value):
+    counter = make_counter()
+
+    @builder
+    @protocol
+    @count_calls(counter)
+    def jsonable_value():
+        return value
+
+    assert builder.build().get("jsonable_value") == value
+    assert builder.build().get("jsonable_value") == value
+    assert counter.times_called() == 1
+
+
+def test_non_jsonable_value_fails(builder):
+    @builder
+    @bn.protocol.json
+    def non_jsonable_value():
+        circular_ref_array = [1]
+        circular_ref_array.append(circular_ref_array)
+        return circular_ref_array
+
+    with pytest.raises(RecursionError):
+        builder.build().get("non_jsonable_value")
 
 
 def test_picklable_with_parens(builder, make_counter):
