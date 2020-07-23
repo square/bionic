@@ -4,15 +4,17 @@ to completion.
 """
 
 from concurrent.futures import wait, FIRST_COMPLETED
-
 import logging
 
 from .task_execution import (
     EntryLevel,
+    EntryPriority,
     EntryStage,
     EntryRequirement,
+    RemoteSubgraph,
     TaskRunnerEntry,
 )
+from ..utils.keyed_priority_stack import KeyedPriorityStack
 from ..utils.misc import SynchronizedSet
 
 
@@ -23,9 +25,9 @@ from ..utils.misc import SynchronizedSet
 logger = logging.getLogger(__name__)
 
 
-def run_in_subprocess(task_completion_runner, state):
-    task_completion_runner.run([state])
-    return state.task.keys[0]
+def run_in_subprocess(task_completion_runner, states):
+    task_completion_runner.run(states)
+    return [state.task_keys[0] for state in states]
 
 
 class TaskCompletionRunner:
@@ -58,10 +60,10 @@ class TaskCompletionRunner:
 
         # These are used for caching and tracking.
         self._entries_by_task_key = {}
-        self._pending_entries = []
-        self._in_progress_entries = {}
-        # TODO This is a set but _in_progress_entries is a dict. Could they both be
-        # sets?
+        self._pending_entries_kps = KeyedPriorityStack()
+        self._in_progress_entries_by_task_key = {}
+        # TODO This is a set but _in_progress_entries_by_task_key is a dict. Could they
+        # both be sets?
         self._blocked_entries = set()
 
     @property
@@ -83,10 +85,10 @@ class TaskCompletionRunner:
             while self._has_pending_entries():
                 entry = self._activate_next_pending_entry()
                 self._process_active_entry(entry)
-                assert entry.stage != EntryStage.ACTIVE
+                assert entry.stage != EntryStage.ACTIVE, entry
 
-            assert len(self._pending_entries) == 0
-            assert len(self._in_progress_entries) == 0
+            assert len(self._pending_entries_kps) == 0
+            assert len(self._in_progress_entries_by_task_key) == 0
             assert len(self._blocked_entries) == 0
 
             results = {}
@@ -110,14 +112,13 @@ class TaskCompletionRunner:
 
         assert entry.stage == EntryStage.ACTIVE
 
-        # In theory we could have an entry that doesn't require priming, but in practice
-        # we always require it when we create one.
-        assert entry.required_level >= EntryLevel.PRIMED
+        # In theory we could have an entry that doesn't require initializing, but in
+        # practice we always require at least that much when we create one.
+        assert entry.required_level >= EntryLevel.INITIALIZED
 
         # First, if we've already met our requirements, we can stop immediately without
         # needing to process any dependencies.
-        if entry.all_incoming_reqs_are_met:
-            self._mark_entry_completed(entry)
+        if self._mark_entry_completed_if_possible(entry):
             return
 
         # Otherwise, we can't do anything more without the digests of our dependencies,
@@ -125,12 +126,15 @@ class TaskCompletionRunner:
         self._set_up_entry_dependencies(entry)
         for dep_entry in entry.dep_entries:
             self._add_requirement(entry, dep_entry, EntryLevel.PRIMED)
-        if not entry.all_outgoing_reqs_are_met:
-            self._mark_entry_blocked(entry)
+        if self._mark_entry_blocked_if_necessary(entry):
             return
 
         # Now that we have the dependency digests, we can initialize our task state.
         entry.state.initialize(self._bootstrap, self._flow_instance_uuid)
+
+        # If that was all we needed, we're done.
+        if self._mark_entry_completed_if_possible(entry):
+            return
 
         # If this entry is persistable, we may be able to load it from the persistent
         # cache, which would immediately get us to the CACHED level.
@@ -143,8 +147,7 @@ class TaskCompletionRunner:
             assert entry.level >= EntryLevel.PRIMED
 
         # If that was all we needed, we're done.
-        if entry.all_incoming_reqs_are_met:
-            self._mark_entry_completed(entry)
+        if self._mark_entry_completed_if_possible(entry):
             return
 
         # At this point we'll need to actually compute the entry. If possible, we
@@ -155,8 +158,67 @@ class TaskCompletionRunner:
             and not entry.state.task.is_simple_lookup
         )
         if can_compute_remotely:
-            new_state_for_subprocess = entry.state.strip_state_for_subprocess()
-            # We want serial execution in the subprocesses.
+            # When we run an entry remotely, we also need to run all of its immediate
+            # non-persistable ancestors, since their values can't be shared between
+            # processes. Those ancestors may have follow-up tasks, so we'll need to
+            # run those too; and if those follow-ups are persistable (but not actually
+            # persisted yet), their values will be usable everywhere, so we'll want to
+            # track the fact that they're running. So really we're going to run a
+            # collection of persistable entries (including the original entry), plus
+            # their immediate non-persistable ancestors.
+            remote_subgraph = RemoteSubgraph(entry.state, self._bootstrap)
+            target_entries = [
+                self._get_or_create_entry_for_state(persistable_subgraph_state)
+                for persistable_subgraph_state in remote_subgraph.persistable_but_not_persisted_states
+            ]
+            assert entry in target_entries
+
+            # We want all of our entries to be initialized before we try running
+            # them remotely. We'll just require this of the persistable ones, since
+            # all the other ones are ancestors of them.
+            for target_entry in target_entries:
+                if target_entry == entry:
+                    assert target_entry.level >= EntryLevel.INITIALIZED
+                else:
+                    self._add_requirement(
+                        src_entry=entry,
+                        dst_entry=target_entry,
+                        level=EntryLevel.INITIALIZED,
+                    )
+            if self._mark_entry_blocked_if_necessary(entry):
+                return
+
+            for target_entry in target_entries:
+                # Now we'll also require that each entry be CACHED, which guarantees
+                # that it won't be COMPLETED. (If we didn't do this, the entry's
+                # required level might only be INITIALIZED, in which case it would
+                # already be COMPLETED. However, we know it's not already CACHED,
+                # because it's `persistable_but_not_persisted`.)
+                self._add_requirement(
+                    src_entry=None,
+                    dst_entry=target_entry,
+                    level=EntryLevel.CACHED,
+                )
+                if target_entry.stage == EntryStage.PENDING:
+                    self._mark_entry_active(target_entry)
+                # The entry should now be ACTIVE, because:
+                # - It can't be COMPLETED because of the requirement we added above.
+                # - It can't be PENDING because we would have just activated it above.
+                # - It shouldn't be BLOCKED, because:
+                #   - we already required the entry to be at least INITIALIZED, and
+                #   - it should also be eligible for remote computation and part of the
+                #     same subgraph as this one, so it shouldn't have any additional
+                #     requirements compared to the original entry.
+                # - It shouldn't be IN_PROGRESS, because if it's a target entry for our
+                #    our original entry, then the reverse should also be true (it's a
+                #    symmetric relationship), so our original entry would already be
+                #    IN_PROGRESS or COMPLETED too.
+                assert target_entry.stage == EntryStage.ACTIVE
+
+            stripped_target_states = [
+                remote_subgraph.get_stripped_state(target_entry.state)
+                for target_entry in target_entries
+            ]
             new_bootstrap = self._bootstrap.evolve(executor=None)
             new_task_completion_runner = TaskCompletionRunner(
                 bootstrap=new_bootstrap,
@@ -166,21 +228,22 @@ class TaskCompletionRunner:
             future = self._bootstrap.executor.submit(
                 run_in_subprocess,
                 new_task_completion_runner,
-                new_state_for_subprocess,
+                stripped_target_states,
             )
-            self._mark_entry_in_progress(entry, future)
+
+            for target_entry in target_entries:
+                self._mark_entry_in_progress(target_entry, future)
             return
 
         # Otherwise we'll compute this entry locally. In that case, it's not enough
         # for our dependencies to be primed; they also need to have cached values.
         for dep_entry in entry.dep_entries:
             self._add_requirement(entry, dep_entry, EntryLevel.CACHED)
-        if not entry.all_outgoing_reqs_are_met:
-            self._mark_entry_blocked(entry)
+        if self._mark_entry_blocked_if_necessary(entry):
             return
+
         entry.compute(self.task_key_logger)
-        assert entry.all_incoming_reqs_are_met
-        self._mark_entry_completed(entry)
+        assert self._mark_entry_completed_if_possible(entry)
 
     def _set_up_entry_dependencies(self, entry):
         if entry.dep_entries is not None:
@@ -199,8 +262,27 @@ class TaskCompletionRunner:
             req.src_entry.outgoing_reqs.add(req)
         req.dst_entry.incoming_reqs.add(req)
         if not req.is_met:
+            if req.src_entry is not None:
+                self._raise_entry_priority(req.dst_entry, req.src_entry.priority)
             if req.dst_entry.stage == EntryStage.COMPLETED:
                 self._mark_entry_pending(req.dst_entry)
+
+    def _raise_entry_priority(self, entry, new_priority):
+        if entry.priority >= new_priority:
+            return
+
+        entry.priority = new_priority
+
+        if entry.stage == EntryStage.PENDING:
+            task_key = entry.state.task_keys[0]
+            self._pending_entries_kps.pop(task_key)
+            self._pending_entries_kps.push(
+                key=task_key, value=entry, priority=new_priority
+            )
+
+        for req in entry.outgoing_reqs:
+            if not req.is_met:
+                self._raise_entry_priority(req.dst_entry, new_priority)
 
     def _get_or_create_entry_for_state(self, state):
         task_key = state.task_keys[0]
@@ -217,27 +299,87 @@ class TaskCompletionRunner:
         # While there are no entries in the to-process stack but have any in-progress ones,
         # let's wait for in-progress entries to finish till we find an entry to process or
         # exhaust all in-progress entries.
-        while len(self._pending_entries) == 0 and len(self._in_progress_entries) != 0:
+        while (
+            len(self._pending_entries_kps) == 0
+            and len(self._in_progress_entries_by_task_key) != 0
+        ):
             self._wait_on_in_progress_entries()
-        return len(self._pending_entries) != 0
+        return len(self._pending_entries_kps) != 0
 
     def _activate_next_pending_entry(self):
-        assert len(self._pending_entries) != 0
-        next_entry = self._pending_entries.pop()
+        assert len(self._pending_entries_kps) != 0
+        next_entry = self._pending_entries_kps.pop()
         assert next_entry.stage == EntryStage.PENDING
 
         next_entry.stage = EntryStage.ACTIVE
         return next_entry
 
+    def _mark_entry_active(self, entry):
+        assert entry.stage == EntryStage.PENDING
+
+        task_key = entry.state.task_keys[0]
+        self._pending_entries_kps.pop(task_key)
+
+        entry.stage = EntryStage.ACTIVE
+
     def _wait_on_in_progress_entries(self):
         "Waits on any in-progress entry to finish."
-        futures = [entry.future for entry in self._in_progress_entries.values()]
+        futures = set(
+            entry.future for entry in self._in_progress_entries_by_task_key.values()
+        )
         finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
         for finished_future in finished_futures:
-            task_key = finished_future.result()
-            entry = self._entries_by_task_key[task_key]
-            entry.state.sync_after_subprocess_computation()
-            self._mark_entry_completed(entry)
+            task_keys = finished_future.result()
+            for task_key in task_keys:
+                entry = self._entries_by_task_key[task_key]
+                entry.state.sync_after_remote_computation()
+                assert self._mark_entry_completed_if_possible(entry)
+
+    def _mark_entry_completed_if_possible(self, entry):
+        assert entry.stage in [EntryStage.ACTIVE, EntryStage.IN_PROGRESS]
+
+        for req in entry.incoming_reqs:
+            if req.is_met:
+                if (
+                    req.src_entry is not None
+                    and req.src_entry.stage == EntryStage.BLOCKED
+                    and req.src_entry.all_outgoing_reqs_are_met
+                ):
+                    self._mark_entry_pending(req.src_entry)
+        if not entry.all_incoming_reqs_are_met:
+            return False
+
+        if entry.stage == EntryStage.IN_PROGRESS:
+            entry.future = None
+            del self._in_progress_entries_by_task_key[entry.state.task_keys[0]]
+
+        if entry.level >= EntryLevel.CACHED:
+            # If we have any followup tasks, we want to run them immediately.
+            for followup_state in entry.state.followup_states:
+                followup_entry = self._get_or_create_entry_for_state(followup_state)
+                self._raise_entry_priority(followup_entry, EntryPriority.HIGH)
+                self._add_requirement(
+                    src_entry=None,
+                    dst_entry=followup_entry,
+                    level=EntryLevel.CACHED,
+                )
+
+        entry.stage = EntryStage.COMPLETED
+
+        # TODO This might be a good place to prune old, already-met requirements.
+
+        return True
+
+    def _mark_entry_blocked_if_necessary(self, entry):
+        assert entry.stage == EntryStage.ACTIVE
+
+        if entry.all_outgoing_reqs_are_met:
+            return False
+
+        entry.stage = EntryStage.BLOCKED
+        self._blocked_entries.add(entry)
+
+        return True
 
     def _mark_entry_pending(self, pending_entry):
         assert pending_entry.stage in (EntryStage.BLOCKED, EntryStage.COMPLETED)
@@ -246,46 +388,24 @@ class TaskCompletionRunner:
             self._blocked_entries.remove(pending_entry)
 
         pending_entry.stage = EntryStage.PENDING
-        self._pending_entries.append(pending_entry)
-
-    def _mark_entry_blocked(self, blocked_entry):
-        assert blocked_entry.stage == EntryStage.ACTIVE
-        assert not blocked_entry.all_outgoing_reqs_are_met
-        blocked_entry.stage = EntryStage.BLOCKED
-        self._blocked_entries.add(blocked_entry)
+        self._pending_entries_kps.push(
+            key=pending_entry.state.task_keys[0],
+            value=pending_entry,
+            priority=pending_entry.priority,
+        )
 
     def _mark_entry_in_progress(self, in_progress_entry, future):
         assert in_progress_entry.stage == EntryStage.ACTIVE
         assert in_progress_entry.future is None
-        # TODO This assert is pointless because _in_progress_entries is a dict keyed by
-        # task key.
-        assert in_progress_entry not in self._in_progress_entries
+        # TODO This assert is pointless because _in_progress_entries_by_task_key is a
+        # dict keyed by task key.
+        assert in_progress_entry not in self._in_progress_entries_by_task_key
 
         in_progress_entry.stage = EntryStage.IN_PROGRESS
         in_progress_entry.future = future
-        self._in_progress_entries[
-            in_progress_entry.state.task.keys[0]
+        self._in_progress_entries_by_task_key[
+            in_progress_entry.state.task_keys[0]
         ] = in_progress_entry
-
-    def _mark_entry_completed(self, completed_entry):
-        assert completed_entry.stage in [EntryStage.ACTIVE, EntryStage.IN_PROGRESS]
-
-        if completed_entry.stage == EntryStage.IN_PROGRESS:
-            completed_entry.future = None
-            del self._in_progress_entries[completed_entry.state.task.keys[0]]
-
-        completed_entry.stage = EntryStage.COMPLETED
-
-        for req in completed_entry.incoming_reqs:
-            assert req.is_met
-            if (
-                req.src_entry is not None
-                and req.src_entry.stage == EntryStage.BLOCKED
-                and req.src_entry.all_outgoing_reqs_are_met
-            ):
-                self._mark_entry_pending(req.src_entry)
-
-        # TODO This might be a good place to prune old, already-met requirements.
 
 
 class TaskKeyLogger:

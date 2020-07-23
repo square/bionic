@@ -642,7 +642,7 @@ class CombinedProtocol(BaseProtocol):
         self._protocol_for_value(value).write(value, path)
 
     def __repr__(self):
-        return f"CombinedProtocol{tuple(self._subprotocols)!r}"
+        return "CombinedProtocol(...)"
 
 
 class TypeProtocol(PicklableProtocol):

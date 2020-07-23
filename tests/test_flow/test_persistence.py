@@ -1203,6 +1203,53 @@ def test_multiple_outputs_all_persisted_at_once(builder, make_counter):
     assert counter.times_called() == 1
 
 
+def test_complex_tuple_outputs_all_persisted_at_once(builder, make_counter):
+    counter = make_counter()
+
+    @builder
+    @bn.returns("w, ((x, y), z)")
+    @counter
+    def w_x_y_z():
+        return (1, ((2, 3), 4))
+
+    assert builder.build().get("w") == 1
+    assert builder.build().get("x") == 2
+    assert builder.build().get("y") == 3
+    assert builder.build().get("z") == 4
+    assert counter.times_called() == 1
+
+
+def test_complex_flow_outputs_all_persisted_at_once(builder, make_counter):
+    builder.assign("a_minus_one", values=[2, 3, 4])
+
+    a_counter = make_counter()
+    ax_counter = make_counter()
+    a_something_x_counter = make_counter()
+
+    @builder
+    @a_counter
+    def a(a_minus_one):
+        return a_minus_one + 1
+
+    @builder
+    @bn.persist(False)
+    @ax_counter
+    def x():
+        return 2
+
+    @builder
+    @bn.returns("(a_plus_x, a_minus_x), a_times_x")
+    @a_something_x_counter
+    def a_something_x(a, x):
+        return ((a + x), (a - x)), (a * x)
+
+    assert builder.build().get("a_plus_x", collection=set) == {5, 6, 7}
+    assert builder.build().get("a_minus_x", collection=set) == {1, 2, 3}
+    assert builder.build().get("a_times_x", collection=set) == {6, 8, 10}
+    assert a_counter.times_called() == 3
+    assert a_something_x_counter.times_called() == 3
+
+
 def test_avoid_recomputing_nonpersisted_dep(builder, make_counter):
     a_counter = make_counter()
 
