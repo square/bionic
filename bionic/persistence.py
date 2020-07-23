@@ -326,6 +326,8 @@ class CacheAccessor:
         logger.info("Uploading %s to GCS ...", self.query.task_key)
         try:
             self._cloud.upload(file_path, blob_url)
+        except BrokenPipeError:
+            raise BrokenPipeError("Dropped connection to GCS. Retry running the flow")
         except Exception as e:
             raise InternalCacheStateError.from_failure("artifact file", file_path, e)
 
