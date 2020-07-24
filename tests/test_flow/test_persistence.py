@@ -3,7 +3,7 @@ import pytest
 import math
 import threading
 
-from ..helpers import RoundingProtocol, count_calls
+from ..helpers import RoundingProtocol
 from bionic.exception import AttributeValidationError, CodeVersioningError
 from bionic.protocols import PicklableProtocol
 
@@ -37,7 +37,7 @@ def test_caching_and_invalidation(builder, make_counter, parallel_execution_enab
     xy_counter = make_counter()
 
     @builder
-    @count_calls(xy_counter)
+    @xy_counter
     def xy(x, y):
         return x * y
 
@@ -45,14 +45,14 @@ def test_caching_and_invalidation(builder, make_counter, parallel_execution_enab
 
     @builder
     @bn.persist(False)
-    @count_calls(yz_counter)
+    @yz_counter
     def yz(y, z):
         return y * z
 
     xy_plus_yz_counter = make_counter()
 
     @builder
-    @count_calls(xy_plus_yz_counter)
+    @xy_plus_yz_counter
     def xy_plus_yz(xy, yz):
         return xy + yz
 
@@ -678,7 +678,7 @@ def test_all_returned_results_are_deserialized(builder, make_counter):
 
     @builder
     @RoundingProtocol()
-    @count_calls(counter)
+    @counter
     def pi():
         return math.pi
 
@@ -731,21 +731,21 @@ def test_deps_not_called_when_values_not_changed(builder, make_counter):
     xy_counter = make_counter()
 
     @builder
-    @count_calls(xy_counter)
+    @xy_counter
     def xy(x, y):
         return x * y
 
     yz_counter = make_counter()
 
     @builder
-    @count_calls(yz_counter)
+    @yz_counter
     def yz(y, z):
         return y * z
 
     xy_plus_yz_counter = make_counter()
 
     @builder
-    @count_calls(xy_plus_yz_counter)
+    @xy_plus_yz_counter
     def xy_plus_yz(xy, yz):
         return xy + yz
 
@@ -777,7 +777,7 @@ def test_gather_cache_invalidation(builder, make_counter):
 
     @builder
     @bn.gather("x", "x", "df")
-    @count_calls(counter)
+    @counter
     def z(df, y):
         return df["x"].sum() + y
 
@@ -803,7 +803,7 @@ def test_gather_cache_invalidation_with_over_vars(builder, make_counter):
 
     @builder
     @bn.gather("x", "y", "df")
-    @count_calls(counter)
+    @counter
     def z(df):
         return df.sum().sum()
 
@@ -843,7 +843,7 @@ def test_complex_input_type(builder, make_counter):
     counter = make_counter()
 
     @builder
-    @count_calls(counter)
+    @counter
     def x_plus_y(x, y):
         return x + y
 
@@ -868,7 +868,7 @@ def test_persisting_none(builder, make_counter):
     counter = make_counter()
 
     @builder
-    @count_calls(counter)
+    @counter
     def none():
         return None
 
@@ -884,7 +884,7 @@ def test_disable_memory_caching(builder, make_counter):
     @builder
     @protocol
     @bn.memoize(False)
-    @count_calls(counter)
+    @counter
     def x():
         return 1
 
@@ -898,7 +898,7 @@ def test_disable_memory_caching(builder, make_counter):
     @protocol
     @bn.persist(False)
     @bn.memoize(False)
-    @count_calls(counter)
+    @counter
     def x():  # noqa: F811
         return 1
 
@@ -916,7 +916,7 @@ def test_disable_default_memory_caching(builder, make_counter):
 
     @builder
     @x_protocol
-    @count_calls(x_counter)
+    @x_counter
     def x():
         return 1
 
@@ -935,7 +935,7 @@ def test_disable_default_memory_caching(builder, make_counter):
 
     @builder
     @y_protocol
-    @count_calls(y_counter)
+    @y_counter
     def y():
         return 2
 
@@ -953,7 +953,7 @@ def test_disable_default_memory_caching(builder, make_counter):
     @builder
     @z_protocol
     @bn.memoize(True)
-    @count_calls(z_counter)
+    @z_counter
     def z():
         return 3
 
@@ -1010,7 +1010,7 @@ def test_changes_per_run_and_not_persist(
     @builder
     @bn.persist(False)
     @bn.changes_per_run
-    @count_calls(x_plus_one_counter)
+    @x_plus_one_counter
     def x_plus_one(x):
         return x + 1
 
@@ -1018,21 +1018,21 @@ def test_changes_per_run_and_not_persist(
 
     @builder
     @bn.persist(False)
-    @count_calls(x_plus_two_counter)
+    @x_plus_two_counter
     def x_plus_two(x_plus_one):
         return x_plus_one + 1
 
     x_plus_three_counter = make_counter()
 
     @builder
-    @count_calls(x_plus_three_counter)
+    @x_plus_three_counter
     def x_plus_three(x_plus_two):
         return x_plus_two + 1
 
     x_plus_four_counter = make_counter()
 
     @builder
-    @count_calls(x_plus_four_counter)
+    @x_plus_four_counter
     def x_plus_four(x_plus_three):
         return x_plus_three + 1
 
@@ -1082,7 +1082,7 @@ def test_changes_per_run_and_persist(builder, make_counter, parallel_execution_e
 
     @builder
     @bn.changes_per_run
-    @count_calls(x_plus_one_counter)
+    @x_plus_one_counter
     def x_plus_one(x):
         return x + 1
 
@@ -1090,14 +1090,14 @@ def test_changes_per_run_and_persist(builder, make_counter, parallel_execution_e
 
     @builder
     @bn.persist(False)
-    @count_calls(x_plus_two_counter)
+    @x_plus_two_counter
     def x_plus_two(x_plus_one):
         return x_plus_one + 1
 
     x_plus_three_counter = make_counter()
 
     @builder
-    @count_calls(x_plus_three_counter)
+    @x_plus_three_counter
     def x_plus_three(x_plus_two):
         return x_plus_two + 1
 
@@ -1139,7 +1139,7 @@ def test_changes_per_run_and_not_memoize(builder, make_counter):
     @bn.memoize(False)
     @bn.persist(False)
     @bn.changes_per_run
-    @count_calls(counter)
+    @counter
     def x_plus_one(x):
         return x + 1
 
@@ -1197,14 +1197,14 @@ def test_updating_cache_works_only_with_immediate(builder):
 
 
 def test_multiple_outputs_all_persisted_at_once(builder, make_counter):
-    call_counter = make_counter()
+    counter = make_counter()
 
     @builder
     @bn.outputs("x", "y")
-    @count_calls(call_counter)
+    @counter
     def x_y():
         return 1, 2
 
     assert builder.build().get("x") == 1
     assert builder.build().get("y") == 2
-    assert call_counter.times_called() == 1
+    assert counter.times_called() == 1

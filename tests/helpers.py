@@ -4,9 +4,9 @@ import re
 import subprocess
 import shutil
 
+from decorator import decorate
 import pandas as pd
 from pandas import testing as pdt
-from decorator import decorate
 
 import bionic as bn
 
@@ -45,50 +45,62 @@ def df_from_csv_str(string):
     return pd.read_csv(BytesIO(bytestring))
 
 
-def count_calls(counter):
-    """
-    A decorator which counts the number of times the decorated function is
-    called using the counter argument.
-    """
-
-    def call_counts_inner(func):
-        def wrapper(func, *args, **kwargs):
-            counter.mark()
-            return func(*args, **kwargs)
-
-        wrapped = decorate(func, wrapper)
-        counter.reset()
-        return wrapped
-
-    return call_counts_inner
-
-
-class ResettingCounter:
+class SimpleCounter:
     """
     A class for manually counting the number of times something happens.
-    Used as an argument to ``count_calls`` and directly used in situations
-    where ``count_calls`` can't be used.
     """
 
     def __init__(self):
-        self._n_calls_total = 0
-        self._n_calls_since_last_check = 0
+        self._count = 0
 
-    def mark(self):
-        self._n_calls_total += 1
-        self._n_calls_since_last_check += 1
-
-    def times_called(self):
-        count = self._n_calls_since_last_check
-        self._n_calls_since_last_check = 0
-        return count
-
-    def total_times_called(self):
-        return self._n_calls_total
+    def inc(self):
+        self._count += 1
 
     def reset(self):
-        self._n_calls_total = 0
-        self._n_calls_since_last_check = 0
+        self._count = 0
+
+    def get(self):
+        return self._count
+
+
+class ResettingCallCounter:
+    """
+    A class for counting the number of times a function is called.
+
+    Can either be used as a decorator, or triggered manually with the `mark` method.
+
+    When this is created, a SimpleCounter can be passed as an argument; this allows
+    this counter to act as a wrapper around a counter object managed by a
+    ``multiprocessing`` manager. (The ResettingCallCounter class itself cannot be
+    managed because its instances are callable, and managed objects are implemented
+    by proxies that don't support the ``__call__`` method; accepting a wrapped
+    counter object is a workaround.)
+    """
+
+    def __init__(self, counter=None):
+        if counter is None:
+            counter = SimpleCounter()
+        self._counter = counter
+
+    def mark(self):
+        self._counter.inc()
+
+    def times_called(self):
+        count = self._counter.get()
+        self._counter.reset()
+        return count
+
+    def reset(self):
+        self._counter.reset()
+
+    def __call__(self, func):
+        def wrapper(func_, *args, **kwargs):
+            self.mark()
+            return func_(*args, **kwargs)
+
+        wrapped = decorate(func, wrapper)
+        self.reset()
+        return wrapped
 
 
 class RoundingProtocol(bn.protocols.BaseProtocol):

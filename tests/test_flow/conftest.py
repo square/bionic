@@ -7,7 +7,8 @@ import random
 from ..helpers import (
     gsutil_path_exists,
     gsutil_wipe_path,
-    ResettingCounter,
+    SimpleCounter,
+    ResettingCallCounter,
 )
 
 import bionic as bn
@@ -47,7 +48,7 @@ class PytestManager(SyncManager):
     pass
 
 
-PytestManager.register("ResettingCounter", ResettingCounter)
+PytestManager.register("SimpleCounter", SimpleCounter)
 
 
 @pytest.fixture(scope="session")
@@ -69,9 +70,10 @@ def process_manager(parallel_execution_enabled, multiprocessing_manager):
 def make_counter(process_manager):
     def _make_counter():
         if process_manager is None:
-            return ResettingCounter()
+            counter = SimpleCounter()
         else:
-            return process_manager.ResettingCounter()
+            counter = process_manager.SimpleCounter()
+        return ResettingCallCounter(counter)
 
     return _make_counter
 

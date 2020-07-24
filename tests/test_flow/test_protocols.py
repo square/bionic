@@ -11,7 +11,7 @@ import pandas.testing as pdt
 from PIL import Image
 import dask.dataframe as dd
 
-from ..helpers import count_calls, df_from_csv_str, equal_frame_and_index_content
+from ..helpers import df_from_csv_str, equal_frame_and_index_content
 
 import bionic as bn
 from bionic.exception import (
@@ -57,7 +57,7 @@ def test_picklable_value(builder, make_counter, protocol, value):
 
     @builder
     @protocol
-    @count_calls(counter)
+    @counter
     def picklable_value():
         return value
 
@@ -73,7 +73,7 @@ def test_jsonable_value(builder, make_counter, protocol, value):
 
     @builder
     @protocol
-    @count_calls(counter)
+    @counter
     def jsonable_value():
         return value
 
@@ -99,7 +99,7 @@ def test_picklable_with_parens(builder, make_counter):
 
     @builder
     @bn.protocol.picklable()
-    @count_calls(counter)
+    @counter
     def picklable_value():
         return 1
 
@@ -114,7 +114,7 @@ def test_picklable_value_is_also_dillable(builder, make_counter, value):
 
     @builder
     @bn.protocol.dillable
-    @count_calls(counter)
+    @counter
     def dillable_value():
         return value
 
@@ -138,7 +138,7 @@ def test_dillable(builder, make_counter):
 
     @builder
     @bn.protocol.dillable
-    @count_calls(counter)
+    @counter
     def add_two():
         return make_adder(2)
 
@@ -161,7 +161,7 @@ def test_simple_dataframe(builder, make_counter):
 
     @builder
     @bn.protocol.frame
-    @count_calls(counter)
+    @counter
     def df():
         return df_value
 
@@ -290,7 +290,7 @@ def test_simple_dask_dataframe(builder, make_counter, protocol):
 
     @builder
     @protocol
-    @count_calls(counter)
+    @counter
     def df():
         return dask_df
 
@@ -318,7 +318,7 @@ def test_multiple_partitions_dask_dataframe(builder, make_counter):
 
     @builder
     @bn.protocol.dask
-    @count_calls(counter)
+    @counter
     def df():
         return dask_df
 
@@ -529,7 +529,7 @@ def test_path_protocol(builder, make_counter, tmp_path, operation):
 
     @builder
     @bn.protocol.path(operation=operation)
-    @count_calls(phrase_file_path_counter)
+    @phrase_file_path_counter
     def phrase_file_path():
         "A path to a file containing a phrase."
         output_phrase_file_path.write_text(phrase_str)
@@ -539,7 +539,7 @@ def test_path_protocol(builder, make_counter, tmp_path, operation):
 
     @builder
     @bn.protocol.path(operation=operation)
-    @count_calls(colors_dir_path_counter)
+    @colors_dir_path_counter
     def colors_dir_path():
         "A path to a directory containing some files named after colors."
         output_colors_dir_path.mkdir()

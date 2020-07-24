@@ -15,7 +15,7 @@ import os
 
 import bionic as bn
 
-from ..helpers import count_calls, ResettingCounter
+from ..helpers import ResettingCallCounter
 
 
 CACHE_TEST_DIR = os.path.join(
@@ -39,21 +39,21 @@ class Harness:
         xy_counter = make_counter()
 
         @builder
-        @count_calls(xy_counter)
+        @xy_counter
         def xy(x, y):
             return x * y
 
         yz_counter = make_counter()
 
         @builder
-        @count_calls(yz_counter)
+        @yz_counter
         def yz(y, z):
             return y * z
 
         xy_plus_yz_counter = make_counter()
 
         @builder
-        @count_calls(xy_plus_yz_counter)
+        @xy_plus_yz_counter
         def xy_plus_yz(xy, yz):
             return xy + yz
 
@@ -66,7 +66,7 @@ class Harness:
 if __name__ == "__main__":
 
     def make_counter():
-        return ResettingCounter()
+        return ResettingCallCounter()
 
     flow = Harness(CACHE_TEST_DIR, make_counter).flow
 
