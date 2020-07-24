@@ -15,7 +15,6 @@ import tempfile
 import dask.dataframe as dd
 
 from ..helpers import (
-    count_calls,
     df_from_csv_str,
     equal_frame_and_index_content,
     gsutil_wipe_path,
@@ -47,7 +46,7 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     builder = preset_gcs_builder
 
     @builder
-    @count_calls(call_counter)
+    @call_counter
     def xy(x, y):
         return x * y
 
@@ -229,7 +228,7 @@ def test_multifile_serialization(preset_gcs_builder, make_counter):
 
     @builder
     @bn.protocol.dask
-    @count_calls(call_counter)
+    @call_counter
     def df():
         return dask_df
 
@@ -254,7 +253,7 @@ def test_file_path_copying(preset_gcs_builder, make_counter):
     file_contents = "DATA"
 
     @builder
-    @count_calls(call_counter)
+    @call_counter
     @bn.protocol.path(operation="move")
     def data_path():
         call_counter.mark()

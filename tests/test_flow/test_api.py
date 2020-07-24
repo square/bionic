@@ -20,7 +20,7 @@ from bionic.exception import (
     UnsetEntityError,
 )
 
-from ..helpers import assert_re_matches, count_calls
+from ..helpers import assert_re_matches
 
 
 @pytest.fixture(scope="function")
@@ -606,7 +606,7 @@ def test_in_memory_caching(builder, make_counter):
 
     @builder
     @bn.persist(False)
-    @count_calls(counter)
+    @counter
     def xy(x, y):
         return x * y
 
