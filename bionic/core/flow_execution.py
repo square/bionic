@@ -26,10 +26,24 @@ def run_in_subprocess(task_completion_runner, state):
 
 class TaskCompletionRunner:
     """
-    Runs `TaskState` to completion.
+    Computes a DAG of `TaskState` objects.
 
-    Using a `Bootstrap` object, this class completes given task states
-    using a stack-based state tracking approach.
+    Given a collection of TaskStates, this class identifies and performs the necessary
+    work to compute their final values. With a simple directed acyclic graph of tasks,
+    this would be a simple as doing a topological sort and then computing the tasks
+    in order. However, there are several complicating factors:
+
+    - Some tasks should be run asynchronously in a separate process to allow
+      parallelism.
+    - Some task outputs can't be serialized, which means those tasks need to be
+      re-computed in each process that needs them.
+    - If a task's value is cached, we want to load it as quickly as possible, without
+      computing any unnecessary dependencies. (However, sometimes we do need to compute
+      dependencies in order to determine if the cached value is up-to-date or not.)
+
+    To deal with these, for each `TaskState` we maintain a `TaskRunnerEntry` which
+    tracks what is required for that particular task. Each entry has an `EntryStage`
+    enum, indicating whether we need to and/or can do more work on it.
     """
 
     def __init__(self, bootstrap, flow_instance_uuid, task_key_logger):
@@ -55,43 +69,13 @@ class TaskCompletionRunner:
 
             for state in states:
                 state.set_up_caching_flags(self._bootstrap)
-                entry = self._get_or_create_entry_for_state(
-                    state, is_needed_in_memory=not state.should_persist
-                )
-                self._mark_entry_pending(entry)
+                entry = self._get_or_create_entry_for_state(state)
+                self._request_entry_be_cached(entry)
 
             while self._has_pending_entries():
                 entry = self._activate_next_pending_entry()
-
-                # Before we decide if the current entry is blocked, we need to create
-                # an entry for each of its dependencies. This has the side effect of
-                # refreshing each of their cache states, so if any of them have had
-                # their cache entries deleted, their status will be correctly updated
-                # to "not complete".
-                dep_entries = []
-                for dep_state in entry.state.dep_states:
-                    dep_state.set_up_caching_flags(self._bootstrap)
-                    # If the entry is needed in memory, any non-serializable entries are
-                    # also needed in memory.
-                    dep_entry_needed_in_memory = (
-                        entry.is_needed_in_memory and not dep_state.should_persist
-                    )
-                    dep_entry = self._get_or_create_entry_for_state(
-                        dep_state, dep_entry_needed_in_memory
-                    )
-                    dep_entries.append(dep_entry)
-                if not entry.are_dep_entries_set():
-                    entry.set_dep_entries(dep_entries)
-
-                if entry.state.is_cached:
-                    self._mark_entry_completed(entry)
-                    continue
-
-                if len(entry.blocking_dep_entries()) > 0:
-                    self._mark_entry_blocked(entry)
-                    continue
-
-                self._process_entry(entry)
+                self._process_active_entry(entry)
+                assert entry.stage != EntryStage.ACTIVE
 
             assert len(self._pending_entries) == 0
             assert len(self._in_progress_entries) == 0
@@ -108,32 +92,58 @@ class TaskCompletionRunner:
             if self._parallel_execution_enabled:
                 self._bootstrap.executor.stop_logging()
 
-    def _process_entry(self, entry):
+    def _process_active_entry(self, entry):
+        """
+        Takes the current active entry and does the minimal amount of work to move it
+        to the next stage. When this function returns, the entry will no longer be in
+        the ACTIVE stage: it will be COMPLETED, IN_PROGRESS, or BLOCKED, and we will
+        be able to move on to the next entry.
+        """
+
         assert entry.stage == EntryStage.ACTIVE
 
-        state = entry.state
-        # Initialize the task state before attempting to complete it.
-        state.initialize(self._bootstrap, self._flow_instance_uuid)
+        # In theory we could have an entry that doesn't require priming, but in practice
+        # we always require it when we create one.
+        assert entry.is_requested_to_be_primed
 
-        # Attempt to complete the task state from persistence cache.
-        state.attempt_to_complete_from_cache()
-        if state.is_cached:
+        # First, if we already have a cached value, we can stop immediately without
+        # needing to process any dependencies.
+        if entry.is_cached:
             self._mark_entry_completed(entry)
+            return
 
-        elif (
-            not self._parallel_execution_enabled
-            or entry.is_needed_in_memory
-            # This is a simple lookup task that looks up a value in a dictionary.
-            # We can't run this in a separate process because the value may not be
-            # cloudpicklable.
-            or state.task.is_simple_lookup
-        ):
-            entry.compute(self.task_key_logger)
-            self._mark_entry_completed(entry)
+        # Otherwise, we'll need all of our dependencies to be primed so that their
+        # digests are available.
+        self._set_up_entry_dependencies(entry)
+        for dep_entry in entry.dep_entries:
+            self._request_entry_be_primed(dep_entry)
+        if not entry.all_dependencies_satisfy_requests:
+            self._mark_entry_blocked(entry)
+            return
 
-        # Compute the results for serializable entity in parallel.
-        elif state.should_persist:
-            new_state_for_subprocess = state.strip_state_for_subprocess()
+        entry.state.initialize(self._bootstrap, self._flow_instance_uuid)
+
+        # If this entry is persistable, let's see if we can load it from the cache ...
+        if entry.state.should_persist:
+            entry.state.attempt_to_access_persistent_cached_values()
+            if entry.is_cached:
+                self._mark_entry_completed(entry)
+                return
+        else:
+            # ... otherwise, if the digest was all we needed, calling initialize() was
+            # sufficient.
+            if not entry.is_requested_to_be_cached:
+                self._mark_entry_completed(entry)
+                return
+
+        # If possible, we prefer to compute entries remotely.
+        can_compute_remotely = (
+            self._parallel_execution_enabled
+            and entry.state.should_persist
+            and not entry.state.task.is_simple_lookup
+        )
+        if can_compute_remotely:
+            new_state_for_subprocess = entry.state.strip_state_for_subprocess()
             # We want serial execution in the subprocesses.
             new_bootstrap = self._bootstrap.evolve(executor=None)
             new_task_completion_runner = TaskCompletionRunner(
@@ -145,28 +155,49 @@ class TaskCompletionRunner:
                 run_in_subprocess, new_task_completion_runner, new_state_for_subprocess,
             )
             self._mark_entry_in_progress(entry, future)
+            return
 
-        # Do not compute non-serializable entity in parallel. Any entity that
-        # depends on this entity will compute it in the subprocess.
-        else:
-            self._mark_entry_deferred(entry)
+        # Otherwise we'll compute this entry locally. In that case, it's not enough
+        # for our dependencies to be primed; they also need to have cached values.
+        for dep_entry in entry.dep_entries:
+            self._request_entry_be_cached(dep_entry)
+        if not entry.all_dependencies_satisfy_requests:
+            self._mark_entry_blocked(entry)
+            return
+        entry.compute(self.task_key_logger)
+        self._mark_entry_completed(entry)
 
-    def _get_or_create_entry_for_state(self, state, is_needed_in_memory):
+    def _set_up_entry_dependencies(self, entry):
+        if entry.dep_entries is not None:
+            return
+
+        dep_entries = []
+        for dep_state in entry.state.dep_states:
+            dep_entry = self._get_or_create_entry_for_state(dep_state)
+            dep_entries.append(dep_entry)
+        entry.dep_entries = dep_entries
+
+    def _request_entry_be_primed(self, entry):
+        entry.is_requested_to_be_primed = True
+        if entry.stage == EntryStage.COMPLETED and not entry.is_primed:
+            self._mark_entry_pending(entry)
+
+    def _request_entry_be_cached(self, entry):
+        self._request_entry_be_primed(entry)
+
+        entry.is_requested_to_be_cached = True
+        if entry.stage == EntryStage.COMPLETED and not entry.is_cached:
+            self._mark_entry_pending(entry)
+
+    def _get_or_create_entry_for_state(self, state):
         task_key = state.task_keys[0]
-        if task_key not in self._entries_by_task_key:
-            # Before doing anything with this task state, we should make sure its
-            # cache state is up to date.
-            state.refresh_all_persistent_cache_state(self._bootstrap)
-            self._entries_by_task_key[task_key] = TaskRunnerEntry(
-                state=state, is_needed_in_memory=is_needed_in_memory,
-            )
-        entry = self._entries_by_task_key[task_key]
-
-        if is_needed_in_memory:
-            entry.is_needed_in_memory = is_needed_in_memory
-            if entry.stage == EntryStage.DEFERRED:
-                self._mark_entry_pending(entry)
-
+        if task_key in self._entries_by_task_key:
+            return self._entries_by_task_key[task_key]
+        # Before doing anything with this task state, we should make sure its
+        # cache state is up to date.
+        state.refresh_all_persistent_cache_state(self._bootstrap)
+        entry = TaskRunnerEntry(state)
+        self._entries_by_task_key[task_key] = entry
         return entry
 
     def _has_pending_entries(self):
@@ -192,11 +223,11 @@ class TaskCompletionRunner:
         for finished_future in finished_futures:
             task_key = finished_future.result()
             entry = self._entries_by_task_key[task_key]
-            entry.state.sync_after_subprocess_completion()
+            entry.state.sync_after_subprocess_computation()
             self._mark_entry_completed(entry)
 
     def _mark_entry_pending(self, pending_entry):
-        assert pending_entry.stage in (EntryStage.NEW, EntryStage.BLOCKED)
+        assert pending_entry.stage in (EntryStage.BLOCKED, EntryStage.COMPLETED)
 
         pending_entry.stage = EntryStage.PENDING
         self._pending_entries.append(pending_entry)
@@ -210,7 +241,8 @@ class TaskCompletionRunner:
         for blocking_tk in blocking_tks:
             self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
 
-        self._mark_blocking_entries_pending(blocked_entry)
+        for blocking_entry in blocked_entry.blocking_dep_entries():
+            assert blocking_entry.stage != EntryStage.COMPLETED
 
     def _mark_entry_in_progress(self, in_progress_entry, future):
         assert in_progress_entry.stage == EntryStage.ACTIVE
@@ -230,22 +262,9 @@ class TaskCompletionRunner:
             completed_entry.future = None
             del self._in_progress_entries[completed_entry.state.task.keys[0]]
 
-        assert completed_entry.is_cached
+        assert completed_entry.satisfies_requests
         completed_entry.stage = EntryStage.COMPLETED
         self._unblock_entries(completed_entry)
-
-    def _mark_entry_deferred(self, deferred_entry):
-        assert deferred_entry.stage == EntryStage.ACTIVE
-        assert not deferred_entry.is_needed_in_memory
-
-        deferred_entry.stage = EntryStage.DEFERRED
-        self._unblock_entries(deferred_entry)
-
-    def _mark_blocking_entries_pending(self, blocked_entry):
-        blocking_entries = blocked_entry.blocking_dep_entries()
-        for blocking_entry in blocking_entries:
-            if blocking_entry.stage == EntryStage.NEW:
-                self._mark_entry_pending(blocking_entry)
 
     def _unblock_entries(self, completed_entry):
         for completed_tk in completed_entry.state.task_keys:

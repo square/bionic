@@ -1,5 +1,21 @@
 """
 This module contains the core logic that executes individual tasks.
+
+There are two classes here: TaskRunnerEntry and TaskState. Both of these are
+correspond to a Task object, but with additional information for particular contexts.
+
+Task (included here for completeness): An immutable representation of a unit of
+computation.
+
+TaskState: Represents a Task in the context of a Flow instance. It has the same
+lifetime as its Flow instance, so it's appropriate for data that we want to keep around
+across multiple `get` calls. This data is generally related to the various stages an
+individual Task goes through as we get ready to compute it.
+
+TaskRunnerEntry: Represents a Task in the context of a single `Flow.get` call. This
+class is managed by the TaskCompletionRunner, whose primary job is to run all the tasks
+in the correct order; thus, the TaskRunnerEntry mostly contains data pertaining to the
+task's relationship to other tasks.
 """
 
 import copy
@@ -13,49 +29,95 @@ from ..exception import CodeVersioningError
 from ..persistence import Provenance
 from ..utils.misc import oneline, single_unique_element
 
+logger = logging.getLogger(__name__)
+
 
 class TaskRunnerEntry:
     """
-    Basic unit of `TaskCompletionRunner` that contains the data for
-    `TaskState` execution and tracking.
+    Represents a task to be completed by the `TaskCompletionRunner`.
+
+    Wraps a `TaskState`, and holds additional information tracking its relationship to
+    other entries. Each entry has "requests", which are imposed on it by other task
+    entries. The possible requests correspond to the two main milestones an entry can
+    reach, which are easiest to understand in reverse order:
+
+    "Cached": This means the task has been computed and its output value is stored
+    somewhere -- in the persistent cache, in memory on the TaskState, and/or in
+    memory on this entry (depending on the cache settings). This is the final
+    milestone: after this, there is no more work to do on this task.
+
+    "Primed": This is a more abstract condition. It guarantees two things:
+
+    a) This task's provenance digest is available, which means any downstream tasks can
+    have their values loaded from the persisted cache. For a task with non-persistable
+    output, its provenance digest depends only on its provenance; it doesn't actually
+    require the task to be computed. However, for a task with persistable output, the
+    provenance digest depends on its actual value, so the task must be computed and its
+    output cached.
+
+    b) There is no additional *persistable* work to do on this task. In other words,
+    if we have any dependent tasks that we plan to run in a separate process, we can
+    go ahead and start them; there may be more work to do on this task, but it will
+    have to be done in that separate process, because its results can't be serialized
+    and transmitted. (On the other hand, if we have a dependent task to run *in this
+    same process*, we'll want to bring this task to the "cached" state instead.) As
+    with (a), for a task with non-persistable output, this milestone is reached as
+    soon as we compute its provenance; for a task with persistable output, it's
+    reached only when the task is computed and its output is cached.
+
+    Thus, the operational definition of "primed" depends on whether the task's output is
+    persistable or not. If so, "primed" is equivalent to "cached"; if not, "primed"
+    represents a preliminary stage of work which happens to be sufficient for many
+    applications.
     """
 
-    def __init__(self, state, is_needed_in_memory):
+    def __init__(self, state):
         self.state = state
-        self.stage = EntryStage.NEW
         self.future = None
         self.results_by_dnode = None
+        self.stage = EntryStage.COMPLETED
 
-        # This is initially set to None as we don't the entire dependency
-        # graph for entries at once. We create it only when it's computed.
-        self._dep_entries = None
+        # This is initially set to None to avoid eagerly recursing through the entire
+        # DAG. We set this once we start processing the entry.
+        self.dep_entries = None
 
-        # If an entry is needed in memory, it cannot be deferred. Only
-        # applicable to non-serializable entries, serializable entries
-        # are never deferred.
-        # NOTE An entry that is not needed in memory by one entry can
-        # be needed in memory by another entry. Depending on our
-        # execution order of such entities, this flag can change from
-        # `False` to `True` in between execution.
-        self.is_needed_in_memory = is_needed_in_memory
+        # These are initially set to False, but can be updated to True when we discover
+        # a requirement from another entry. However, they should never go from True to
+        # False!
+        self.is_requested_to_be_primed = False
+        self.is_requested_to_be_cached = False
+
+    @property
+    def stage(self):
+        return self._stage
+
+    @stage.setter
+    def stage(self, stage):
+        logger.debug("Updated %s to %s", self, stage.name)
+        self._stage = stage
 
     @property
     def is_cached(self):
         return self.results_by_dnode is not None or self.state.is_cached
 
-    def are_dep_entries_set(self):
-        return self._dep_entries is not None
+    @property
+    def is_primed(self):
+        if self.state.should_persist is None:
+            return False
+        if self.state.should_persist:
+            return self.state.is_cached
+        else:
+            return self.state.is_initialized
 
-    def set_dep_entries(self, dep_entries):
-        assert not self.are_dep_entries_set()
-        self._dep_entries = dep_entries
-
+    # TODO Later, once we're keeping track of exactly which requests are imposed by
+    # which entries, we should avoid using a dependency's EntryStage and instead just
+    # check whether it satisfies our requests.
     def blocking_dep_entries(self):
-        assert self._dep_entries is not None
+        assert self.dep_entries is not None
         return [
             dep_entry
-            for dep_entry in self._dep_entries
-            if dep_entry.stage not in [EntryStage.COMPLETED, EntryStage.DEFERRED]
+            for dep_entry in self.dep_entries
+            if dep_entry.stage != EntryStage.COMPLETED
         ]
 
     def blocking_dep_task_keys(self):
@@ -66,20 +128,32 @@ class TaskRunnerEntry:
             for blocking_dep_entry_tk in blocking_dep_entry.state.task_keys
         )
 
+    @property
+    def satisfies_requests(self):
+        if self.is_requested_to_be_primed and not self.is_primed:
+            return False
+        if self.is_requested_to_be_cached and not self.is_cached:
+            return False
+        return True
+
+    @property
+    def all_dependencies_satisfy_requests(self):
+        return all(dep_entry.satisfies_requests for dep_entry in self.dep_entries)
+
     def compute(self, task_key_logger):
         """
         Computes the values of an entry by running its task. Requires that all
-        the task's dependencies are already complete.
+        the task's dependencies are already computed.
         """
 
         state = self.state
         task = self.state.task
 
-        assert state._is_initialized
+        assert state.is_initialized
         assert not state.is_cached
 
         dep_results = []
-        for dep_entry, dep_key in zip(self._dep_entries, task.dep_keys):
+        for dep_entry, dep_key in zip(self.dep_entries, task.dep_keys):
             assert dep_entry.is_cached
             dep_results_by_dnode = dep_entry.get_cached_results(task_key_logger)
             dep_results.append(dep_results_by_dnode[dep_key.dnode])
@@ -99,7 +173,8 @@ class TaskRunnerEntry:
                 results_by_dnode[query.dnode] = result
                 result_value_hashes_by_dnode[query.dnode] = ""
             state._results_by_dnode = results_by_dnode
-            state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
+            if state.should_persist:
+                state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
             return state._results_by_dnode
 
         else:
@@ -147,7 +222,7 @@ class TaskRunnerEntry:
             self.results_by_dnode = results_by_dnode
 
     def get_cached_results(self, task_key_logger):
-        "Returns the results of an already-completed entry."
+        "Returns the results of an already-computed entry."
 
         assert self.is_cached
 
@@ -155,56 +230,54 @@ class TaskRunnerEntry:
             return self.results_by_dnode
         return self.state.get_cached_results(task_key_logger)
 
+    def __str__(self):
+        return f"TaskRunnerEntry({', '.join(str(key) for key in self.state.task_keys)})"
+
 
 class EntryStage(Enum):
     """
-    Represents the stage of a `TaskRunnerEntry`.
+    Represents the stage of completion reached by a `TaskRunnerEntry`.
     """
 
     """
-    Entry was just created.
-    This is the always the first stage for an entry.
+    The entry is completed; we don't have any more work to do with it. All entries start
+    here (before any requests have been placed on them) and end here (once all the
+    requests have been satisfied).
+
     Valid next stages: [PENDING]
     """
-    NEW = auto()
+    COMPLETED = auto()
 
     """
-    Entry is waiting to be processed.
+    The entry is waiting to be processed. We know there's work to be done on it, but
+    we haven't gotten to it yet.
+
     Valid next stages: [ACTIVE]
     """
     PENDING = auto()
 
     """
-    We are actively attempting to start running this entry.
-    There should only be one such entry at a time. Any active entry
-    running concurrently should be moved to IN_PROGRESS.
+    The entry is being actively processed. There should only be one such entry at a
+    time.
+
     Valid next stages: [BLOCKED, IN_PROGRESS, COMPLETED]
     """
     ACTIVE = auto()
 
     """
-    Entry is blocked by another entry(ies).
+    The entry is blocked: we can't continue processing it until some other entries are
+    completed.
+
     Valid next stages: [PENDING]
     """
     BLOCKED = auto()
 
     """
-    Entry is currently running in another process.
+    The entry is currently being computed in another process.
+
     Valid next stages: [COMPLETED]
     """
     IN_PROGRESS = auto()
-
-    """
-    Entry has been successfully processed. This is a terminal stage.
-    """
-    COMPLETED = auto()
-
-    """
-    Entry is not required to be in memory and has been deferred.
-    Valid next stages: [PENDING]
-    This can be a terminal stage.
-    """
-    DEFERRED = auto()
 
 
 class EntryBlockage:
@@ -252,13 +325,13 @@ class TaskState:
         self.should_persist = None
 
         # These are set by initialize().
-        self._is_initialized = False
+        self.is_initialized = False
         self._provenance = None
         self._queries = None
         self._cache_accessors = None
 
-        # This can be set by compute() or attempt_to_complete_from_cache().
-        #
+        # This can be set by compute(), _load_value_hashes(), or
+        # attempt_to_access_persistent_cached_values().
         # This will be present only if should_persist is True.
         self._result_value_hashes_by_dnode = None
 
@@ -288,7 +361,7 @@ class TaskState:
         return f"TaskState({self.task!r})"
 
     def get_cached_results(self, task_key_logger):
-        "Returns the results of an already-completed task state."
+        "Returns the results of an already-computed task state."
 
         assert self.is_cached
 
@@ -313,12 +386,14 @@ class TaskState:
 
         return results_by_dnode
 
-    def attempt_to_complete_from_cache(self):
+    def attempt_to_access_persistent_cached_values(self):
         """
-        If the results are available in persistent cache, populates value hashes
-        and marks the task state complete. Otherwise, it does nothing.
+        Loads the hashes of the persisted values for this task, if they exist.
+
+        If persisted values are available in the cache, this object's `is_cached`
+        property will become true. Otherwise, nothing will happen.
         """
-        assert self._is_initialized
+        assert self.is_initialized
         assert not self.is_cached
 
         if not self.should_persist:
@@ -338,7 +413,7 @@ class TaskState:
 
         # If this task state is not initialized or not persisted, there's nothing to
         # refresh.
-        if not self._is_initialized or not self.should_persist:
+        if not self.is_initialized or not self.should_persist:
             return
 
         self.refresh_cache_accessors(bootstrap)
@@ -353,13 +428,13 @@ class TaskState:
         else:
             self._result_value_hashes_by_dnode = None
 
-    def sync_after_subprocess_completion(self):
+    def sync_after_subprocess_computation(self):
         """
         Syncs the task state by populating and reloading data in the current process
         after completing the task state in a subprocess.
 
-        This is necessary because values populated in the task state are not communicated
-        back from the subprocess.
+        This is necessary because values populated in the task state are not
+        communicated back from the subprocess.
         """
 
         assert self.should_persist
@@ -380,7 +455,7 @@ class TaskState:
     def initialize(self, bootstrap, flow_instance_uuid):
         "Initializes the task state to get it ready for completion."
 
-        if self._is_initialized:
+        if self.is_initialized:
             return
 
         # First, set up caching flags.
@@ -396,19 +471,10 @@ class TaskState:
                 bootstrap.versioning_policy.treat_bytecode_as_functional
             )
 
-        dep_provenance_digests_by_task_key = {}
-        for dep_key, dep_state in zip(self.task.dep_keys, self.dep_states):
-            # Use value hash of persistable values.
-            if dep_state.should_persist:
-                value_hash = dep_state._result_value_hashes_by_dnode[dep_key.dnode]
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_value_hash(value_hash)
-            # Otherwise, use the provenance.
-            else:
-                dep_provenance_digests_by_task_key[
-                    dep_key
-                ] = ProvenanceDigest.from_provenance(dep_state._provenance)
+        dep_provenance_digests_by_task_key = {
+            dep_key: dep_state._get_digests_by_dnode()[dep_key.dnode]
+            for dep_key, dep_state in zip(self.task.dep_keys, self.dep_states)
+        }
 
         self._provenance = Provenance.from_computation(
             code_fingerprint=self.provider.get_code_fingerprint(self.case_key),
@@ -433,7 +499,7 @@ class TaskState:
         if self.should_persist:
             self.refresh_cache_accessors(bootstrap)
 
-        self._is_initialized = True
+        self.is_initialized = True
 
     def set_up_caching_flags(self, bootstrap):
         # Setting up the flags is cheap, but it can result in warnings that we don't
@@ -505,7 +571,9 @@ class TaskState:
             which may cause the values to be subtly different.
             To avoid this warning, disable persistence for the decorators
             by {disable_message}."""
-            logging.warn(message)
+            # TODO We should choose between `logger.warn` and `warnings.warn` and use
+            # one consistently.
+            logger.warn(message)
             should_persist = False
         self.should_persist = should_persist
 
@@ -584,18 +652,32 @@ class TaskState:
                         f"""
                     Failed to load cached value (hash) for descriptor
                     {accessor.query.dnode.to_descriptor()!r}.
-                    This suggests we did not successfully complete the task
-                    in subprocess, or the entity wasn't cached;
+                    This suggests we did not successfully compute the task
+                    in a subprocess, or the entity wasn't cached;
                     this should be impossible!"""
                     )
                 )
             result_value_hashes_by_dnode[accessor.query.dnode] = value_hash
         self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
 
+    def _get_digests_by_dnode(self):
+        if self.should_persist:
+            assert self._result_value_hashes_by_dnode is not None
+            return {
+                dnode: ProvenanceDigest.from_value_hash(value_hash)
+                for dnode, value_hash in self._result_value_hashes_by_dnode.items()
+            }
+        else:
+            assert self._provenance is not None
+            return {
+                task_key.dnode: ProvenanceDigest.from_provenance(self._provenance)
+                for task_key in self.task.keys
+            }
+
     def strip_state_for_subprocess(self, new_task_states_by_key=None):
         """
         Returns a copy of task state after keeping only the necessary data
-        required for completion. In addition, this also removes all the memoized
+        required for to compute it. In addition, this also removes all the memoized
         results since they can be expensive to serialize.
 
         Mainly used
