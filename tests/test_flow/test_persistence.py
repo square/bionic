@@ -1208,3 +1208,53 @@ def test_multiple_outputs_all_persisted_at_once(builder, make_counter):
     assert builder.build().get("x") == 1
     assert builder.build().get("y") == 2
     assert counter.times_called() == 1
+
+
+@pytest.mark.needs_parallel
+def test_entries_needed_in_memory(builder, make_counter):
+    """
+      ----> B ---->
+    E               A
+      ----> C ---->
+
+    A depends on B and C
+    B and C depends on D
+    Only C is persisted
+
+    This structure is complex because it also tests for the case where
+    a deferred entity is moved back to pending stage. In this case,
+    D is deferred by C but then is required in memory by B.
+    """
+    builder.set("core__persist_by_default", False)
+
+    a_counter = make_counter()
+    b_counter = make_counter()
+    c_counter = make_counter()
+    d_counter = make_counter()
+
+    @builder
+    @d_counter
+    def d():
+        return 1
+
+    @builder
+    @bn.persist(True)
+    @c_counter
+    def c(d):
+        return 7 * d  # 7
+
+    @builder
+    @b_counter
+    def b(d):
+        return 3 * d  # 3
+
+    @builder
+    @a_counter
+    def a(b, c):
+        return b + c  # 10
+
+    builder.build().get("a") == 13
+    assert a_counter.times_called() == 1
+    assert b_counter.times_called() == 1
+    assert c_counter.times_called() == 1
+    assert d_counter.times_called() == 2  # Once inside the subprocess

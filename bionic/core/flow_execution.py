@@ -196,7 +196,11 @@ class TaskCompletionRunner:
             self._mark_entry_completed(entry)
 
     def _mark_entry_pending(self, pending_entry):
-        assert pending_entry.stage in (EntryStage.NEW, EntryStage.BLOCKED)
+        assert pending_entry.stage in (
+            EntryStage.NEW,
+            EntryStage.BLOCKED,
+            EntryStage.DEFERRED,
+        )
 
         pending_entry.stage = EntryStage.PENDING
         self._pending_entries.append(pending_entry)
