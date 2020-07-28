@@ -166,10 +166,8 @@ class WorkerProcessLogHandler(logging.Handler):
             # changing the template and arguments for the log in case
             # users intercepts the LogRecord in their custom handlers.
             record = copy.copy(record)
-            record.msg = str(record.msg)
-            if record.args:
-                record.msg = record.msg % record.args
-                record.args = ()
+            record.msg = record.getMessage()
+            record.args = ()
             self._queue.put_nowait(record)
         except Exception:
             self.handleError(record)
