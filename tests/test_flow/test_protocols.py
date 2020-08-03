@@ -361,7 +361,7 @@ def test_dask_dataframe_index_cols(builder):
         Delhi,India,Asia,26
         Shanghai,China,Asia,24
         Sao Paulo,Brazil,South America,21
-        Mumbai,India,21
+        Mumbai,India,Asia,21
         Mexico City,Mexico,North America,21
         Beijing,China,Asia,20
         Osaka,Japan,Asia,20
@@ -381,8 +381,19 @@ def test_dask_dataframe_index_cols(builder):
     def counts_df(raw_df):
         return raw_df.groupby(["continent", "country"]).size().to_frame("count")
 
-    with pytest.raises(UnsupportedSerializedValueError):
-        builder.build().get("counts_df")
+    try:
+        # Versions of Dask before 2.22.0 will emit a warning here, which causes us to
+        # throw an exception. Later versions will return a multi-index frame... but the
+        # sub-indices will sometimes be in the wrong order! I don't know of a good way
+        # to catch this without calling `df.compute()`, so for now I'll just manually
+        # re-order the indices.
+        # More details in this Dask issue: https://github.com/dask/dask/issues/6484
+        # TODO Is there some other way we can catch this possible re-ordering?
+        df = builder.build().get("counts_df").compute()
+        fixed_df = df.reset_index().set_index(["continent", "country"], drop=True)
+        assert fixed_df.loc["Asia"].loc["Japan"]["count"] == 2
+    except UnsupportedSerializedValueError:
+        pass
 
 
 @pytest.mark.parametrize("protocol", [bn.protocol.image, passthrough])
