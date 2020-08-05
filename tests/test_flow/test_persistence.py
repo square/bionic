@@ -1075,7 +1075,7 @@ def test_changes_per_run_and_not_persist(
     assert x_plus_four_counter.times_called() == 0
 
 
-def test_changes_per_run_and_persist(builder, make_counter, parallel_execution_enabled):
+def test_changes_per_run_and_persist(builder, make_counter):
     builder.assign("x", 5)
 
     x_plus_one_counter = make_counter()
@@ -1116,18 +1116,11 @@ def test_changes_per_run_and_persist(builder, make_counter, parallel_execution_e
 
     flow = builder.build()
     assert flow.get("x_plus_three") == 8
-    # x_plus_one changes per run and should be recomputed between runs.
+    # x_plus_one changes per run, so it needs to be recomputed for this new flow
+    # instance.
     assert x_plus_one_counter.times_called() == 1
-    if parallel_execution_enabled:
-        # When executed in parallel, we don't compute every entity in
-        # the subprocess. Subprocess computes a non-persisted entity
-        # only if it is required to compute any other entity.
-        assert x_plus_two_counter.times_called() == 0
-    else:
-        # Since the value does not persist, x_plus_two is recomputed.
-        assert x_plus_two_counter.times_called() == 1
-    # Since value of x_plus_one didn't change even though it changes per run,
-    # x_plus_three is not computed.
+    # The other entities haven't changed and shouldn't need to be recomputed.
+    assert x_plus_two_counter.times_called() == 0
     assert x_plus_three_counter.times_called() == 0
 
 
@@ -1208,3 +1201,21 @@ def test_multiple_outputs_all_persisted_at_once(builder, make_counter):
     assert builder.build().get("x") == 1
     assert builder.build().get("y") == 2
     assert counter.times_called() == 1
+
+
+def test_avoid_recomputing_nonpersisted_dep(builder, make_counter):
+    a_counter = make_counter()
+
+    @builder
+    @bn.persist(False)
+    @a_counter
+    def a():
+        return 1
+
+    @builder
+    def b(a):
+        return a + 1
+
+    assert builder.build().get("b") == 2
+    assert builder.build().get("b") == 2
+    assert a_counter.times_called() == 1
