@@ -4,7 +4,7 @@ Contains the core logic for resolving Entities by executing Tasks.
 
 import attr
 
-from .datatypes import ResultGroup, EntityDefinition
+from .datatypes import EntityDefinition, ResultGroup
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .deps.optdep import import_optional_dependency
@@ -361,6 +361,10 @@ class EntityDeriver:
             self._get_or_create_task_state_for_key(dep_key) for dep_key in task.dep_keys
         ]
 
+        # All keys in this task should have the same case key, so the set below
+        # should have exactly one element.
+        (case_key,) = set(task_key.case_key for task_key in task.keys)
+
         # TODO We could have cached this in the DescriptorInfo object, but for now it's
         # not expensive to just recompute it, so we'll just do that. However, we could
         # also remove the need for this altogether: at this point the only thing a
@@ -368,10 +372,7 @@ class EntityDeriver:
         # (code_fingerprint and changes_per_run), so we could extract that into a
         # separate class and attach it either to the TaskState or to the Task itself.
         provider = self._obtain_provider_for_dnode(dnode)
-
-        # All keys in this task should have the same case key, so the set below
-        # should have exactly one element.
-        (case_key,) = set(task_key.case_key for task_key in task.keys)
+        func_attrs = provider.get_func_attrs(case_key)
 
         entity_defs_by_dnode = {
             task_key.dnode: self._obtain_entity_def_for_dnode(task_key.dnode)
@@ -382,7 +383,7 @@ class EntityDeriver:
             task=task,
             dep_states=dep_states,
             case_key=case_key,
-            provider=provider,
+            func_attrs=func_attrs,
             entity_defs_by_dnode=entity_defs_by_dnode,
         )
 

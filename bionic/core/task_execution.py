@@ -307,13 +307,13 @@ class TaskState:
     intermediate state and the deriving logic.
     """
 
-    def __init__(self, task, dep_states, case_key, provider, entity_defs_by_dnode):
+    def __init__(self, task, dep_states, case_key, func_attrs, entity_defs_by_dnode):
         assert len(entity_defs_by_dnode) == len(task.keys)
 
         self.task = task
         self.dep_states = dep_states
         self.case_key = case_key
-        self.provider = provider
+        self.func_attrs = func_attrs
         self.entity_defs_by_dnode = entity_defs_by_dnode
 
         # Cached values.
@@ -477,11 +477,11 @@ class TaskState:
         }
 
         self._provenance = Provenance.from_computation(
-            code_fingerprint=self.provider.get_code_fingerprint(self.case_key),
+            code_fingerprint=self.func_attrs.code_fingerprint,
             case_key=self.case_key,
             dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
             treat_bytecode_as_functional=treat_bytecode_as_functional,
-            can_functionally_change_per_run=self.provider.attrs.changes_per_run,
+            can_functionally_change_per_run=self.func_attrs.changes_per_run,
             flow_instance_uuid=flow_instance_uuid,
         )
 
@@ -523,7 +523,7 @@ class TaskState:
             should_memoize = bootstrap.should_memoize_default
         else:
             should_memoize = True
-        if self.provider.attrs.changes_per_run and not should_memoize:
+        if self.func_attrs.changes_per_run and not should_memoize:
             descriptors = [
                 task_key.dnode.to_descriptor() for task_key in self.task_keys
             ]
@@ -705,7 +705,7 @@ class TaskState:
         # Clear up memoized cache to avoid sending it through IPC.
         task_state._results_by_dnode = None
         # Clear up fields not needed in subprocess, for computing or for cache lookup.
-        task_state.provider = None
+        task_state.func_attrs = None
         task_state.entity_defs_by_dnode = None
         task_state.case_key = None
         task_state._provenance = None

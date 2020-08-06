@@ -22,6 +22,7 @@ from .datatypes import (
     CaseKeySpace,
     CodeFingerprint,
     CodeVersion,
+    FunctionAttributes,
 )
 from .bytecode import canonical_bytecode_bytes_from_func
 from .deps.optdep import import_optional_dependency
@@ -48,6 +49,18 @@ class ProviderAttributes:
 class BaseProvider:
     def __init__(self, attrs):
         self.attrs = attrs
+
+    # TODO It would probably make more sense to attach this directly to the Task class,
+    # but at the moment that would require a lot of clunky copying in all the wrapper
+    # classes, to make sure each wrapping task inherits all the attributes of the
+    # wrapped task. A better strategy would be to copy tasks using `attr.evolve`. At
+    # that point it probably makes sense to move Task.is_simple_lookup to
+    # FunctionAttributes.
+    def get_func_attrs(self, case_key):
+        return FunctionAttributes(
+            code_fingerprint=self.get_code_fingerprint(case_key),
+            changes_per_run=self.attrs.changes_per_run,
+        )
 
     def get_code_fingerprint(self, case_key):
         source_func = self.get_source_func()
