@@ -294,3 +294,13 @@ class VersioningPolicy:
 
     check_for_bytecode_errors = attr.ib()
     treat_bytecode_as_functional = attr.ib()
+
+
+@attr.s(frozen=True)
+class FunctionAttributes:
+    """
+    Describes properties of a Python function.
+    """
+
+    code_fingerprint = attr.ib()
+    changes_per_run = attr.ib()
