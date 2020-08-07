@@ -19,7 +19,10 @@ def combine(*dep_lists):
 extras = OrderedDict()
 
 extras["image"] = ["Pillow"]
-extras["matplotlib"] = combine(["matplotlib>=3.1"], extras["image"])
+# We don't support versions of matplotlib below 3.1 because the default backend has
+# problems on OS X; and we don't support 3.2.x because of this bug:
+# https://github.com/matplotlib/matplotlib/issues/15410
+extras["matplotlib"] = combine(["matplotlib>=3.1,!=3.2.*"], extras["image"])
 extras["viz"] = combine(["hsluv", "networkx", "pydot"], extras["image"])
 
 extras["standard"] = combine(extras["matplotlib"], extras["viz"])
