@@ -84,8 +84,15 @@ Deprecated Features
 Bug Fixes
 ---------
 
-- Fixed `an issue <https://github.com/square/bionic/issues/111>`_ where non-persistable
-  entities could be spuriously recomputed.
+- Fixed an `issue <https://github.com/square/bionic/issues/111>`_ where non-persistable
+  entities could be spuriously recomputed even when their values weren't directly
+  needed.
+
+Documentation
+-------------
+
+- Fixed broken link in the documentation for the
+  :class:`FileCopier <bionic.filecopier.FileCopier>` class.
 
 0.8.3 (Jul 23, 2020)
 --------------------

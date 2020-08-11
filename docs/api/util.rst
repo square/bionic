@@ -15,5 +15,5 @@ Bionic stores them.
 FileCopier API
 ---------------
 
-.. autoclass:: bionic.util.FileCopier
+.. autoclass:: bionic.filecopier.FileCopier
     :members:
