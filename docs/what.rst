@@ -73,8 +73,8 @@ care about into a *flow*.  This has the following benefits:
   use it from a notebook.  This lets you combine the version control and
   reproducibility of files with the rapid iteration environment of notebooks.
 * **Scalable Execution**: Bionic can automatically distribute tasks over multiple CPUs,
-  so highly parallel dependency graphs can be sped up severalfold with a `one-line
-  code change <concepts.rst#parallel-execution>`_.
+  so highly parallel dependency graphs can be sped up severalfold with a :ref:`one-line
+  code change <parallel-execution>`.
 
 Alternatives
 ------------
