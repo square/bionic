@@ -816,6 +816,8 @@ values by "case" instead of by entity.
 Other Features
 --------------
 
+.. _parallel-execution:
+
 Parallel Execution
 ..................
 
