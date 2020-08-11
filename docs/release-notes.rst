@@ -63,14 +63,27 @@ For each release, we list the following types of change (in this order):
 - **Development Changes**: Significant changes to Bionic's development process, such
   as changes to our Pytest configuration or our Continuous Integration ("CI").
 
-.. Upcoming Version (Not Yet Released)
-.. -----------------------------------
+Upcoming Version (Not Yet Released)
+-----------------------------------
 
 .. Record any notable changes in this section. When we update the current version,
    add a new version heading below, and then comment out the heading above until more
    changes are added. This way, the "Upcoming Version" section will be never be visible
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
+
+Deprecated Features
+-------------------
+
+- Bionic no longer supports Matplotlib version 3.2.x, since that version can cause
+  crashes on Mac OS when using multiprocessing. Versions 3.1.x and 3.3+ are still
+  supported.
+
+Bug Fixes
+---------
+
+- Fixed `an issue <https://github.com/square/bionic/issues/111>`_ where non-persistable
+  entities could be spuriously recomputed.
 
 0.8.3 (Jul 23, 2020)
 --------------------
