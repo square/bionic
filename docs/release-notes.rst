@@ -55,22 +55,44 @@ For each release, we list the following types of change (in this order):
 - **New Features**: New capabilities which need to be explicitly activated by
   the user, generally through new functions or new arguments to existing
   functions.
-- **Improvements**: Any improvement that doesn't require code changes from the
-  user to activate, such as improved performance or clearer logging.
+- **Improvements**: Any improvements (other than bug fixes) that don't require code
+  changes from the user to activate, such as improved performance or clearer logging.
+- **Bug Fixes**: Any changes in Bionic's behavior that bring it closer to what the
+  existing documentation would lead one to expect.
 - **Documentation Changes**: Significant changes to Bionic's documentation;
   does not include changes associated with anything appearing in these notes
   (those are already assumed to be documented) or small corrections.
 - **Development Changes**: Significant changes to Bionic's development process, such
   as changes to our Pytest configuration or our Continuous Integration ("CI").
 
-.. Upcoming Version (Not Yet Released)
-.. -----------------------------------
+Upcoming Version (Not Yet Released)
+-----------------------------------
 
 .. Record any notable changes in this section. When we update the current version,
    add a new version heading below, and then comment out the heading above until more
    changes are added. This way, the "Upcoming Version" section will be never be visible
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
+
+Deprecated Features
+-------------------
+
+- Bionic no longer supports Matplotlib version 3.2.x, since that version can cause
+  crashes on Mac OS when using multiprocessing. Versions 3.1.x and 3.3+ are still
+  supported.
+
+Bug Fixes
+---------
+
+- Fixed an `issue <https://github.com/square/bionic/issues/111>`_ where non-persistable
+  entities could be spuriously recomputed even when their values weren't directly
+  needed.
+
+Documentation
+-------------
+
+- Fixed broken link in the documentation for the
+  :class:`FileCopier <bionic.filecopier.FileCopier>` class.
 
 0.8.3 (Jul 23, 2020)
 --------------------
@@ -94,6 +116,13 @@ New Features
   automatically when an entity function returns a JSON-able value, but it can also be
   explicitly controlled with the new :func:`@json <bionic.protocol.json>` protocol.
 
+Improvements
+............
+
+- Bionic's cache now makes fewer round-trip calls to the storage system (local disk
+  or GCS) while reading and writing data. This might (or might not) improve performance
+  if your connection to GCS is slow.
+
 Bug Fixes
 .........
 
@@ -103,13 +132,6 @@ Bug Fixes
   :func:`@dask <bionic.protocol.dask>` and :func:`@path <bionic.protocol.path>`
   protocols.)
 
-Improvements
-............
-
-- Bionic's cache now makes fewer round-trip calls to the storage system (local disk
-  or GCS) while reading and writing data. This might (or might not) improve performance
-  if your connection to GCS is slow.
-
 Development Changes
 ...................
 
@@ -117,6 +139,13 @@ Development Changes
 
 0.8.2 (Jul 10, 2020)
 --------------------
+
+Improvements
+............
+
+- Bionic now gracefully handles the situations where a cached artifact file is deleted
+  but the corresponding metadata entry is not. (It now deletes the invalid metadata file
+  and computes a new artifact and metadata entry.)
 
 Bug Fixes
 .........
@@ -128,13 +157,6 @@ Bug Fixes
   dropped (with a warning) when any argument to the log message was unpickleable.
 - The cache API (introduced in 0.8.0) had a bug where if two cache entries point to the
   same artifact, deleting one of them could leave the other in a bad state.
-
-Improvements
-............
-
-- Bionic now gracefully handles the situations where a cached artifact file is deleted
-  but the corresponding metadata entry is not. (It now deletes the invalid metadata file
-  and computes a new artifact and metadata entry.)
 
 0.8.1 (Jul 6, 2020)
 --------------------
