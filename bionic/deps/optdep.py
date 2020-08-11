@@ -13,7 +13,7 @@ def first_token_from_package_desc(desc):
     if first_mismatch is None:
         return desc
 
-    if desc[first_mismatch.start()] not in " <>=":
+    if desc[first_mismatch.start()] not in " <>!=":
         raise AssertionError(
             oneline(
                 f"""
