@@ -3,12 +3,16 @@ This module contains the logic to execute tasks and their dependencies
 to completion.
 """
 
-from collections import defaultdict
 from concurrent.futures import wait, FIRST_COMPLETED
 
 import logging
 
-from .task_execution import EntryBlockage, EntryStage, TaskRunnerEntry
+from .task_execution import (
+    EntryLevel,
+    EntryStage,
+    EntryRequirement,
+    TaskRunnerEntry,
+)
 from ..utils.misc import SynchronizedSet
 
 
@@ -56,7 +60,9 @@ class TaskCompletionRunner:
         self._entries_by_task_key = {}
         self._pending_entries = []
         self._in_progress_entries = {}
-        self._blockage_lists_by_blocking_tk = defaultdict(list)
+        # TODO This is a set but _in_progress_entries is a dict. Could they both be
+        # sets?
+        self._blocked_entries = set()
 
     @property
     def _parallel_execution_enabled(self):
@@ -70,7 +76,9 @@ class TaskCompletionRunner:
             for state in states:
                 state.set_up_caching_flags(self._bootstrap)
                 entry = self._get_or_create_entry_for_state(state)
-                self._request_entry_be_cached(entry)
+                self._add_requirement(
+                    src_entry=None, dst_entry=entry, level=EntryLevel.CACHED
+                )
 
             while self._has_pending_entries():
                 entry = self._activate_next_pending_entry()
@@ -79,7 +87,7 @@ class TaskCompletionRunner:
 
             assert len(self._pending_entries) == 0
             assert len(self._in_progress_entries) == 0
-            assert len(self._get_all_blocked_entries()) == 0
+            assert len(self._blocked_entries) == 0
 
             results = {}
             for state in states:
@@ -104,39 +112,43 @@ class TaskCompletionRunner:
 
         # In theory we could have an entry that doesn't require priming, but in practice
         # we always require it when we create one.
-        assert entry.is_requested_to_be_primed
+        assert entry.required_level >= EntryLevel.PRIMED
 
-        # First, if we already have a cached value, we can stop immediately without
+        # First, if we've already met our requirements, we can stop immediately without
         # needing to process any dependencies.
-        if entry.is_cached:
+        if entry.all_incoming_reqs_are_met:
             self._mark_entry_completed(entry)
             return
 
-        # Otherwise, we'll need all of our dependencies to be primed so that their
-        # digests are available.
+        # Otherwise, we can't do anything more without the digests of our dependencies,
+        # so we'll need them to be primed.
         self._set_up_entry_dependencies(entry)
         for dep_entry in entry.dep_entries:
-            self._request_entry_be_primed(dep_entry)
-        if not entry.all_dependencies_satisfy_requests:
+            self._add_requirement(entry, dep_entry, EntryLevel.PRIMED)
+        if not entry.all_outgoing_reqs_are_met:
             self._mark_entry_blocked(entry)
             return
 
+        # Now that we have the dependency digests, we can initialize our task state.
         entry.state.initialize(self._bootstrap, self._flow_instance_uuid)
 
-        # If this entry is persistable, let's see if we can load it from the cache ...
+        # If this entry is persistable, we may be able to load it from the persistent
+        # cache, which would immediately get us to the CACHED level.
         if entry.state.should_persist:
             entry.state.attempt_to_access_persistent_cached_values()
-            if entry.is_cached:
-                self._mark_entry_completed(entry)
-                return
-        else:
-            # ... otherwise, if the digest was all we needed, calling initialize() was
-            # sufficient.
-            if not entry.is_requested_to_be_cached:
-                self._mark_entry_completed(entry)
-                return
 
-        # If possible, we prefer to compute entries remotely.
+        # Otherwise, if it's not persistable, then initializing it should have gotten it
+        # to the PRIMED level.
+        else:
+            assert entry.level >= EntryLevel.PRIMED
+
+        # If that was all we needed, we're done.
+        if entry.all_incoming_reqs_are_met:
+            self._mark_entry_completed(entry)
+            return
+
+        # At this point we'll need to actually compute the entry. If possible, we
+        # prefer to compute it remotely.
         can_compute_remotely = (
             self._parallel_execution_enabled
             and entry.state.should_persist
@@ -160,34 +172,33 @@ class TaskCompletionRunner:
         # Otherwise we'll compute this entry locally. In that case, it's not enough
         # for our dependencies to be primed; they also need to have cached values.
         for dep_entry in entry.dep_entries:
-            self._request_entry_be_cached(dep_entry)
-        if not entry.all_dependencies_satisfy_requests:
+            self._add_requirement(entry, dep_entry, EntryLevel.CACHED)
+        if not entry.all_outgoing_reqs_are_met:
             self._mark_entry_blocked(entry)
             return
         entry.compute(self.task_key_logger)
+        assert entry.all_incoming_reqs_are_met
         self._mark_entry_completed(entry)
 
     def _set_up_entry_dependencies(self, entry):
         if entry.dep_entries is not None:
             return
 
+        # TODO Can we make this a simple list comprehension now?
         dep_entries = []
         for dep_state in entry.state.dep_states:
             dep_entry = self._get_or_create_entry_for_state(dep_state)
             dep_entries.append(dep_entry)
         entry.dep_entries = dep_entries
 
-    def _request_entry_be_primed(self, entry):
-        entry.is_requested_to_be_primed = True
-        if entry.stage == EntryStage.COMPLETED and not entry.is_primed:
-            self._mark_entry_pending(entry)
-
-    def _request_entry_be_cached(self, entry):
-        self._request_entry_be_primed(entry)
-
-        entry.is_requested_to_be_cached = True
-        if entry.stage == EntryStage.COMPLETED and not entry.is_cached:
-            self._mark_entry_pending(entry)
+    def _add_requirement(self, src_entry, dst_entry, level):
+        req = EntryRequirement(src_entry=src_entry, dst_entry=dst_entry, level=level)
+        if req.src_entry is not None:
+            req.src_entry.outgoing_reqs.add(req)
+        req.dst_entry.incoming_reqs.add(req)
+        if not req.is_met:
+            if req.dst_entry.stage == EntryStage.COMPLETED:
+                self._mark_entry_pending(req.dst_entry)
 
     def _get_or_create_entry_for_state(self, state):
         task_key = state.task_keys[0]
@@ -229,24 +240,23 @@ class TaskCompletionRunner:
     def _mark_entry_pending(self, pending_entry):
         assert pending_entry.stage in (EntryStage.BLOCKED, EntryStage.COMPLETED)
 
+        if pending_entry.stage == EntryStage.BLOCKED:
+            self._blocked_entries.remove(pending_entry)
+
         pending_entry.stage = EntryStage.PENDING
         self._pending_entries.append(pending_entry)
 
     def _mark_entry_blocked(self, blocked_entry):
         assert blocked_entry.stage == EntryStage.ACTIVE
-
+        assert not blocked_entry.all_outgoing_reqs_are_met
         blocked_entry.stage = EntryStage.BLOCKED
-        blocking_tks = blocked_entry.blocking_dep_task_keys()
-        blockage = EntryBlockage(blocked_entry, blocking_tks)
-        for blocking_tk in blocking_tks:
-            self._blockage_lists_by_blocking_tk[blocking_tk].append(blockage)
-
-        for blocking_entry in blocked_entry.blocking_dep_entries():
-            assert blocking_entry.stage != EntryStage.COMPLETED
+        self._blocked_entries.add(blocked_entry)
 
     def _mark_entry_in_progress(self, in_progress_entry, future):
         assert in_progress_entry.stage == EntryStage.ACTIVE
         assert in_progress_entry.future is None
+        # TODO This assert is pointless because _in_progress_entries is a dict keyed by
+        # task key.
         assert in_progress_entry not in self._in_progress_entries
 
         in_progress_entry.stage = EntryStage.IN_PROGRESS
@@ -262,28 +272,18 @@ class TaskCompletionRunner:
             completed_entry.future = None
             del self._in_progress_entries[completed_entry.state.task.keys[0]]
 
-        assert completed_entry.satisfies_requests
         completed_entry.stage = EntryStage.COMPLETED
-        self._unblock_entries(completed_entry)
 
-    def _unblock_entries(self, completed_entry):
-        for completed_tk in completed_entry.state.task_keys:
-            affected_blockages = self._blockage_lists_by_blocking_tk[completed_tk]
-            for blockage in affected_blockages:
-                blockage.mark_task_key_complete(completed_tk)
-                if (
-                    blockage.is_resolved()
-                    and blockage.blocked_entry.stage == EntryStage.BLOCKED
-                ):
-                    self._mark_entry_pending(blockage.blocked_entry)
+        for req in completed_entry.incoming_reqs:
+            assert req.is_met
+            if (
+                req.src_entry is not None
+                and req.src_entry.stage == EntryStage.BLOCKED
+                and req.src_entry.all_outgoing_reqs_are_met
+            ):
+                self._mark_entry_pending(req.src_entry)
 
-    def _get_all_blocked_entries(self):
-        return {
-            blockage.blocked_entry
-            for blockages in self._blockage_lists_by_blocking_tk.values()
-            for blockage in blockages
-            if not blockage.is_resolved()
-        }
+        # TODO This might be a good place to prune old, already-met requirements.
 
 
 class TaskKeyLogger:
