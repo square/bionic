@@ -41,14 +41,40 @@ class CodeHasher:
     """
 
     def __init__(self):
-        self._hash = None
-
-    def hash(self, obj):
         self._hash = hashlib.new("md5")
-        self._update(obj)
-        return self._hash.digest()
+        # This is used to detect circular references.
+        self._object_depths_by_id = {}
 
-    def _update(self, obj):
+    @classmethod
+    def hash(cls, obj):
+        hasher = cls()
+        hasher._check_and_ingest(obj=obj)
+        return hasher._hash.hexdigest()
+
+    def hexdigest(self):
+        return self._hash.hexdigest()
+
+    def update(self, obj):
+        return self._check_and_ingest(obj)
+
+    def _check_and_ingest(self, obj):
+        """
+        Checks for circular references before calling the _ingest
+        method, which does the actual encoding.
+        """
+        obj_id = id(obj)
+
+        # If the obj is already being hashed, break the circular ref by
+        # analyzing the depth of the value instead.
+        if obj_id in self._object_depths_by_id:
+            obj = self._object_depths_by_id[obj_id]
+            obj_id = id(obj)
+
+        self._object_depths_by_id[obj_id] = len(self._object_depths_by_id)
+        self._ingest(obj)
+        del self._object_depths_by_id[obj_id]
+
+    def _ingest(self, obj):
         """
         Contains the logic that analyzes the objects and encodes them
         into bytes that are added to the hash.
@@ -65,19 +91,19 @@ class CodeHasher:
 
         elif isinstance(obj, (list, tuple)):
             for elem in obj:
-                self._update(elem)
+                self._check_and_ingest(elem)
 
         elif isinstance(obj, dict):
             for key, elem in obj.items():
-                self._update(key)
-                self._update(elem)
+                self._check_and_ingest(key)
+                self._check_and_ingest(elem)
 
         elif inspect.isroutine(obj):
-            self._update(obj.__defaults__)
-            self._hash_code(obj.__code__)
+            self._check_and_ingest(obj.__defaults__)
+            self._ingest_code(obj.__code__)
 
         elif inspect.iscode(obj):
-            self._hash_code(obj)
+            self._ingest_code(obj)
 
         else:
             # TODO: Verify that we hash all Python constant types.
@@ -91,9 +117,9 @@ class CodeHasher:
             )
             warnings.warn(message)
 
-    def _hash_code(self, code):
+    def _ingest_code(self, code):
         # TODO: Find references for the code and analyze references.
-        self._update(code.co_code)
+        self._check_and_ingest(code.co_code)
 
         # TODO: Maybe there is a way using which we can differentiate
         # between lambda variable names and string constants that end
@@ -103,4 +129,4 @@ class CodeHasher:
             for const in code.co_consts
             if not (isinstance(const, str) and const.endswith(".<lambda>"))
         ]
-        self._update(consts)
+        self._check_and_ingest(consts)
