@@ -18,11 +18,12 @@ in the correct order; thus, the TaskRunnerEntry mostly contains data pertaining 
 task's relationship to other tasks.
 """
 
+import attr
 import copy
 import logging
 import warnings
 
-from enum import Enum, auto
+from enum import auto, Enum, IntEnum
 
 from ..datatypes import ProvenanceDigest, Query, Result
 from ..exception import CodeVersioningError
@@ -36,39 +37,22 @@ class TaskRunnerEntry:
     """
     Represents a task to be completed by the `TaskCompletionRunner`.
 
-    Wraps a `TaskState`, and holds additional information tracking its relationship to
-    other entries. Each entry has "requests", which are imposed on it by other task
-    entries. The possible requests correspond to the two main milestones an entry can
-    reach, which are easiest to understand in reverse order:
+    Wraps a `TaskState`, and holds additional information tracking its relationship
+    to other entries. These relationships mostly take the form of `EntryRequirement`
+    objects, which indicate that one entry can't do any work until another entry
+    reaches a certain level of progress.
 
-    "Cached": This means the task has been computed and its output value is stored
-    somewhere -- in the persistent cache, in memory on the TaskState, and/or in
-    memory on this entry (depending on the cache settings). This is the final
-    milestone: after this, there is no more work to do on this task.
-
-    "Primed": This is a more abstract condition. It guarantees two things:
-
-    a) This task's provenance digest is available, which means any downstream tasks can
-    have their values loaded from the persisted cache. For a task with non-persistable
-    output, its provenance digest depends only on its provenance; it doesn't actually
-    require the task to be computed. However, for a task with persistable output, the
-    provenance digest depends on its actual value, so the task must be computed and its
-    output cached.
-
-    b) There is no additional *persistable* work to do on this task. In other words,
-    if we have any dependent tasks that we plan to run in a separate process, we can
-    go ahead and start them; there may be more work to do on this task, but it will
-    have to be done in that separate process, because its results can't be serialized
-    and transmitted. (On the other hand, if we have a dependent task to run *in this
-    same process*, we'll want to bring this task to the "cached" state instead.) As
-    with (a), for a task with non-persistable output, this milestone is reached as
-    soon as we compute its provenance; for a task with persistable output, it's
-    reached only when the task is computed and its output is cached.
-
-    Thus, the operational definition of "primed" depends on whether the task's output is
-    persistable or not. If so, "primed" is equivalent to "cached"; if not, "primed"
-    represents a preliminary stage of work which happens to be sufficient for many
-    applications.
+    Main attributes
+    ---------------
+    level: EntryLevel
+        The level of progress reached by this entry's TaskState.
+    incoming_reqs: list of EntryRequirement
+        All requirements placed on this entry by other entries.
+    outgoing_reqs: list of EntryRequirement
+        All requirements placed on other entries by this one.
+    stage: EntryStage
+        The position of this entry within the bookkeeping system of its owning
+        TaskCompletionRunner.
     """
 
     def __init__(self, state):
@@ -81,11 +65,8 @@ class TaskRunnerEntry:
         # DAG. We set this once we start processing the entry.
         self.dep_entries = None
 
-        # These are initially set to False, but can be updated to True when we discover
-        # a requirement from another entry. However, they should never go from True to
-        # False!
-        self.is_requested_to_be_primed = False
-        self.is_requested_to_be_cached = False
+        self.incoming_reqs = set()
+        self.outgoing_reqs = set()
 
     @property
     def stage(self):
@@ -97,48 +78,40 @@ class TaskRunnerEntry:
         self._stage = stage
 
     @property
-    def is_cached(self):
+    def level(self):
+        if self._is_cached:
+            return EntryLevel.CACHED
+        elif self._is_primed:
+            return EntryLevel.PRIMED
+        else:
+            return EntryLevel.CREATED
+
+    @property
+    def required_level(self):
+        return max(
+            (req.level for req in self.incoming_reqs), default=EntryLevel.CREATED
+        )
+
+    @property
+    def all_incoming_reqs_are_met(self):
+        return self.level >= self.required_level
+
+    @property
+    def all_outgoing_reqs_are_met(self):
+        return all(req.is_met for req in self.outgoing_reqs)
+
+    @property
+    def _is_cached(self):
         return self.results_by_dnode is not None or self.state.is_cached
 
     @property
-    def is_primed(self):
+    def _is_primed(self):
         if self.state.should_persist is None:
             return False
         if self.state.should_persist:
             return self.state.is_cached
         else:
             return self.state.is_initialized
-
-    # TODO Later, once we're keeping track of exactly which requests are imposed by
-    # which entries, we should avoid using a dependency's EntryStage and instead just
-    # check whether it satisfies our requests.
-    def blocking_dep_entries(self):
-        assert self.dep_entries is not None
-        return [
-            dep_entry
-            for dep_entry in self.dep_entries
-            if dep_entry.stage != EntryStage.COMPLETED
-        ]
-
-    def blocking_dep_task_keys(self):
-        blocking_dep_entries = self.blocking_dep_entries()
-        return set(
-            blocking_dep_entry_tk
-            for blocking_dep_entry in blocking_dep_entries
-            for blocking_dep_entry_tk in blocking_dep_entry.state.task_keys
-        )
-
-    @property
-    def satisfies_requests(self):
-        if self.is_requested_to_be_primed and not self.is_primed:
-            return False
-        if self.is_requested_to_be_cached and not self.is_cached:
-            return False
-        return True
-
-    @property
-    def all_dependencies_satisfy_requests(self):
-        return all(dep_entry.satisfies_requests for dep_entry in self.dep_entries)
 
     def compute(self, task_key_logger):
         """
@@ -154,7 +127,7 @@ class TaskRunnerEntry:
 
         dep_results = []
         for dep_entry, dep_key in zip(self.dep_entries, task.dep_keys):
-            assert dep_entry.is_cached
+            assert dep_entry._is_cached
             dep_results_by_dnode = dep_entry.get_cached_results(task_key_logger)
             dep_results.append(dep_results_by_dnode[dep_key.dnode])
 
@@ -224,7 +197,7 @@ class TaskRunnerEntry:
     def get_cached_results(self, task_key_logger):
         "Returns the results of an already-computed entry."
 
-        assert self.is_cached
+        assert self._is_cached
 
         if self.results_by_dnode:
             return self.results_by_dnode
@@ -241,8 +214,8 @@ class EntryStage(Enum):
 
     """
     The entry is completed; we don't have any more work to do with it. All entries start
-    here (before any requests have been placed on them) and end here (once all the
-    requests have been satisfied).
+    here (before any requirements have been placed on them) and end here (once all the
+    requirements have been met).
 
     Valid next stages: [PENDING]
     """
@@ -265,8 +238,8 @@ class EntryStage(Enum):
     ACTIVE = auto()
 
     """
-    The entry is blocked: we can't continue processing it until some other entries are
-    completed.
+    The entry is blocked: it has requirements on other entries that haven't been met
+    yet, so we can't do any more work on it.
 
     Valid next stages: [PENDING]
     """
@@ -280,21 +253,69 @@ class EntryStage(Enum):
     IN_PROGRESS = auto()
 
 
-class EntryBlockage:
+@attr.s(frozen=True)
+class EntryRequirement:
     """
-    Represents a blocking relationship between a task state and a collection of
-    not-yet-completed task keys it depends on.
+    Represents a requirement from one entry to another.
+
+    A requirement indicates that one entry (`src_entry`) can't make any further progress
+    until another entry (`dst_entry`) has reached a certain level of progress (`level`).
+
+    Note: `src_entry` can also be `None`, indicating some sort of external or a priori
+    requirement. On the other hand, `dst_entry` cannot be `None`.
     """
 
-    def __init__(self, blocked_entry, blocking_tks):
-        self.blocked_entry = blocked_entry
-        self._blocking_tks = set(blocking_tks)
+    src_entry = attr.ib()
+    dst_entry = attr.ib()
+    level = attr.ib()
 
-    def mark_task_key_complete(self, blocking_tk):
-        self._blocking_tks.discard(blocking_tk)
+    @property
+    def is_met(self):
+        return self.dst_entry.level >= self.level
 
-    def is_resolved(self):
-        return not self._blocking_tks
+
+class EntryLevel(IntEnum):
+    """
+    Represents the level of progress we've made on a TaskRunnerEntry's TaskState.
+
+    The initial level of progress is CREATED; the TaskState exists but not much work
+    has been done on it. There are two other possible milestones a TaskState can reach,
+    which are easiest to understand in reverse order:
+
+    CACHED: This means the task has been computed and its output value is stored
+    somewhere -- in the persistent cache, in memory on the TaskState, and/or in
+    memory on this entry (depending on the cache settings). This is the final
+    milestone: after this, there is no more work to do on this task.
+
+    PRIMED: This is a more abstract condition. It guarantees two things:
+
+    a) This task's provenance digest is available, which means any downstream tasks can
+    have their values loaded from the persisted cache. For a task with non-persistable
+    output, its provenance digest depends only on its provenance; it doesn't actually
+    require the task to be computed. However, for a task with persistable output, the
+    provenance digest depends on its actual value, so the task must be computed and its
+    output cached.
+
+    b) There is no additional *persistable* work to do on this task. In other words,
+    if we have any dependent tasks that we plan to run in a separate process, we can
+    go ahead and start them; there may be more work to do on this task, but it will
+    have to be done in that separate process, because its results can't be serialized
+    and transmitted. (On the other hand, if we have a dependent task to run *in this
+    same process*, we'll want to bring this task to the "cached" state instead.) As
+    with (a), for a task with non-persistable output, this milestone is reached as
+    soon as we compute its provenance; for a task with persistable output, it's
+    reached only when the task is computed and its output is cached.
+
+    Thus, the operational definition of PRIMED depends on whether the task's output is
+    persistable or not. If so, PRIMED is equivalent to CACHED; if not, PRIMED
+    represents a preliminary stage of work which happens to be sufficient for many
+    applications.
+    """
+
+    CREATED = auto()
+
+    PRIMED = auto()
+    CACHED = auto()
 
 
 # TODO Let's reorder the methods here with this order:
