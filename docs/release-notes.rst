@@ -74,6 +74,13 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
+Cache Compatibility Changes
+...........................
+
+- This release of Bionic cannot load cached data created by previous releases.
+  Instead of attempting to load old an old cached value, Bionic will recompute
+  (and re-cache) a new value.
+
 Deprecated Features
 -------------------
 

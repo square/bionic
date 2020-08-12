@@ -926,7 +926,7 @@ def valid_filename_from_query(query):
     return query.dnode.to_descriptor().replace(" ", "-")
 
 
-CACHE_SCHEMA_VERSION = 7
+CACHE_SCHEMA_VERSION = 8
 
 
 class YamlRecordParsingError(Exception):
