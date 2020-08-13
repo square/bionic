@@ -75,21 +75,21 @@ Upcoming Version (Not Yet Released)
    "latest" docs (corresponding to the master branch).
 
 Deprecated Features
--------------------
+...................
 
 - Bionic no longer supports Matplotlib version 3.2.x, since that version can cause
   crashes on Mac OS when using multiprocessing. Versions 3.1.x and 3.3+ are still
   supported.
 
 Bug Fixes
----------
+.........
 
 - Fixed an `issue <https://github.com/square/bionic/issues/111>`_ where non-persistable
   entities could be spuriously recomputed even when their values weren't directly
   needed.
 
 Documentation
--------------
+.............
 
 - Fixed broken link in the documentation for the
   :class:`FileCopier <bionic.filecopier.FileCopier>` class.
