@@ -19,12 +19,15 @@ changes to this module that can change the encoding, update
 CACHE_SCHEMA_VERSION to update cache scheme.
 """
 
+from enum import Enum
 import hashlib
 import inspect
-import json
 import warnings
 
 from .utils.misc import oneline
+
+
+PREFIX_SEPARATOR = b"$"
 
 
 class CodeHasher:
@@ -57,6 +60,12 @@ class CodeHasher:
     def update(self, obj):
         return self._check_and_ingest(obj)
 
+    def _ingest_raw_prefix_and_bytes(self, type_prefix, obj_bytes=b""):
+        self._hash.update(type_prefix.value)
+        self._hash.update(get_size_as_bytes(obj_bytes))
+        self._hash.update(PREFIX_SEPARATOR)
+        self._hash.update(obj_bytes)
+
     def _check_and_ingest(self, obj):
         """
         Checks for circular references before calling the _ingest
@@ -68,7 +77,11 @@ class CodeHasher:
         # analyzing the depth of the value instead.
         if obj_id in self._object_depths_by_id:
             obj = self._object_depths_by_id[obj_id]
-            obj_id = id(obj)
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.CIRCULAR_REF,
+                obj_bytes=str(self._object_depths_by_id[obj_id]).encode(),
+            )
+            return
 
         self._object_depths_by_id[obj_id] = len(self._object_depths_by_id)
         self._ingest(obj)
@@ -80,33 +93,74 @@ class CodeHasher:
         into bytes that are added to the hash.
         """
         if isinstance(obj, bytes):
-            self._hash.update(obj)
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.BYTES, obj_bytes=obj
+            )
 
         elif isinstance(obj, bytearray):
-            self._hash.update(obj)
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.BYTEARRAY, obj_bytes=obj
+            )
 
-        elif obj is None or isinstance(obj, (int, float, str, bool)):
-            json_bytes = json.dumps(obj).encode()
-            self._hash.update(obj, json_bytes)
+        elif obj is None:
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.NONE, obj_bytes=b"None"
+            )
 
-        elif isinstance(obj, (list, tuple)):
+        elif isinstance(obj, int):
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.INT, obj_bytes=str(obj).encode(),
+            )
+
+        elif isinstance(obj, float):
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.FLOAT, obj_bytes=str(obj).encode(),
+            )
+
+        elif isinstance(obj, str):
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.STRING, obj_bytes=obj.encode(),
+            )
+
+        elif isinstance(obj, bool):
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.BOOL, obj_bytes=str(obj).encode(),
+            )
+
+        elif isinstance(obj, (list, set, tuple)):
+            if isinstance(obj, list):
+                type_prefix = TypePrefix.LIST
+            elif isinstance(obj, set):
+                type_prefix = TypePrefix.SET
+            else:
+                type_prefix = TypePrefix.TUPLE
+            obj_bytes = str(len(obj)).encode()
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=type_prefix, obj_bytes=obj_bytes,
+            )
             for elem in obj:
                 self._check_and_ingest(elem)
 
         elif isinstance(obj, dict):
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.DICT, obj_bytes=str(len(obj)).encode(),
+            )
             for key, elem in obj.items():
                 self._check_and_ingest(key)
                 self._check_and_ingest(elem)
 
         elif inspect.isroutine(obj):
+            self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.ROUTINE)
             self._check_and_ingest(obj.__defaults__)
             self._ingest_code(obj.__code__)
 
         elif inspect.iscode(obj):
+            self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.CODE)
             self._ingest_code(obj)
 
         else:
             # TODO: Verify that we hash all Python constant types.
+            self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.DEFAULT)
             message = oneline(
                 f"""
                 Found a constant {obj!r} of type {type(obj)!r} that
@@ -130,3 +184,37 @@ class CodeHasher:
             if not (isinstance(const, str) and const.endswith(".<lambda>"))
         ]
         self._check_and_ingest(consts)
+
+
+class TypePrefix(Enum):
+    """
+    Represents a unique value for each type that CodeHasher hashes that
+    is prefixed to avoid collision between same encoded values.
+
+    If you change the prefix of any type, or add a new prefix, it can
+    change the encoding of objects. Since Bionic uses these encodings
+    to detect changes, any changes to encoding will make caching
+    backwards-incompatible. Update CACHE_SCHEMA_VERSION to update cache
+    scheme if you change the encoding.
+    """
+
+    BYTES = b"AA"
+    BYTEARRAY = b"AB"
+    NONE = b"AC"
+    STRING = b"AD"
+    INT = b"AE"
+    FLOAT = b"AF"
+    BOOL = b"AG"
+    LIST = b"AH"
+    SET = b"AI"
+    TUPLE = b"AJ"
+    DICT = b"AK"
+    ROUTINE = b"AL"
+    CODE = b"AM"
+    CIRCULAR_REF = b"AN"
+    DEFAULT = b"ZZ"
+
+
+def get_size_as_bytes(obj_bytes):
+    assert isinstance(obj_bytes, (bytes, bytearray))
+    return str(len(obj_bytes)).encode()
