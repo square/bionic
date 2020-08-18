@@ -24,7 +24,7 @@ from .datatypes import (
     CodeVersion,
     FunctionAttributes,
 )
-from .code_analyzer import CodeHasher
+from .code_hasher import CodeHasher
 from .deps.optdep import import_optional_dependency
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast

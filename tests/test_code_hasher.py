@@ -3,7 +3,7 @@ import contextlib
 import pytest
 import threading
 
-from bionic.code_analyzer import CodeHasher, TypePrefix
+from bionic.code_hasher import CodeHasher, TypePrefix
 
 
 def test_code_hasher():
@@ -61,16 +61,18 @@ def test_code_hasher():
         return m
 
     def a_lot_of_consts(train_frame, random_seed, hyperparams_dict):
+        import logging
+
         docstring = """
         This function uses a few constants and demonstrates that Bionic
         can hash all of them without any issues.
         """
-        print(docstring)
+        logging.log(docstring)  # Log these variables to avoid F841 errors.
         add_numbers = lambda x, y: x + y  # noqa: E731
         four = add_numbers(2, 2)
-        print(four)
+        logging.log(four)
         seven = add_numbers(3, 4)
-        print(seven)
+        logging.log(seven)
 
         a, b, c = (1, -30, 200)
         (s1, s2) = quadratic_eq(a, b, c)
@@ -170,7 +172,7 @@ def test_code_hasher():
         if idx >= len(values):
             ctx_mgr = pytest.warns(UserWarning, match="Found a constant")
         else:
-            ctx_mgr = contextlib.nullcontext()
+            ctx_mgr = contextlib.suppress()
 
         with ctx_mgr:
             hash_value = CodeHasher.hash(val)
