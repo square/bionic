@@ -4,7 +4,7 @@ Utilities for working with URLs.
 
 import os
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 FILE_SCHEME = "file"
 GCS_SCHEME = "gs"
@@ -32,7 +32,7 @@ def is_absolute_url(url):
 
 def path_from_url(url):
     result = urlparse(url)
-    return Path(result.path)
+    return Path(unquote(result.path))
 
 
 def url_from_path(path):
