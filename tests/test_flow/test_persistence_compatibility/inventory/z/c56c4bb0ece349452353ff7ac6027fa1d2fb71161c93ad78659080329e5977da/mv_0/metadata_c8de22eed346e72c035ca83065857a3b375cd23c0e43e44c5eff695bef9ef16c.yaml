@@ -1,4 +1,4 @@
-artifact_url: ../../../../artifacts/z/d58db102-06e4-405e-b5ab-3af678d6eeae/z.pkl
+artifact_url: ../../../../artifacts/z/c0ae6542-cee2-494d-8a03-a2f19ef9134b/z.json
 descriptor: z
 provenance:
   case_key:
@@ -6,14 +6,14 @@ provenance:
   code:
     bytecode_hash: null
     functional:
-      cache_schema_version: 7
+      cache_schema_version: 8
       code_version_major: '4'
       orig_flow_name: null
     nonfunctional:
       bytecode_hash: null
       code_version_minor: '0'
   exact_deps_hash: 72dfcfb0c470ac255cde83fb8fe38de8a128188e03ea5ba5b2a93adbea1062fa
-  exact_hash: 37453133f59391c478059c62eb759746a2bd1d048fb61b69eb01f69742703e47
+  exact_hash: c8de22eed346e72c035ca83065857a3b375cd23c0e43e44c5eff695bef9ef16c
   functional_deps: []
-  functional_hash: 44ca7fb2bdc094ce6078a2b56807b91861a706f4df169954db19ea307b1e684e
-value_hash: 24dc718705
+  functional_hash: c56c4bb0ece349452353ff7ac6027fa1d2fb71161c93ad78659080329e5977da
+value_hash: f683a42168

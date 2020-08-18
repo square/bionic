@@ -24,12 +24,12 @@ from .datatypes import (
     CodeVersion,
     FunctionAttributes,
 )
-from .bytecode import canonical_bytecode_bytes_from_func
+from .code_hasher import CodeHasher
 from .deps.optdep import import_optional_dependency
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .exception import EntityComputationError, IncompatibleEntityError
-from .utils.misc import groups_dict, hash_to_hex, oneline
+from .utils.misc import groups_dict, oneline
 
 import logging
 
@@ -64,11 +64,7 @@ class BaseProvider:
 
     def get_code_fingerprint(self, case_key):
         source_func = self.get_source_func()
-        bytecode_hash = (
-            None
-            if source_func is None
-            else hash_to_hex(canonical_bytecode_bytes_from_func(source_func))
-        )
+        bytecode_hash = None if source_func is None else CodeHasher.hash(source_func)
 
         code_version = (
             CodeVersion(None, None)
