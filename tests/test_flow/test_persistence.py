@@ -1219,3 +1219,17 @@ def test_avoid_recomputing_nonpersisted_dep(builder, make_counter):
     assert builder.build().get("b") == 2
     assert builder.build().get("b") == 2
     assert a_counter.times_called() == 1
+
+
+def test_caching_dir_with_whitespaces(builder, make_counter, tmp_path):
+    builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BN TEST DATA"))
+    counter = make_counter()
+
+    @builder
+    @counter
+    def one():
+        return 1
+
+    assert builder.build().get("one") == 1
+    assert builder.build().get("one") == 1
+    assert counter.times_called() == 1

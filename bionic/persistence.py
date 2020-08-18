@@ -369,9 +369,7 @@ class CacheAccessor:
         stores = [self._local]
         if self._cloud:
             stores.append(self._cloud)
-        inventory_root_urls = (
-            " and ".join(store.inventory.root_url for store in stores),
-        )
+        inventory_root_urls = " and ".join(store.inventory.root_url for store in stores)
 
         raise InvalidCacheStateError(
             oneline(
