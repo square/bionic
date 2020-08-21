@@ -439,6 +439,7 @@ class FlowBuilder:
         doc=None,
         docstring=None,
         persist=None,
+        param_logger=None,
     ):
         """
         Creates a new entity and assigns it a value.
@@ -468,6 +469,8 @@ class FlowBuilder:
             entity is calculated. The downside of setting this to False is
             that it won't be possible to retrieve a serialized file for
             this entity using the mode argument to Flow.get.
+        param_logger: Logger, optional
+            Logger to be used to log parameter. For example mlflow.log_param
         """
 
         check_at_most_one_present(value=value, values=values)
@@ -504,6 +507,10 @@ class FlowBuilder:
         for value in values:
             case_key = CaseKey([(name, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
+
+        if param_logger:
+            for value in values:
+                param_logger(name, value)
 
         self._state = state
 
