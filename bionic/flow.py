@@ -470,10 +470,18 @@ class FlowBuilder:
             that it won't be possible to retrieve a serialized file for
             this entity using the mode argument to Flow.get.
         param_logger: Logger, optional
-            Logger to be used to log parameter. For example mlflow.log_param
+            Logger to be used to log parameter. Logger needs to be able to
+            handle multiple values (list, etc), or a single value.
         """
 
         check_at_most_one_present(value=value, values=values)
+
+        if param_logger:
+            if value:
+                param_logger(name, value)
+            elif values:
+                param_logger(name, values)
+
         if values is None:
             values = [value]
 
@@ -507,10 +515,6 @@ class FlowBuilder:
         for value in values:
             case_key = CaseKey([(name, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
-
-        if param_logger:
-            for value in values:
-                param_logger(name, value)
 
         self._state = state
 
