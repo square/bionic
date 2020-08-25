@@ -50,12 +50,13 @@ class Job:
 
     def __post_init__(self):
         if self.account is None:
-            # NOTE we must set an account or job submission will fail
-            object.__setattr__(
-                self,
-                "account",
-                f"ai-platform-agent@{self.project}.iam.gserviceaccount.com",
-            )
+            # NOTE we must set an account or job submission from a running job will fail
+            # object.__setattr__(
+            #     self,
+            #     "account",
+            #     f"ai-platform-agent@{self.project}.iam.gserviceaccount.com",
+            # )
+            pass
         if "gcr.io" not in self.image:
             # NOTE this is just for convenient image shorthand
             object.__setattr__(self, "image", f"gcr.io/{self.project}/{self.image}")
