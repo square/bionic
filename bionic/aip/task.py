@@ -142,7 +142,7 @@ class Task:
         )
         request.execute()
         url = f'https://console.cloud.google.com/ai-platform/jobs/{spec["jobId"]}'
-        logging.info(f"Started task on AI Platform: f{url}")
+        logging.info(f"Started task on AI Platform: {url}")
         return Future(self.job.project, self.job_id(), self.path_output())
 
 
