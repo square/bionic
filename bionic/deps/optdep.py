@@ -31,6 +31,8 @@ alias_lists_by_package = {
     "google-cloud-storage": ["google.cloud.storage"],
     "Pillow": ["PIL.Image"],
     "dask[dataframe]": ["dask.dataframe"],
+    "google-api-python-client": ["googleapiclient.discovery"],
+    "sq-blocks": ["blocks"],
 }
 
 # Now we contruct a new data structure to allow us to give helpful error
