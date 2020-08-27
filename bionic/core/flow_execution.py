@@ -164,7 +164,9 @@ class TaskCompletionRunner:
                 task_key_logger=self.task_key_logger,
             )
             future = self._bootstrap.executor.submit(
-                run_in_subprocess, new_task_completion_runner, new_state_for_subprocess,
+                run_in_subprocess,
+                new_task_completion_runner,
+                new_state_for_subprocess,
             )
             self._mark_entry_in_progress(entry, future)
             return

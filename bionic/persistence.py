@@ -259,7 +259,9 @@ class CacheAccessor:
         if not local_entry.exactly_matches_query:
             file_url = url_from_path(file_path)
             local_entry = self._local.inventory.register_url(
-                self.query, file_url, value_hash,
+                self.query,
+                file_url,
+                value_hash,
             )
         self._stored_local_entry = local_entry
 
@@ -272,7 +274,9 @@ class CacheAccessor:
                     else:
                         blob_url = self._blob_from_file(file_path)
                 cloud_entry = self._cloud.inventory.register_url(
-                    self.query, blob_url, value_hash,
+                    self.query,
+                    blob_url,
+                    value_hash,
                 )
             self._stored_cloud_entry = cloud_entry
 
@@ -481,7 +485,9 @@ class Inventory:
 
         if metadata_record is None:
             metadata_url, metadata_record = self._create_and_write_metadata(
-                query, url, value_hash,
+                query,
+                url,
+                value_hash,
             )
 
             assert metadata_url == expected_metadata_url
@@ -591,23 +597,35 @@ class Inventory:
 
         exact_url = self._exact_metadata_url_for_query(query)
         if exact_url in equivalent_urls:
-            return MetadataMatch(metadata_url=exact_url, level="exact",)
+            return MetadataMatch(
+                metadata_url=exact_url,
+                level="exact",
+            )
 
         samecode_url_prefix = self._samecode_metadata_url_prefix_for_query(query)
         samecode_urls = [
             url for url in equivalent_urls if url.startswith(samecode_url_prefix)
         ]
         if len(samecode_urls) > 0:
-            return MetadataMatch(metadata_url=samecode_urls[0], level="samecode",)
+            return MetadataMatch(
+                metadata_url=samecode_urls[0],
+                level="samecode",
+            )
 
         nominal_url_prefix = self._nominal_metadata_url_prefix_for_query(query)
         nominal_urls = [
             url for url in equivalent_urls if url.startswith(nominal_url_prefix)
         ]
         if len(nominal_urls) > 0:
-            return MetadataMatch(metadata_url=nominal_urls[0], level="nominal",)
+            return MetadataMatch(
+                metadata_url=nominal_urls[0],
+                level="nominal",
+            )
 
-        return MetadataMatch(metadata_url=equivalent_urls[0], level="equivalent",)
+        return MetadataMatch(
+            metadata_url=equivalent_urls[0],
+            level="equivalent",
+        )
 
     def _equivalent_metadata_url_prefix_for_query(self, query):
         return (
@@ -971,7 +989,10 @@ class ArtifactMetadataRecord:
 
     def to_yaml(self):
         return yaml.dump(
-            self._dict, default_flow_style=False, encoding=None, Dumper=YamlDumper,
+            self._dict,
+            default_flow_style=False,
+            encoding=None,
+            Dumper=YamlDumper,
         )
 
     def __repr__(self):
@@ -1066,10 +1087,16 @@ class Provenance:
 
         exact_deps_hash = hash_simple_obj_to_hex(exact_deps_list)
         functional_hash = hash_simple_obj_to_hex(
-            dict(code=functional_code_dict, deps=functional_deps_list,)
+            dict(
+                code=functional_code_dict,
+                deps=functional_deps_list,
+            )
         )
         exact_hash = hash_simple_obj_to_hex(
-            dict(code=full_code_dict, deps=exact_deps_list,)
+            dict(
+                code=full_code_dict,
+                deps=exact_deps_list,
+            )
         )
 
         return cls(

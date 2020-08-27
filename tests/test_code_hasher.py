@@ -187,7 +187,8 @@ def test_code_hasher():
 def test_complex_type_warning():
     val = threading.Lock()
     with pytest.warns(
-        UserWarning, match="Found a constant",
+        UserWarning,
+        match="Found a constant",
     ):
         assert CodeHasher.hash(val) == CodeHasher.hash(TypePrefix.DEFAULT)
 

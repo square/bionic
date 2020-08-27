@@ -66,7 +66,9 @@ def features_frame(raw_frame, feature_inclusion_regex):
 )
 def split_raw_frame(features_frame, test_split_fraction, random_seed):
     return model_selection.train_test_split(
-        features_frame, test_size=test_split_fraction, random_state=random_seed,
+        features_frame,
+        test_size=test_split_fraction,
+        random_state=random_seed,
     )
 
 
@@ -104,7 +106,8 @@ def precision_recall_frame(test_frame, prediction_frame):
     - `recall`: the test set recall resulting from that threshold
     """
     precisions, recalls, thresholds = metrics.precision_recall_curve(
-        test_frame["target"], prediction_frame["proba"],
+        test_frame["target"],
+        prediction_frame["proba"],
     )
 
     df = pd.DataFrame()

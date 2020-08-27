@@ -738,7 +738,10 @@ def test_multiple_compute_attempts(builder):
 # test after finding a bug where Bionic was applying == to a fixed value, which doesn't
 # work for DataFrames.)
 def test_fixed_dataframe(builder):
-    df = pd.DataFrame(columns=["a", "b"], data=[[1, 2], [3, 4]],)
+    df = pd.DataFrame(
+        columns=["a", "b"],
+        data=[[1, 2], [3, 4]],
+    )
 
     builder.assign("df", df)
 

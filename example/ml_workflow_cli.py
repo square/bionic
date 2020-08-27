@@ -20,7 +20,10 @@ def auc_score(test_frame, prediction_frame):
     """
     The Area Under the (Receiver Operating Characteristic) Curve.
     """
-    return metrics.roc_auc_score(test_frame["target"], prediction_frame["proba"],)
+    return metrics.roc_auc_score(
+        test_frame["target"],
+        prediction_frame["proba"],
+    )
 
 
 @builder

@@ -303,13 +303,17 @@ class FlowState(pyrs.PClass):
         assert name not in self.providers_by_name
 
         state = self
-        state = state.set(entity_defs_by_name=state.entity_defs_by_name.remove(name),)
+        state = state.set(
+            entity_defs_by_name=state.entity_defs_by_name.remove(name),
+        )
         return state
 
     def _erase_provider(self, name):
         state = self
         if name in state.providers_by_name:
-            state = state.set(providers_by_name=state.providers_by_name.remove(name),)
+            state = state.set(
+                providers_by_name=state.providers_by_name.remove(name),
+            )
         if name in state.default_entity_names:
             state = state.set(
                 default_entity_names=(state.default_entity_names.remove(name))
@@ -1298,7 +1302,11 @@ class Flow:
                 )
             else:
                 index = None
-            return pd.Series(name=name, data=values, index=index,)
+            return pd.Series(
+                name=name,
+                data=values,
+                index=index,
+            )
         else:
             raise ValueError(f"Unrecognized collection type {collection!r}")
 
@@ -1441,7 +1449,10 @@ class Flow:
 
         graph = self._deriver.export_dag(include_core)
         dot = dagviz.dot_from_graph(
-            graph=graph, vertical=vertical, curvy_lines=curvy_lines, name=self.name,
+            graph=graph,
+            vertical=vertical,
+            curvy_lines=curvy_lines,
+            name=self.name,
         )
         return dagviz.FlowImage(dot)
 
@@ -1696,15 +1707,18 @@ def create_default_flow_state():
     def core__versioning_policy(core__versioning_mode):
         if core__versioning_mode == "manual":
             return VersioningPolicy(
-                treat_bytecode_as_functional=False, check_for_bytecode_errors=False,
+                treat_bytecode_as_functional=False,
+                check_for_bytecode_errors=False,
             )
         elif core__versioning_mode == "assist":
             return VersioningPolicy(
-                treat_bytecode_as_functional=False, check_for_bytecode_errors=True,
+                treat_bytecode_as_functional=False,
+                check_for_bytecode_errors=True,
             )
         elif core__versioning_mode == "auto":
             return VersioningPolicy(
-                treat_bytecode_as_functional=True, check_for_bytecode_errors=False,
+                treat_bytecode_as_functional=True,
+                check_for_bytecode_errors=False,
             )
         else:
             raise ValueError(
@@ -1750,14 +1764,17 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__persistent_cache__local_store(core__persistent_cache__flow_dir,):
+    def core__persistent_cache__local_store(
+        core__persistent_cache__flow_dir,
+    ):
         local_flow_dir = core__persistent_cache__flow_dir
         return LocalStore(local_flow_dir)
 
     @builder
     @decorators.immediate
     def core__persistent_cache__cloud_store(
-        core__persistent_cache__gcs__url, core__persistent_cache__gcs__enabled,
+        core__persistent_cache__gcs__url,
+        core__persistent_cache__gcs__enabled,
     ):
         gcs_url = core__persistent_cache__gcs__url
         gcs_enabled = core__persistent_cache__gcs__enabled
@@ -1773,7 +1790,8 @@ def create_default_flow_state():
     @builder
     @decorators.immediate
     def core__persistent_cache(
-        core__persistent_cache__local_store, core__persistent_cache__cloud_store,
+        core__persistent_cache__local_store,
+        core__persistent_cache__cloud_store,
     ):
         return PersistentCache(
             local_store=core__persistent_cache__local_store,
@@ -1787,7 +1805,8 @@ def create_default_flow_state():
     @builder
     @decorators.immediate
     def core__executor(
-        core__parallel_execution__enabled, core__parallel_execution__worker_count,
+        core__parallel_execution__enabled,
+        core__parallel_execution__worker_count,
     ):
         if not core__parallel_execution__enabled:
             return None

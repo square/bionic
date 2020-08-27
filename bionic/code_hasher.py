@@ -109,22 +109,26 @@ class CodeHasher:
 
         elif isinstance(obj, int):
             self._ingest_raw_prefix_and_bytes(
-                type_prefix=TypePrefix.INT, obj_bytes=str(obj).encode(),
+                type_prefix=TypePrefix.INT,
+                obj_bytes=str(obj).encode(),
             )
 
         elif isinstance(obj, float):
             self._ingest_raw_prefix_and_bytes(
-                type_prefix=TypePrefix.FLOAT, obj_bytes=str(obj).encode(),
+                type_prefix=TypePrefix.FLOAT,
+                obj_bytes=str(obj).encode(),
             )
 
         elif isinstance(obj, str):
             self._ingest_raw_prefix_and_bytes(
-                type_prefix=TypePrefix.STRING, obj_bytes=obj.encode(),
+                type_prefix=TypePrefix.STRING,
+                obj_bytes=obj.encode(),
             )
 
         elif isinstance(obj, bool):
             self._ingest_raw_prefix_and_bytes(
-                type_prefix=TypePrefix.BOOL, obj_bytes=str(obj).encode(),
+                type_prefix=TypePrefix.BOOL,
+                obj_bytes=str(obj).encode(),
             )
 
         elif isinstance(obj, (list, set, tuple)):
@@ -136,14 +140,16 @@ class CodeHasher:
                 type_prefix = TypePrefix.TUPLE
             obj_bytes = str(len(obj)).encode()
             self._ingest_raw_prefix_and_bytes(
-                type_prefix=type_prefix, obj_bytes=obj_bytes,
+                type_prefix=type_prefix,
+                obj_bytes=obj_bytes,
             )
             for elem in obj:
                 self._check_and_ingest(elem)
 
         elif isinstance(obj, dict):
             self._ingest_raw_prefix_and_bytes(
-                type_prefix=TypePrefix.DICT, obj_bytes=str(len(obj)).encode(),
+                type_prefix=TypePrefix.DICT,
+                obj_bytes=str(len(obj)).encode(),
             )
             for key, elem in obj.items():
                 self._check_and_ingest(key)

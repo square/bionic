@@ -183,7 +183,9 @@ class LoggingReceiver:
         self._event_has_listeners = threading.Event()
 
         self._receive_thread = threading.Thread(
-            target=self._receive, name="Log-Receiver", daemon=True,
+            target=self._receive,
+            name="Log-Receiver",
+            daemon=True,
         )
         self._receive_thread.start()
 
