@@ -378,3 +378,27 @@ class SynchronizedSet:
 
     def contains(self, value):
         return value in self.values
+
+
+# TODO: This is a really stupid workaround for AIP execution. The set
+# used by TaskKeyLogger needs be cloudpickle-able.
+class NonAtomicSet:
+    """
+    A set-like class that only exposes add() and contains() method.
+    """
+
+    def __init__(self):
+        self.values = set()
+
+    def add(self, value):
+        """
+        Adds the value and returns True if the value isn't present in the
+        set. Returns False if the set already contains the value.
+        """
+        if self.contains(value):
+            return False
+        self.values.add(value)
+        return True
+
+    def contains(self, value):
+        return value in self.values

@@ -5,6 +5,7 @@ to completion.
 
 from concurrent.futures import wait, FIRST_COMPLETED
 import logging
+import time
 
 from .task_execution import (
     EntryLevel,
@@ -14,6 +15,7 @@ from .task_execution import (
     RemoteSubgraph,
     TaskRunnerEntry,
 )
+from ..executor import AipExecutor, ProcessExecutor
 from ..utils.keyed_priority_stack import KeyedPriorityStack
 from ..utils.misc import SynchronizedSet
 
@@ -68,7 +70,13 @@ class TaskCompletionRunner:
 
     @property
     def _parallel_execution_enabled(self):
-        return self._bootstrap is not None and self._bootstrap.executor is not None
+        executor = self._bootstrap.executor if self._bootstrap is not None else None
+        return isinstance(executor, ProcessExecutor)
+
+    @property
+    def _aip_execution_enabled(self):
+        executor = self._bootstrap.executor if self._bootstrap is not None else None
+        return isinstance(executor, AipExecutor)
 
     def run(self, states):
         try:
@@ -152,10 +160,14 @@ class TaskCompletionRunner:
 
         # At this point we'll need to actually compute the entry. If possible, we
         # prefer to compute it remotely.
+        aip_execution_enabled_for_entry = (
+            self._aip_execution_enabled
+            and entry.state.func_attrs.aip_resource is not None
+        )
         can_compute_remotely = (
-            self._parallel_execution_enabled
-            and entry.state.should_persist
+            entry.state.should_persist
             and not entry.state.task.is_simple_lookup
+            and (aip_execution_enabled_for_entry or self._parallel_execution_enabled)
         )
         if can_compute_remotely:
             # When we run an entry remotely, we also need to run all of its immediate
@@ -225,6 +237,10 @@ class TaskCompletionRunner:
                 flow_instance_uuid=self._flow_instance_uuid,
                 task_key_logger=self.task_key_logger,
             )
+            if aip_execution_enabled_for_entry:
+                self._bootstrap.executor.set_resource(
+                    entry.state.func_attrs.aip_resource
+                )
             future = self._bootstrap.executor.submit(
                 run_in_subprocess,
                 new_task_completion_runner,
@@ -327,7 +343,14 @@ class TaskCompletionRunner:
         futures = set(
             entry.future for entry in self._in_progress_entries_by_task_key.values()
         )
-        finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
+        if self._parallel_execution_enabled:
+            finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
+        else:
+            assert self._aip_execution_enabled
+            # TODO: There has to be a better way of doing this.
+            while all(future.running() for future in futures):
+                time.sleep(10)
+            finished_futures = [future for future in futures if future.done()]
         for finished_future in finished_futures:
             task_keys = finished_future.result()
             for task_key in task_keys:

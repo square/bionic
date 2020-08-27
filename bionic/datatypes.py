@@ -304,3 +304,4 @@ class FunctionAttributes:
 
     code_fingerprint = attr.ib()
     changes_per_run = attr.ib()
+    aip_resource = attr.ib()

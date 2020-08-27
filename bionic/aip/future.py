@@ -1,6 +1,8 @@
 import blocks
 import logging
 import time
+
+# TODO: If we commit this into bionic, make these deps optional.
 import googleapiclient.discovery
 from concurrent.futures import Future as _Future, TimeoutError, CancelledError
 from enum import Enum, auto

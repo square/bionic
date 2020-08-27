@@ -15,7 +15,7 @@ from bionic.aip.tune import Tune
 
 @dataclass(frozen=True)
 class Resource:
-    """ Description of a computing resource, which can be a single machine or a cluster of machines
+    """Description of a computing resource, which can be a single machine or a cluster of machines
 
     In the future could be extended to support GPUs and similar
     """
@@ -27,7 +27,7 @@ class Resource:
 
 @dataclass(frozen=True)
 class Job:
-    """ A job groups together individual tasks, all of which share these properties
+    """A job groups together individual tasks, all of which share these properties
 
     #TODO some square specific defaults in here, couldn't leave those in bionic
 
@@ -88,8 +88,7 @@ class Task:
             cloudpickle.dump(self, f)
 
     def _ai_platform_job_spec(self):
-        """ Conversion from our task data model to a job request on ai platform
-        """
+        """Conversion from our task data model to a job request on ai platform"""
         output = {
             "jobId": f"{self.job.uuid}_{self.name}",
             "labels": {"job": self.job.uuid},

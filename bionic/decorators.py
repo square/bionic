@@ -10,6 +10,7 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 
 """
 
+from .aip.task import Resource
 from .datatypes import CodeVersion
 from .decoration import decorator_updating_accumulator
 from .descriptors.parsing import dnode_from_descriptor, entity_dnode_from_descriptor
@@ -437,6 +438,31 @@ def returns(out_descriptor):
     out_dnode = dnode_from_descriptor(out_descriptor)
     return decorator_updating_accumulator(
         lambda acc: acc.wrap_provider(NewOutputDescriptorProvider, out_dnode)
+    )
+
+
+def aip_resource(resource):
+    """
+    Indicates that the decorated function should be computed in AIP.
+    Using this decorator requires AIP based distributed execution to be enabled.
+
+    Parameters
+    ----------
+
+    resource: bionic.aip.task.Resource
+        Computing resource that the entity function should use on AIP.
+
+    Returns
+    -------
+    Function:
+        A decorator which can be applied to an entity function.
+    """
+
+    if not isinstance(resource, Resource):
+        raise ValueError(f"Argument must be a Resource; got {resource!r}")
+
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(AttrUpdateProvider, "aip_resource", resource)
     )
 
 

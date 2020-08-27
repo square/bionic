@@ -12,6 +12,7 @@ from .decorators import (  # noqa: F401
     changes_per_run,
     accepts,
     returns,
+    aip_resource,
 )
 
 from . import protocol  # noqa: F401

@@ -27,7 +27,10 @@ def main():
     futures = []
     futures.append(
         Task(
-            name="x", job=job, resource=Resource("n1-standard-4"), function=x,
+            name="x",
+            job=job,
+            resource=Resource("n1-standard-4"),
+            function=x,
         ).submit()
     )
     futures.append(

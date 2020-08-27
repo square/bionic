@@ -3,6 +3,7 @@ Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 """
 
+from datetime import datetime
 import os
 import shutil
 import warnings
@@ -17,6 +18,7 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
+from .aip.task import Job
 from .cache_api import Cache
 from .datatypes import (
     CaseKey,
@@ -31,7 +33,8 @@ from .exception import (
     UnsetEntityError,
     AttributeValidationError,
 )
-from .executor import Executor
+
+from .executor import AipExecutor, ProcessExecutor
 from .persistence import LocalStore, GcsCloudStore, PersistentCache
 from .provider import (
     ValueProvider,
@@ -1817,12 +1820,64 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__executor(
+    def core__process_executor(
         core__parallel_execution__enabled,
         core__parallel_execution__worker_count,
     ):
         if not core__parallel_execution__enabled:
             return None
-        return Executor(core__parallel_execution__worker_count)
+        return ProcessExecutor(core__parallel_execution__worker_count)
+
+    builder.assign("core__distributed_execution__enabled", False, persist=False)
+    builder.assign(
+        "core__distributed_execution__gcp_project", "sq-mlf-dev", persist=False
+    )
+    builder.assign(
+        "core__distributed_execution__docker_image", "bionic:latest", persist=False
+    )
+
+    @builder
+    @decorators.immediate
+    def core__distributed_execution__aip_job(
+        core__distributed_execution__enabled,
+        core__distributed_execution__gcp_project,
+        core__distributed_execution__docker_image,
+    ):
+        if not core__distributed_execution__enabled:
+            return None
+
+        return Job(
+            uuid=f"demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            project=core__distributed_execution__gcp_project,
+            image=core__distributed_execution__docker_image,
+        )
+
+    @builder
+    @decorators.immediate
+    def core__aip_executor(
+        core__distributed_execution__enabled,
+        core__distributed_execution__aip_job,
+    ):
+        if not core__distributed_execution__enabled:
+            return None
+        return AipExecutor(
+            core__distributed_execution__aip_job,
+        )
+
+    @builder
+    @decorators.immediate
+    def core__executor(
+        core__distributed_execution__enabled,
+        core__parallel_execution__enabled,
+        core__aip_executor,
+        core__process_executor,
+    ):
+        if core__distributed_execution__enabled and core__parallel_execution__enabled:
+            raise AssertionError(
+                "both distributed and parallel execution enabled, but only one can be enabled"
+            )
+        if core__distributed_execution__enabled:
+            return core__aip_executor
+        return core__process_executor
 
     return builder._state.mark_all_entities_default()

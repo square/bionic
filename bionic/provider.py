@@ -43,11 +43,13 @@ class ProviderAttributes:
         code_version=None,
         orig_flow_name=None,
         changes_per_run=None,
+        aip_resource=None,
     ):
         self.dnodes = dnodes
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
         self.changes_per_run = changes_per_run
+        self.aip_resource = aip_resource
 
 
 class BaseProvider:
@@ -64,6 +66,7 @@ class BaseProvider:
         return FunctionAttributes(
             code_fingerprint=self.get_code_fingerprint(case_key),
             changes_per_run=self.attrs.changes_per_run,
+            aip_resource=self.attrs.aip_resource,
         )
 
     def get_code_fingerprint(self, case_key):
@@ -139,8 +142,7 @@ class ValueProvider(BaseProvider):
         dnodes = [entity_dnode_from_descriptor(name) for name in names]
         super(ValueProvider, self).__init__(
             attrs=ProviderAttributes(
-                dnodes=dnodes,
-                changes_per_run=False,
+                dnodes=dnodes, changes_per_run=False, aip_resource=False
             ),
         )
 

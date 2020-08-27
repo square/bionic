@@ -6,19 +6,57 @@ work in a parallel setting.
 """
 
 import copy
+from functools import partial
 import logging
+from multiprocessing.managers import SyncManager
 import queue
 import sys
 import threading
 import traceback
+from uuid import uuid4
 
-from multiprocessing.managers import SyncManager
-
+from .aip.task import Task
 from .deps.optdep import import_optional_dependency
-from .utils.misc import oneline, SynchronizedSet
+from .utils.misc import oneline, NonAtomicSet, SynchronizedSet
 
 
-class Executor:
+class AipExecutor:
+    """
+    Encapsulates all objects related to remote execution on Google AIP
+    in one place.
+    """
+
+    def __init__(self, aip_job):
+        self._aip_job = aip_job
+
+    # TODO: This is a workaround for PoC.
+    def set_resource(self, resource):
+        self._resource = resource
+
+    def submit(self, fn, *args, **kwargs):
+        assert self._resource is not None
+        return Task(
+            # TODO: Use a combination of entity name and case key for name.
+            # AIP names have to start with an alphabet and only accepts
+            # alphanumeric and underscore characters.
+            name="a" + str(uuid4()).replace("-", ""),
+            job=self._aip_job,
+            resource=self._resource,
+            function=partial(fn, *args, **kwargs),
+        ).submit()
+
+    def create_synchronized_set(self):
+        return NonAtomicSet()
+
+    def start_logging(self):
+        # TODO: Setup logging.
+        pass
+
+    def stop_logging(self):
+        pass
+
+
+class ProcessExecutor:
     """
     Encapsulates all objects related to parallel execution in one place.
     It wraps the Loky process pool executor in a way that allows logging
