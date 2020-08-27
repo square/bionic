@@ -361,11 +361,14 @@ class Fuzzer:
         if expects_updated_entity_value_change:
             entity_names_in_between = set(
                 self.model.entity_names(
-                    downstream_of=updated_name, upstream_of=affected_name_or_names,
+                    downstream_of=updated_name,
+                    upstream_of=affected_name_or_names,
                 )
             )
-            nondeterministic_ancestors = self.model.nondeterministic_upstream_entity_names(
-                entity_names_in_between
+            nondeterministic_ancestors = (
+                self.model.nondeterministic_upstream_entity_names(
+                    entity_names_in_between
+                )
             )
             expected_called_names = entity_names_in_between | nondeterministic_ancestors
 

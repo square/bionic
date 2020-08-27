@@ -132,7 +132,9 @@ class DescriptorParser:
             assert token_type is not None
             if token_type != "whitespace":
                 yield AugmentedToken(
-                    token=match.group(), token_type=token_type, start_pos=pos,
+                    token=match.group(),
+                    token_type=token_type,
+                    start_pos=pos,
                 )
             if token_type == "end":
                 break

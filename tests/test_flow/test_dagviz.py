@@ -18,7 +18,8 @@ def flow(builder):
     @builder
     @bn.outputs("full_name", "initials")
     @bn.docs(
-        """The full name.""", """Just the initials.""",
+        """The full name.""",
+        """Just the initials.""",
     )
     def _(first_name, last_name):
         return f"{first_name} {last_name}", f"{first_name[0]}{last_name[0]}"

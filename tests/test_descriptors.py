@@ -27,13 +27,16 @@ def check_roundtrip(descs, dnode):
 
 def test_parsing_and_unparsing():
     check_roundtrip(
-        descs=["x", "(x)", "((x))", " x "], dnode=E("x"),
+        descs=["x", "(x)", "((x))", " x "],
+        dnode=E("x"),
     )
     check_roundtrip(
-        descs=["()", "(())", "( )"], dnode=T(),
+        descs=["()", "(())", "( )"],
+        dnode=T(),
     )
     check_roundtrip(
-        descs=["x,", "(x,)", "x ,"], dnode=T(E("x")),
+        descs=["x,", "(x,)", "x ,"],
+        dnode=T(E("x")),
     )
     check_roundtrip(
         descs=["x, y", "x,y", "x,  y", "x, y,", "(x,y)", "(x), y"],
@@ -52,7 +55,8 @@ def test_parsing_and_unparsing():
         dnode=T(E("x"), T(E("y"), E("z"))),
     )
     check_roundtrip(
-        descs=["(x,), (y, z)", "((x,)),((y,z))"], dnode=T(T(E("x")), T(E("y"), E("z"))),
+        descs=["(x,), (y, z)", "((x,)),((y,z))"],
+        dnode=T(T(E("x")), T(E("y"), E("z"))),
     )
     check_roundtrip(
         descs=["w, (x, (y, z))", "w,(x,(y,z,),),", "(w),(x, ( y , z , ))"],
@@ -78,30 +82,36 @@ def check_failure(descs, pattern):
 
 def test_malformed_descriptors():
     check_failure(
-        descs=["", "   "], pattern=".*empty.*",
+        descs=["", "   "],
+        pattern=".*empty.*",
     )
     check_failure(
-        descs=["9", "-", "(/)", "x + y", "x, y, 7"], pattern=".*illegal character.*",
+        descs=["9", "-", "(/)", "x + y", "x, y, 7"],
+        pattern=".*illegal character.*",
     )
     check_failure(
         descs=["x y", "x, y z", " (x y)"],
         pattern=".*unexpected name.*following.*complete.*",
     )
     check_failure(
-        descs=[",x", "x, (,y)"], pattern=".*unexpected ','.*no preceding.*",
+        descs=[",x", "x, (,y)"],
+        pattern=".*unexpected ','.*no preceding.*",
     )
     check_failure(
-        descs=["x,,"], pattern=".*unexpected ','.*immediately following another.*",
+        descs=["x,,"],
+        pattern=".*unexpected ','.*immediately following another.*",
     )
     check_failure(
         descs=["x()", "(x, y) (z)"],
         pattern=".*unexpected '\\('.*following.*complete.*",
     )
     check_failure(
-        descs=["x)", "(x, (y, z)))"], pattern=".*unexpected '\\)'.*no matching '\\('.*",
+        descs=["x)", "(x, (y, z)))"],
+        pattern=".*unexpected '\\)'.*no matching '\\('.*",
     )
     check_failure(
-        descs=["(", "(x, (y, z)"], pattern=".*'\\('.*no matching '\\)'.*",
+        descs=["(", "(x, (y, z)"],
+        pattern=".*'\\('.*no matching '\\)'.*",
     )
 
 

@@ -331,7 +331,8 @@ class EntityDeriver:
         #     provider.get_dinfo(dep_dinfos_by_dnode)
         key_space = provider.get_key_space(dep_key_spaces_by_dnode)
         tasks = provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
+            dep_key_spaces_by_dnode,
+            dep_task_key_lists_by_dnode,
         )
         tasks_by_key = {
             task_key: task
@@ -341,7 +342,9 @@ class EntityDeriver:
         }
 
         dinfo = DescriptorInfo(
-            dnode=dnode, key_space=key_space, tasks_by_key=tasks_by_key,
+            dnode=dnode,
+            key_space=key_space,
+            tasks_by_key=tasks_by_key,
         )
 
         self._saved_dinfos_by_dnode[dnode] = dinfo

@@ -52,7 +52,10 @@ class Cache:
         ]
 
         return (
-            CacheEntry(cache=self, inv_item=inv_item,)
+            CacheEntry(
+                cache=self,
+                inv_item=inv_item,
+            )
             for store in stores
             for inv_item in store.inventory.list_items()
         )

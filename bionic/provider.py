@@ -38,7 +38,11 @@ logger = logging.getLogger(__name__)
 
 class ProviderAttributes:
     def __init__(
-        self, dnodes, code_version=None, orig_flow_name=None, changes_per_run=None,
+        self,
+        dnodes,
+        code_version=None,
+        orig_flow_name=None,
+        changes_per_run=None,
     ):
         self.dnodes = dnodes
         self.code_version = code_version
@@ -122,7 +126,10 @@ class ValueProvider(BaseProvider):
     def __init__(self, names):
         dnodes = [entity_dnode_from_descriptor(name) for name in names]
         super(ValueProvider, self).__init__(
-            attrs=ProviderAttributes(dnodes=dnodes, changes_per_run=False,),
+            attrs=ProviderAttributes(
+                dnodes=dnodes,
+                changes_per_run=False,
+            ),
         )
 
         self.key_space = CaseKeySpace(names)
@@ -184,7 +191,10 @@ class ValueProvider(BaseProvider):
             value_tokens = " ".join(self._token_tuples_by_case_key[case_key])
 
         return CodeFingerprint(
-            version=CodeVersion(major=value_tokens, minor=None,),
+            version=CodeVersion(
+                major=value_tokens,
+                minor=None,
+            ),
             bytecode_hash=None,
             orig_flow_name=None,
         )
@@ -205,12 +215,16 @@ class ValueProvider(BaseProvider):
                 Task(
                     keys=[
                         TaskKey(
-                            dnode=entity_dnode_from_descriptor(name), case_key=case_key,
+                            dnode=entity_dnode_from_descriptor(name),
+                            case_key=case_key,
                         )
                         for name in self.entity_names
                     ],
                     dep_keys=[],
-                    compute_func=functools.partial(self._compute, case_key=case_key,),
+                    compute_func=functools.partial(
+                        self._compute,
+                        case_key=case_key,
+                    ),
                     is_simple_lookup=True,
                 )
                 for case_key in self._value_tuples_by_case_key.keys()
@@ -344,7 +358,8 @@ class WrappingProvider(BaseProvider):
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         return self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
+            dep_key_spaces_by_dnode,
+            dep_task_key_lists_by_dnode,
         )
 
     def get_source_func(self):
@@ -401,13 +416,19 @@ class RenamingProvider(WrappingProvider):
         def wrap_task(task):
             (task_key,) = task.keys
             return Task(
-                keys=[TaskKey(dnode=dnode, case_key=task_key.case_key,)],
+                keys=[
+                    TaskKey(
+                        dnode=dnode,
+                        case_key=task_key.case_key,
+                    )
+                ],
                 dep_keys=task.dep_keys,
                 compute_func=task.compute,
             )
 
         inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
+            dep_key_spaces_by_dnode,
+            dep_task_key_lists_by_dnode,
         )
         return [wrap_task(task) for task in inner_tasks]
 
@@ -435,7 +456,8 @@ class NameSplittingProvider(WrappingProvider):
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         inner_tasks = self.wrapped_provider.get_tasks(
-            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode,
+            dep_key_spaces_by_dnode,
+            dep_task_key_lists_by_dnode,
         )
 
         def wrap_task(task):
@@ -462,7 +484,10 @@ class NameSplittingProvider(WrappingProvider):
 
             return Task(
                 keys=[
-                    TaskKey(dnode=dnode, case_key=task_key.case_key,)
+                    TaskKey(
+                        dnode=dnode,
+                        case_key=task_key.case_key,
+                    )
                     for dnode in self.attrs.dnodes
                 ],
                 dep_keys=task.dep_keys,
@@ -572,7 +597,8 @@ class GatherProvider(WrappingProvider):
                 dep_task_keys.append(dep_task_key)
 
             gather_row = GatherRow(
-                dep_task_keys=dep_task_keys, full_case_key=gather_case_key,
+                dep_task_keys=dep_task_keys,
+                full_case_key=gather_case_key,
             )
             gather_rows.append(gather_row)
 
@@ -595,7 +621,8 @@ class GatherProvider(WrappingProvider):
                 )
             ]
             table_task_key = TaskKey(
-                dnode=self._inner_gathered_dep_dnode, case_key=delta_case_key,
+                dnode=self._inner_gathered_dep_dnode,
+                case_key=delta_case_key,
             )
             gather_table = GatherTable(
                 rows=gather_rows_without_missing_case_key_values,
@@ -699,7 +726,8 @@ class GatherProvider(WrappingProvider):
             )
 
         orig_tasks = self.wrapped_provider.get_tasks(
-            inner_key_spaces_by_dnode, inner_dtkls_by_dnode,
+            inner_key_spaces_by_dnode,
+            inner_dtkls_by_dnode,
         )
         return [wrap_task(task) for task in orig_tasks]
 
@@ -898,7 +926,12 @@ class NewOutputDescriptorProvider(WrappingProvider):
         def wrap_task(task):
             (task_key,) = task.keys
             return Task(
-                keys=[TaskKey(dnode=self.out_dnode, case_key=task_key.case_key,)],
+                keys=[
+                    TaskKey(
+                        dnode=self.out_dnode,
+                        case_key=task_key.case_key,
+                    )
+                ],
                 dep_keys=task.dep_keys,
                 compute_func=task.compute,
             )
@@ -1001,7 +1034,9 @@ class ArgDescriptorSubstitutionProvider(WrappingProvider):
                 for inner_dep_key in inner_dep_keys
             ]
             return Task(
-                keys=task.keys, dep_keys=outer_dep_keys, compute_func=task.compute,
+                keys=task.keys,
+                dep_keys=outer_dep_keys,
+                compute_func=task.compute,
             )
 
         inner_tasks = self.wrapped_provider.get_tasks(inner_dkss, inner_dktls)
@@ -1024,7 +1059,8 @@ class TupleConstructionProvider(BaseDerivedProvider):
         assert isinstance(out_dnode, ast.TupleNode)
 
         super(TupleConstructionProvider, self).__init__(
-            out_dnode=out_dnode, dep_dnodes=out_dnode.children,
+            out_dnode=out_dnode,
+            dep_dnodes=out_dnode.children,
         )
 
     def compute_values_from_deps(self, dep_values):
@@ -1045,7 +1081,8 @@ class TupleDeconstructionProvider(BaseDerivedProvider):
         assert out_dnode in dep_dnode.children
 
         super(TupleDeconstructionProvider, self).__init__(
-            out_dnode=out_dnode, dep_dnodes=[dep_dnode],
+            out_dnode=out_dnode,
+            dep_dnodes=[dep_dnode],
         )
 
         self._element_ix = dep_dnode.children.index(out_dnode)

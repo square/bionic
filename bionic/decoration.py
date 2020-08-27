@@ -78,7 +78,9 @@ ACC_ATTR_NAME = "bionic_decorator_accumulator"
 def init_accumulator_if_not_set_on_func(func):
     if not hasattr(func, ACC_ATTR_NAME):
         setattr(
-            func, ACC_ATTR_NAME, DecorationAccumulator(provider=FunctionProvider(func)),
+            func,
+            ACC_ATTR_NAME,
+            DecorationAccumulator(provider=FunctionProvider(func)),
         )
 
 

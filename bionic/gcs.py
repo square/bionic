@@ -42,8 +42,7 @@ def get_gcs_client_without_warnings(cache_value=True):
 
 
 def copy_to_gcs(src, dst):
-    """ Copy a local file at src to GCS at dst
-    """
+    """Copy a local file at src to GCS at dst"""
     bucket = dst.replace("gs://", "").split("/")[0]
     prefix = f"gs://{bucket}"
     path = dst[len(prefix) + 1 :]
