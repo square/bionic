@@ -8,10 +8,8 @@ import shutil
 import warnings
 from collections import defaultdict
 from pathlib import Path, PosixPath
-from importlib import reload
 from textwrap import dedent
 from uuid import uuid4
-
 import pyrsistent as pyrs
 import pandas as pd
 
@@ -49,6 +47,7 @@ from .utils.misc import (
     check_at_most_one_present,
     oneline,
 )
+from .utils.reload import recursive_reload
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
     protos.JsonProtocol(),
@@ -1461,7 +1460,6 @@ class Flow:
         * has never been modified (i.e., isn't derived from another Flow)
         * is assigned to a top-level variable in a module that one of its
           functions is defined in
-        * does not merge another Flow or FlowBuilder from another module.
 
         The most straightforward way to meet these requirements is to define
         your flow in a module as:
@@ -1526,28 +1524,39 @@ class Flow:
 
         self_name = self.name
 
-        module_names = set()
+        # Find the module that contains the flow.
+        candidate_flow_modules = set()
         for provider in state.providers_by_name.values():
             source_func = provider.get_source_func()
             if source_func is None:
                 continue
-            module_names.add(source_func.__module__)
+            module = module_registry[source_func.__module__]
+            if len(self._get_flows_from_module(module)) > 0:
+                candidate_flow_modules.add(module)
+        if len(candidate_flow_modules) == 0:
+            raise Exception(
+                oneline(f"Couldn't find the module that has flow {self_name!r}.")
+            )
+        if len(candidate_flow_modules) > 1:
+            raise Exception(
+                oneline(
+                    f"""
+                        Too many modules that contain flow {self_name!r},
+                        found: {len(candidate_flow_modules)}, wanted 1"""
+                )
+            )
+        (flow_module,) = candidate_flow_modules
 
+        flow_module = recursive_reload(flow_module)
+
+        flows = self._get_flows_from_module(flow_module)
         blessed_candidate_flows = []
         unblessed_candidate_flows = []
-        for module_name in module_names:
-            module = reload(module_registry[module_name])
-            for key in dir(module):
-                element = getattr(module, key)
-                if not isinstance(element, Flow):
-                    continue
-                flow = element
-                if flow.name != self_name:
-                    continue
-                if not flow._state.is_blessed:
-                    unblessed_candidate_flows.append(flow)
-                else:
-                    blessed_candidate_flows.append(flow)
+        for flow in flows:
+            if not flow._state.is_blessed:
+                unblessed_candidate_flows.append(flow)
+            else:
+                blessed_candidate_flows.append(flow)
 
         if len(blessed_candidate_flows) == 0:
             if len(unblessed_candidate_flows) > 0:
@@ -1563,7 +1572,7 @@ class Flow:
                     oneline(
                         f"""
                     Couldn't find any flow named {self_name!r}
-                    in modules {module_names!r}"""
+                    in module {flow_module.__name__!r}"""
                     )
                 )
         if len(blessed_candidate_flows) > 1:
@@ -1571,7 +1580,7 @@ class Flow:
                 oneline(
                     f"""
                 Too many flows named {self_name!r}
-                in modules {module_names!r};
+                in module {flow_module.__name__!r};
                 found {len(blessed_candidate_flows)}, wanted 1"""
                 )
             )
@@ -1639,6 +1648,18 @@ class Flow:
         builder = FlowBuilder._from_state(self._state)
         builder_update_func(builder)
         return Flow._from_state(builder._state)
+
+    def _get_flows_from_module(self, module):
+        flows = []
+        for key in dir(module):
+            element = getattr(module, key)
+            if not isinstance(element, Flow):
+                continue
+            flow = element
+            if flow.name != self.name:
+                continue
+            flows.append(flow)
+        return flows
 
 
 class ShortcutProxy:

@@ -1,6 +1,7 @@
 import pytest
 
 import sys
+import importlib
 from textwrap import dedent
 
 from bionic.exception import CodeVersioningError, UndefinedEntityError
@@ -280,3 +281,244 @@ def test_changes_per_run_decorator(flow_tester):
     flow_tester.reload_flow()
     flow_tester.expect_values(x=1)
     assert flow_tester.get("r") != r
+
+
+# Test the scenario where we have a chain of flow merges.
+def test_change_chain_merged_flow(write_module, flow_tester):
+    def write_flow_x_module(x: int):
+        write_module(
+            "flow_x_module",
+            f"""
+                import bionic as bn
+
+                builder = bn.FlowBuilder('flow_x')
+
+                @builder
+                def x():
+                    return {x}
+
+                flow_x = builder.build()
+            """,
+        )
+
+    def write_flow_y_module(y: int):
+        write_module(
+            "flow_y_module",
+            f"""
+                import bionic as bn
+                from flow_x_module import flow_x
+
+                builder = bn.FlowBuilder('flow_y')
+                builder.merge(flow_x)
+
+                @builder
+                def y():
+                    return {y}
+
+                flow_y = builder.build()
+            """,
+        )
+
+    def write_flow_z_module(z: int):
+        write_module(
+            "flow_z_module",
+            f"""
+                import bionic as bn
+                from flow_y_module import flow_y
+
+                builder = bn.FlowBuilder('flow_z')
+                builder.merge(flow_y)
+
+                @builder
+                def z():
+                    return {z}
+
+                flow_z = builder.build()
+        """,
+        )
+
+    write_flow_x_module(1)
+    write_flow_y_module(10)
+    write_flow_z_module(100)
+    flow_tester.write_flow_module(
+        """
+            from flow_z_module import flow_z
+
+            builder = bn.FlowBuilder('flow')
+            builder.set('core__versioning_mode', 'auto')
+            builder.merge(flow_z)
+
+            @builder
+            def total(x, y, z):
+                return x + y + z
+        """,
+    )
+    flow_tester.expect_values(x=1, y=10, z=100, total=111)
+
+    write_flow_x_module(2)
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=2, y=10, z=100, total=112)
+
+    write_flow_y_module(20)
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=2, y=20, z=100, total=122)
+
+    write_flow_z_module(200)
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=2, y=20, z=200, total=222)
+
+    write_flow_x_module(3)
+    write_flow_y_module(30)
+    write_flow_z_module(300)
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=3, y=30, z=300, total=333)
+
+
+# Test the scenario where we have one flow merging another, but both flows have
+# one entity with the same name. We test the merged flow with one keep
+# parameter. Then, we change the keep parameter and re-test the merged flow
+# after reloading.
+def test_merge_change_keep_parameter(write_module, flow_tester):
+    write_module(
+        "base_flow_module",
+        """
+            import bionic as bn
+
+            builder = bn.FlowBuilder('base_flow')
+
+            @builder
+            def x():
+                return 1
+
+            @builder
+            def x_plus_1(x):
+                return x + 1
+
+            @builder
+            def total(x):
+                return x
+
+            base_flow = builder.build()
+        """,
+    )
+
+    def write_flow_module(keep):
+        flow_tester.write_flow_module(
+            f"""
+                from base_flow_module import base_flow
+
+                builder = bn.FlowBuilder('flow')
+                builder.set('core__versioning_mode', 'auto')
+
+                @builder
+                def x():
+                    return 2
+
+                @builder
+                def y():
+                    return 20
+
+                @builder
+                def total(x, y):
+                    return x + y
+
+                builder.merge(base_flow, keep='{keep}')
+            """,
+        )
+
+    write_flow_module("new")
+    flow_tester.expect_values(x=1, x_plus_1=2, y=20, total=1)
+
+    write_flow_module("old")
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=2, x_plus_1=3, y=20, total=22)
+
+    write_flow_module("new")
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=1, x_plus_1=2, y=20, total=1)
+
+
+def test_change_import_builder(write_module, flow_tester):
+    def write_builder_module(x: int):
+        write_module(
+            "base_builder_module",
+            f"""
+                import bionic as bn
+
+                builder = bn.FlowBuilder('flow')
+
+                @builder
+                def x():
+                    return {x}
+
+                @builder
+                def x_plus_1(x):
+                    return x + 1
+
+                @builder
+                def total(x):
+                    return x
+            """,
+        )
+
+    write_builder_module(1)
+    flow_tester.write_flow_module(
+        """
+            from base_builder_module import builder
+
+            builder.set('core__versioning_mode', 'auto')
+
+            @builder
+            def y():
+                return 10
+
+            @builder
+            def total(x, y):
+                return x + y
+        """,
+    )
+    flow_tester.expect_values(x=1, x_plus_1=2, y=10, total=11)
+
+    write_builder_module(2)
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=2, x_plus_1=3, y=10, total=12)
+
+    write_builder_module(3)
+    flow_tester.reload_flow()
+    flow_tester.expect_values(x=3, x_plus_1=4, y=10, total=13)
+
+
+def test_internal_modules_not_reloaded(write_module, flow_tester):
+    write_module("test_module", "")
+    flow_tester.write_flow_module(
+        """
+            import sys
+            import pandas
+            import numpy
+            import test_module
+
+            @builder
+            def x():
+                return 1
+        """
+    )
+
+    flow_tester.expect_values(x=1)
+
+    reloaded_module_names = set()
+    original_reload = importlib.reload
+
+    def tracking_reload(module):
+        reloaded_module_names.add(module.__name__)
+        return original_reload(module)
+
+    try:
+        importlib.reload = tracking_reload
+        flow_tester.reload_flow()
+    finally:
+        importlib.reload = original_reload
+
+    # Module 'sys' is internal and does not get reloaded.
+    # Module 'bionic' is reloaded since the module running in tests is not
+    # installed through pip.
+    assert reloaded_module_names == {"flow_module", "bionic", "test_module"}
