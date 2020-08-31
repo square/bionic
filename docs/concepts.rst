@@ -938,7 +938,7 @@ be re-imported.
 <https://ipython.org/ipython-doc/3/config/extensions/autoreload.html>`_ doesn't
 work here, because after reloading we still need to re-import the flow.)
 
-To address this, the :meth:`Flow.reloading <bionic.Flow.reloading>` method can
+To address this, the :meth:`Flow.reload <bionic.Flow.reload>` method can
 be used:
 
 .. code-block:: python
@@ -947,13 +947,27 @@ be used:
 
     ...
 
-    flow = flow.reloading()
+    flow.reload()
     flow.get('my_entity')
 
-This attempts to reload all modules associated with the flow, and then return
-a re-imported version of the flow.  (This is a fairly magical procedure -- in
-complicated cases, it may not be able to figure out how to do this.  In these
-cases it will try to throw an exception rather than fail silently.)
+This attempts to reload all modules associated with the flow, and then updates
+the flow instance to use the reloaded modules.  (This is a fairly magical
+procedure -- in complicated cases, it may not be able to figure out how to do
+this.  In these cases it will try to throw an exception rather than fail
+silently.) All future operations on the flow will reflect its updated status.
+
+You can also use the :meth:`Flow.reloading <bionic.Flow.reloading>` method to
+get a new copy of the flow that uses reloaded modules, without modifying the
+original flow instance.
+
+.. code-block:: python
+
+  from my_module import flow
+
+  ...
+
+  new_flow = flow.reloading()
+  new_flow.get('my_entity')
 
 Combining Flows
 ...............

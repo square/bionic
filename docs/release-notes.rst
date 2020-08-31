@@ -74,6 +74,14 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
+New Features
+............
+
+- ``Flow`` now has a :meth:`Flow.reload <bionic.Flow.reload>` method that
+  updates the flow instance to use reloaded modules. It is similar to
+  `Flow.reloading <bionic.Flow.reloading>`, but modifies the flow instance in
+  place.
+
 Cache Compatibility Changes
 ...........................
 

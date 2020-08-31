@@ -1456,12 +1456,10 @@ class Flow:
         )
         return dagviz.FlowImage(dot)
 
-    # TODO Should we offer an in-place version of this?  It's contrary to the
-    # idea of an immutable API, but it might be more natural for the user, and
-    # reloading is already updating global state....
-    def reloading(self):
+    def reload(self):
         """
-        Attempts to reload all modules used directly by this flow.
+        Attempts to reload all modules used directly by this flow, updates this
+        flow instance in place, and then returns the flow instance.
 
         For safety, this only works if this flow meets the following
         requirements:
@@ -1470,6 +1468,7 @@ class Flow:
         * has never been modified (i.e., isn't derived from another Flow)
         * is assigned to a top-level variable in a module that one of its
           functions is defined in
+        * does not merge another Flow or FlowBuilder from another module.
 
         The most straightforward way to meet these requirements is to define
         your flow in a module as:
@@ -1491,10 +1490,29 @@ class Flow:
 
             from mymodule import flow
             ...
-            flow.reloading().get('my_entity')
+            flow.reload()
+            flow.get('my_entity')
 
-        This will reload the modules and use the most recent version of the
-        flow before doing the ``get()``.
+        This will update the flow instance to use the reloaded modules before
+        doing the ``get()``.
+
+        This resets the flow's in-memory cache. Entities that have not been
+        persisted to disk, or that have been marked with ``@changes_per_run``,
+        will be recomputed.
+        """
+        flow = self.reloading()
+        self._set_state(flow._state)
+        return self
+
+    def reloading(self):
+        """
+        Returns a new copy of this flow in in which all the modules used
+        directly by the flow are reloaded.
+
+        This method is similar to the ``reload()`` method, but the existing flow
+        instance remains unchanged.
+
+        Please see the comments on ``reload()`` method for safety requirements.
         """
 
         # TODO If we wanted, I think we could support reloading on modified
@@ -1581,9 +1599,7 @@ class Flow:
                 "use one of the classmethod constructors"
             )
 
-        self._uuid = str(uuid4())
-        self._state = state
-        self._deriver = EntityDeriver(state, self._uuid)
+        self._set_state(state)
 
         # We replace the `get` and `setting` methods with wrapper classes
         # that have an attribute for each entity.  This allows a convenient,
@@ -1605,8 +1621,6 @@ class Flow:
 
         self.get = GetMethod()
 
-        self.cache = Cache(self._deriver)
-
         class SettingMethod(ShortcutProxy):
             __doc__ = orig_setting_method.__doc__
 
@@ -1621,6 +1635,12 @@ class Flow:
                 )
 
         self.setting = SettingMethod()
+
+    def _set_state(self, state):
+        self._state = state
+        self._uuid = str(uuid4())
+        self._deriver = EntityDeriver(self._state, self._uuid)
+        self.cache = Cache(self._deriver)
 
     def _updating(self, builder_update_func):
         builder = FlowBuilder._from_state(self._state)
