@@ -102,17 +102,22 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False, name=None):
     )
 
     def name_from_node(node):
-        return graph.nodes[node]["name"]
+        # We wrap all names in quotes; if we don't, pydot will react to special
+        # characters by either adding its own quotes or emitting invalid code. These
+        # quotes aren't visible in the actual visualization.
+        return '"' + (graph.nodes[node]["name"]) + '"'
 
     def doc_from_node(node):
         return graph.nodes[node].get("doc")
 
-    for cluster, node_list in node_lists_by_cluster.items():
+    for cluster_ix, node_list in enumerate(node_lists_by_cluster.values()):
         sorted_nodes = list(
             sorted(node_list, key=lambda node: graph.nodes[node]["task_ix"])
         )
 
-        subdot = pydot.Cluster(cluster, style="invis")
+        # We use a numerical cluster index instead of the actual cluster descriptor,
+        # because pydot can break if the cluster name constains special characters.
+        subdot = pydot.Cluster(str(cluster_ix), style="invis")
 
         for node in sorted_nodes:
             descriptor = graph.nodes[node]["descriptor"]
