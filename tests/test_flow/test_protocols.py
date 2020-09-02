@@ -16,6 +16,7 @@ from ..helpers import df_from_csv_str, equal_frame_and_index_content
 import bionic as bn
 from bionic.exception import (
     EntitySerializationError,
+    EntityValueError,
     UnsupportedSerializedValueError,
 )
 from bionic.protocols import CombinedProtocol, PicklableProtocol
@@ -90,7 +91,7 @@ def test_non_jsonable_value_fails(builder):
         circular_ref_array.append(circular_ref_array)
         return circular_ref_array
 
-    with pytest.raises(RecursionError):
+    with pytest.raises(EntityValueError):
         builder.build().get("non_jsonable_value")
 
 
@@ -499,11 +500,11 @@ def test_type_protocol(builder):
     builder.set("float_val", 1.0)
     builder.set("str_val", "one")
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         builder.set("int_val", "one")
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         builder.set("float_val", 1)
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         builder.set("str_val", 1.0)
 
     flow = builder.build()
@@ -522,7 +523,7 @@ def test_enum_protocol(builder):
     builder.set("color", "blue")
     assert builder.build().get("color") == "blue"
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         builder.set("color", "green")
 
 
@@ -632,18 +633,18 @@ def test_combined_protocol(builder):
     flow = builder.build().setting("value", 1)
 
     assert flow.get("must_be_one") == "one"
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         flow.get("must_be_two")
     assert flow.get("must_be_one_or_two") == "one"
 
     flow = flow.setting("value", 2)
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         flow.get("must_be_one")
     assert flow.get("must_be_two") == "two"
     assert flow.get("must_be_one_or_two") == "two"
 
     flow = flow.setting("value", 3)
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         flow.get("must_be_one_or_two")
 
 

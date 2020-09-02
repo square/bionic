@@ -181,7 +181,7 @@ class TaskRunnerEntry:
         results_by_dnode = {}
         result_value_hashes_by_dnode = {}
         for ix, (query, value) in enumerate(zip(state._queries, values)):
-            query.protocol.validate(value)
+            query.protocol.validate_for_dnode(query.dnode, value)
 
             result = Result(query=query, value=value)
 

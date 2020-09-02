@@ -39,6 +39,10 @@ class EntityComputationError(Exception):
     pass
 
 
+class EntityValueError(ValueError):
+    pass
+
+
 class AttributeValidationError(Exception):
     pass
 

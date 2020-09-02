@@ -24,7 +24,7 @@ from pyarrow import parquet, Table
 import pandas as pd
 
 from .decoration import decorator_updating_accumulator
-from .exception import UnsupportedSerializedValueError
+from .exception import EntityValueError, UnsupportedSerializedValueError
 from .deps.optdep import import_optional_dependency
 from .utils.files import recursively_copy_path
 from .utils.misc import (
@@ -50,10 +50,38 @@ def check_is_like_protocol(obj):
 class BaseProtocol:
     def validate(self, value):
         """
-        Checks if a value is valid for this protocol. Throws an exeception if the value
+        Checks if a value is valid for this protocol. Throws an exception if the value
         is invalid; otherwise does nothing.
         """
         pass
+
+    def validate_for_entity(self, entity_name, value):
+        """
+        Like ``validate``, but any raised exception will be wrapped by an
+        ``EntityValueError`` with a clearer error message specific to an entity.
+        """
+        try:
+            self.validate(value)
+        except Exception as e:
+            self._raise_validation_exception(f"entity {entity_name!r}", e)
+
+    def validate_for_dnode(self, dnode, value):
+        """
+        Like ``validate``, but any raised exception will be wrapped by an
+        ``EntityValueError`` with a clearer error message specific to a descriptor.
+        """
+        try:
+            self.validate(value)
+        except Exception as e:
+            self._raise_validation_exception(repr(dnode.to_descriptor()), e)
+
+    def _raise_validation_exception(self, descriptor_text, exception):
+        message = f"""
+        Value received for {descriptor_text} is not valid for
+        {self.__class__.__name__} due to {exception.__class__}:
+        {exception}
+        """
+        raise EntityValueError(oneline(message)) from exception
 
     def value_is_valid(self, value):
         """Indicates whether the passed value is valid for this protocol."""
