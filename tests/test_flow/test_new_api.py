@@ -5,6 +5,7 @@ These tests are for experimental descriptor-based uses of Bionic's API.
 import pytest
 
 import bionic as bn
+from bionic.exception import EntityValueError
 
 
 def test_returns(builder):
@@ -37,6 +38,34 @@ def test_returns(builder):
     assert flow.get("five") == 5
     assert flow.get("six") == 6
     assert flow.get("seven") == 7
+
+
+def test_failing_returns(builder):
+    @builder
+    @bn.returns("a, b")
+    def wrong_number_of_values():
+        return 1, 2, 3
+
+    @builder
+    @bn.returns("c, d")
+    def not_a_sequence():
+        return 1
+
+    @builder
+    @bn.returns("(e, f), g")
+    def wrong_tuple_structure():
+        return 1, (2, 3)
+
+    flow = builder.build()
+
+    with pytest.raises(EntityValueError):
+        flow.get("a")
+
+    with pytest.raises(EntityValueError):
+        flow.get("c")
+
+    with pytest.raises(EntityValueError):
+        flow.get("e")
 
 
 def test_accepts(builder):
