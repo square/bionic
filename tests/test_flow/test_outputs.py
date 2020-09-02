@@ -6,7 +6,7 @@ import pandas.testing as pdt
 from ..helpers import RoundingProtocol
 
 import bionic as bn
-from bionic.exception import UndefinedEntityError
+from bionic.exception import EntityValueError, UndefinedEntityError
 
 
 @pytest.fixture(scope="function")
@@ -119,5 +119,16 @@ def test_wrong_number_of_outputs(builder):
         return (1, 2, 3)
 
     flow = builder.build()
-    with pytest.raises(ValueError):
+    with pytest.raises(EntityValueError):
+        flow.get("a")
+
+
+def test_non_sequence_outputs(builder):
+    @builder
+    @bn.outputs("a", "b")
+    def three_outputs():
+        return 1
+
+    flow = builder.build()
+    with pytest.raises(EntityValueError):
         flow.get("a")
