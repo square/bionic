@@ -39,4 +39,4 @@ jobs:
         black --check .
     - name: Test with pytest
       run: |
-        pytest --all-execution-modes --slow
+        pytest --parallel --slow

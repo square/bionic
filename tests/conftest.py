@@ -9,7 +9,7 @@ def pytest_addoption(parser):
         "--bucket", action="store", help="URL to GCS bucket to use for tests"
     )
     parser.addoption(
-        "--all-execution-modes",
+        "--parallel",
         action="store_true",
         default=False,
         help="also run all tests with parallel execution mode",
@@ -41,7 +41,7 @@ def pytest_collection_modifyitems(config, items):
     has_gcs = config.getoption("--bucket")
     skip_needs_gcs = pytest.mark.skip(reason="only runs when --bucket is set")
 
-    also_run_parallel = config.getoption("--all-execution-modes")
+    also_run_parallel = config.getoption("--parallel")
 
     items_to_keep = []
     for item in items:

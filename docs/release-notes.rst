@@ -111,6 +111,12 @@ Documentation
 - Fixed broken link in the documentation for the
   :class:`FileCopier <bionic.filecopier.FileCopier>` class.
 
+Development Changes
+...................
+
+- The ``pytest`` flag for activating parallel execution tests has been renamed from
+  ``--all-execution-modes`` to ``--parallel``.
+
 0.8.3 (Jul 23, 2020)
 --------------------
 
