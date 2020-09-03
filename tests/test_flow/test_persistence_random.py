@@ -4,9 +4,11 @@ from textwrap import dedent
 
 import attr
 import numpy as np
+import re
 
+from bionic.descriptors import ast
 from bionic.descriptors.parsing import dnode_from_descriptor
-from bionic.utils.misc import single_unique_element
+from bionic.utils.misc import single_element, single_unique_element
 import bionic as bn
 
 
@@ -61,7 +63,7 @@ class ModelFlowHarness:
         self._entities_by_name[name] = entity
         return name
 
-    def add_binding(self, out_descriptor, dep_entity_names):
+    def add_binding(self, out_descriptor, dep_entity_names, use_tuples_for_output):
         out_dnode = dnode_from_descriptor(out_descriptor)
         out_entities = list(
             map(self._entities_by_name.get, out_dnode.all_entity_names())
@@ -74,6 +76,7 @@ class ModelFlowHarness:
             out_dnode=out_dnode,
             out_entities=out_entities,
             dep_entity_names=dep_entity_names,
+            use_tuples_for_output=use_tuples_for_output,
         )
         for out_entity in out_entities:
             assert out_entity.binding is None
@@ -108,15 +111,28 @@ class ModelFlowHarness:
 
         joined_dep_entity_names = ", ".join(binding.dep_entity_names)
 
+        # TODO Could this logic live inside ModelBinding instead?
+        if binding.use_tuples_for_output:
+            compute_func = binding.compute_value_for_returns
+            output_decorator_fragment = f"""
+            @bn.returns({binding.out_descriptor!r})
+            """.strip()
+        else:
+            compute_func = binding.compute_value_for_outputs
+            output_decorator_fragment = f"""
+            @bn.outputs({', '.join(repr(name) for name in out_entity_names)})
+            """.strip()
+
         vars_dict = {
             "bn": bn,
             "builder": self._builder,
             "record_call": self._descriptors_computed_by_flow.append,
-            "compute_value": binding.compute_value_for_outputs,
+            "compute_value": compute_func,
         }
+
         raw_func_code = f"""
         @builder
-        @bn.outputs({', '.join(repr(name) for name in out_entity_names)})
+        {output_decorator_fragment}
         @bn.version({binding.func_version})
         @bn.persist({binding.should_persist})
         def _({joined_dep_entity_names}):
@@ -152,9 +168,6 @@ class ModelFlowHarness:
         self._descriptors_computed_by_flow[:] = []
         self._descriptors_computed_by_model[:] = []
 
-    def _build_flow(self):
-        self.flow = self._builder.build()
-
 
 @attr.s
 class ModelEntity:
@@ -179,6 +192,7 @@ class ModelBinding:
     out_dnode = attr.ib()
     out_entities = attr.ib()
     dep_entity_names = attr.ib()
+    use_tuples_for_output = attr.ib()
     func_version = attr.ib(default=1)
 
     has_persisted_values = attr.ib(default=False)
@@ -193,6 +207,26 @@ class ModelBinding:
         return tuple(
             out_entity.compute_value(dep_values) for out_entity in self.out_entities
         )
+
+    def compute_value_for_returns(self, dep_values, out_dnode=None):
+        if out_dnode is None:
+            out_dnode = self.out_dnode
+
+        if isinstance(out_dnode, ast.EntityNode):
+            entity_name = out_dnode.to_entity_name()
+            entity = single_element(
+                entity for entity in self.out_entities if entity.name == entity_name
+            )
+            return entity.compute_value(dep_values)
+
+        elif isinstance(out_dnode, ast.TupleNode):
+            return tuple(
+                self.compute_value_for_returns(dep_values, out_dnode=child_dnode)
+                for child_dnode in out_dnode.children
+            )
+
+        else:
+            assert False
 
     def compute_and_save_values(self, dep_values):
         values_by_entity_name = {
@@ -242,12 +276,17 @@ class RandomFlowTestConfig:
         The probability that any entity should be persistable.
     p_multi_out: float between 0 and 1
         The probability that any binding should output multiple entities.
+    p_three_out_given_multi: float between 0 and 1
+        The probability that any multi-output binding should output three entities
+        instead of two.
     """
 
     n_bindings = attr.ib()
     n_iterations = attr.ib()
     p_persist = attr.ib(default=0.5)
     p_multi_out = attr.ib(default=0.3)
+    p_three_out_given_multi = attr.ib(default=0.3)
+    use_tuples_for_output = attr.ib(default=True)
 
 
 class RandomFlowTester:
@@ -287,7 +326,11 @@ class RandomFlowTester:
             self._child_counts_by_entity_name[dep_entity_name] += 1
         should_persist = self._random_bool(p_true=self._config.p_persist)
         descriptor = self._random_descriptor_of_new_entities(should_persist)
-        self._harness.add_binding(descriptor, dep_entity_names)
+        self._harness.add_binding(
+            out_descriptor=descriptor,
+            dep_entity_names=dep_entity_names,
+            use_tuples_for_output=self._config.use_tuples_for_output,
+        )
 
     def update_random_entity(self):
         entity_name = self._random_existing_entity_name()
@@ -338,15 +381,34 @@ class RandomFlowTester:
         return self._rng.choice(self._harness.get_all_entity_names())
 
     def _random_descriptor_of_new_entities(self, should_persist):
-        def new():
+        def new_entity_name():
             entity_name = self._harness.create_entity(should_persist)
             self._child_counts_by_entity_name[entity_name] = 0
             return entity_name
 
-        if self._random_bool(p_true=1 - self._config.p_multi_out):
-            return new()
+        include_multiple_entities = self._random_bool(p_true=self._config.p_multi_out)
+        if not include_multiple_entities:
+            return new_entity_name()
+
+        include_three_entities = self._random_bool(
+            p_true=self._config.p_three_out_given_multi
+        )
+        if not include_three_entities:
+            template = "X, X"
+
         else:
-            return f"{new()}, {new()}"
+            # We'll randomly choose one of the following three-entity descriptors:
+            template = self._rng.choice(
+                [
+                    "X, X, X",
+                    "(X, X), X",
+                    "X, (X, X)",
+                    "(X,), (X,), (X,)",
+                    "(X, X, X),",
+                ],
+            )
+
+        return re.sub("X", lambda x: new_entity_name(), template)
 
 
 @pytest.fixture
@@ -369,5 +431,23 @@ def test_random_flow_varied(harness, n_bindings, n_iterations, p_persist, p_mult
         n_iterations=n_iterations,
         p_persist=p_persist,
         p_multi_out=p_multi_out,
+    )
+    RandomFlowTester(harness, config).run()
+
+
+# TODO Once we've unified implementation of @outputs and @returns, we should rethink
+# this test. Maybe we should support more ways of specifying outputs:
+# - @returns
+# - @outputs (only when the output is a non-nested tuple or single entity)
+# - @output (only when the output is a single entity)
+# - no decorator (only when the output is a single entity)
+# Or maybe that should be beyond the scope of these tests, and we should assume that
+# other tests are checking that they're equivalent?
+@pytest.mark.slow
+def test_random_flow_no_tuples(harness):
+    config = RandomFlowTestConfig(
+        n_bindings=50,
+        n_iterations=50,
+        use_tuples_for_output=False,
     )
     RandomFlowTester(harness, config).run()

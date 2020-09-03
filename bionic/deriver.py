@@ -4,7 +4,7 @@ Contains the core logic for resolving Entities by executing Tasks.
 
 import attr
 
-from .datatypes import EntityDefinition, ResultGroup
+from .datatypes import ResultGroup, EntityDefinition, TaskKey
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .deps.optdep import import_optional_dependency
@@ -350,19 +350,31 @@ class EntityDeriver:
         self._saved_dinfos_by_dnode[dnode] = dinfo
         return dinfo
 
-    def _get_or_create_task_state_for_key(self, task_key):
-        "Computes (and memoizes) a TaskState for a task key."
+    def _get_or_create_task_state_for_key(
+        self, task_key, in_progress_states_by_key=None
+    ):
+        """
+        Constructs a TaskState for a task key. The TaskState is memoized, so subsequent
+        requests for the same key are fast and always return the same object.
+        """
 
+        # First, check if we've already constructed this TaskState.
         if task_key in self._saved_task_states_by_key:
             return self._saved_task_states_by_key[task_key]
 
+        # We'll also maintain a temporary cache of "in-progress" TaskStates, which have
+        # been constructed but don't have all their fields fully populated. We want to
+        # cache them to make sure every task key has exactly one task state, but we
+        # don't want to put them in the real cache until they're fully initialized.
+        if in_progress_states_by_key is None:
+            in_progress_states_by_key = {}
+        if task_key in in_progress_states_by_key:
+            return in_progress_states_by_key[task_key]
+
+        # Now we'll start by constructing several precursor objects.
         dnode = task_key.dnode
         dinfo = self._get_or_create_dinfo_for_dnode(dnode)
         task = dinfo.tasks_by_key[task_key]
-
-        dep_states = [
-            self._get_or_create_task_state_for_key(dep_key) for dep_key in task.dep_keys
-        ]
 
         # All keys in this task should have the same case key, so the set below
         # should have exactly one element.
@@ -382,16 +394,53 @@ class EntityDeriver:
             for task_key in task.keys
         }
 
+        # With the precursors out of the way, we're ready to create the TaskState.
+        # However, we're leaving the references to its neighboring task states empty
+        # for now; the references can form loops, so there's no way to have all of them
+        # initialized beforehand. We'll come back and add them later.
         task_state = TaskState(
             task=task,
-            dep_states=dep_states,
+            # We'll update these two lists later.
+            dep_states=[],
+            followup_states=[],
             case_key=case_key,
             func_attrs=func_attrs,
             entity_defs_by_dnode=entity_defs_by_dnode,
         )
+        # We immediately put this TaskState in the "in-progress" cache so it will be
+        # available as we recursively construct its neighbors.
+        for state_task_key in task.keys:
+            assert state_task_key not in in_progress_states_by_key
+            in_progress_states_by_key[state_task_key] = task_state
 
-        for task_key in task.keys:
-            self._saved_task_states_by_key[task_key] = task_state
+        # Now we can recursively construct all of its dependency task states and add
+        # references to them.
+        for dep_key in task.dep_keys:
+            dep_state = self._get_or_create_task_state_for_key(
+                dep_key, in_progress_states_by_key
+            )
+            task_state.dep_states.append(dep_state)
+
+        # Optionally, we will also add "follow-up" references:
+        # If this task's output is a tuple node, we may want to add followups for each
+        # of the tuple's children to ensure that everything in the tuple gets persisted
+        # immediately.
+        if (
+            isinstance(dnode, ast.TupleNode)
+            and provider.task_output_may_need_followups_for_persistence
+        ):
+            for child_dnode in dnode.children:
+                followup_key = TaskKey(dnode=child_dnode, case_key=case_key)
+                followup_state = self._get_or_create_task_state_for_key(
+                    followup_key, in_progress_states_by_key
+                )
+                task_state.followup_states.append(followup_state)
+
+        # Now the TaskState is fully initialized, so we can put it in the real cache
+        # and return it.
+        for state_task_key in task.keys:
+            assert state_task_key not in self._saved_task_states_by_key
+            self._saved_task_states_by_key[state_task_key] = task_state
         return task_state
 
     def _bootstrap_singleton_entity(self, entity_name):

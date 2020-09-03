@@ -59,6 +59,7 @@ class TaskRunnerEntry:
         self.state = state
         self.future = None
         self.results_by_dnode = None
+        self._stage = None
         self.stage = EntryStage.COMPLETED
 
         # This is initially set to None to avoid eagerly recursing through the entire
@@ -67,6 +68,7 @@ class TaskRunnerEntry:
 
         self.incoming_reqs = set()
         self.outgoing_reqs = set()
+        self.priority = EntryPriority.DEFAULT
 
     @property
     def stage(self):
@@ -74,7 +76,11 @@ class TaskRunnerEntry:
 
     @stage.setter
     def stage(self, stage):
-        logger.debug("Updated %s to %s", self, stage.name)
+        if self._stage is None:
+            fmt_str = "Created %s as %s"
+        else:
+            fmt_str = "Updated %s to %s"
+        logger.debug(fmt_str, self, stage.name)
         self._stage = stage
 
     @property
@@ -83,6 +89,8 @@ class TaskRunnerEntry:
             return EntryLevel.CACHED
         elif self._is_primed:
             return EntryLevel.PRIMED
+        elif self._is_initialized:
+            return EntryLevel.INITIALIZED
         else:
             return EntryLevel.CREATED
 
@@ -112,6 +120,10 @@ class TaskRunnerEntry:
             return self.state.is_cached
         else:
             return self.state.is_initialized
+
+    @property
+    def _is_initialized(self):
+        return self.state.is_initialized
 
     def compute(self, task_key_logger):
         """
@@ -230,8 +242,9 @@ class EntryStage(Enum):
     PENDING = auto()
 
     """
-    The entry is being actively processed. There should only be one such entry at a
-    time.
+    The entry is being actively processed. Typically there's only one such entry at a
+    time, although we sometimes activate multiple entries in order to process them as
+    a group.
 
     Valid next stages: [BLOCKED, IN_PROGRESS, COMPLETED]
     """
@@ -278,44 +291,64 @@ class EntryLevel(IntEnum):
     """
     Represents the level of progress we've made on a TaskRunnerEntry's TaskState.
 
-    The initial level of progress is CREATED; the TaskState exists but not much work
-    has been done on it. There are two other possible milestones a TaskState can reach,
-    which are easiest to understand in reverse order:
+    There are four levels of progress (in order):
 
-    CACHED: This means the task has been computed and its output value is stored
-    somewhere -- in the persistent cache, in memory on the TaskState, and/or in
-    memory on this entry (depending on the cache settings). This is the final
-    milestone: after this, there is no more work to do on this task.
+    1. CREATED: The TaskState exists but not much work has been done on it.
 
-    PRIMED: This is a more abstract condition. It guarantees two things:
+    2. INITIALIZED: The TaskState's initialize() method has been called. At this point
+        all of the task's dependencies are guaranteed to have provenance digests
+        available, which means we can attempt to load its value from the persistent
+        cache.
 
-    a) This task's provenance digest is available, which means any downstream tasks can
-    have their values loaded from the persisted cache. For a task with non-persistable
-    output, its provenance digest depends only on its provenance; it doesn't actually
-    require the task to be computed. However, for a task with persistable output, the
-    provenance digest depends on its actual value, so the task must be computed and its
-    output cached.
+    3. PRIMED: If the TaskState's value is persistable, this is equivalent to CACHED;
+        otherwise it's equivalent to INITIALIZED. This abstract definition is useful
+        because it guarantees two things:
 
-    b) There is no additional *persistable* work to do on this task. In other words,
-    if we have any dependent tasks that we plan to run in a separate process, we can
-    go ahead and start them; there may be more work to do on this task, but it will
-    have to be done in that separate process, because its results can't be serialized
-    and transmitted. (On the other hand, if we have a dependent task to run *in this
-    same process*, we'll want to bring this task to the "cached" state instead.) As
-    with (a), for a task with non-persistable output, this milestone is reached as
-    soon as we compute its provenance; for a task with persistable output, it's
-    reached only when the task is computed and its output is cached.
+        a.  The task's provenance digest is available, which means any downstream tasks
+            can have their values loaded from the persisted cache. For a task with
+            non-persistable output, its provenance digest depends only on its
+            provenance; it doesn't actually require the task to be computed. However,
+            for a task with persistable output, the provenance digest depends on its
+            actual value, so the task must be computed and its output cached.
 
-    Thus, the operational definition of PRIMED depends on whether the task's output is
-    persistable or not. If so, PRIMED is equivalent to CACHED; if not, PRIMED
-    represents a preliminary stage of work which happens to be sufficient for many
-    applications.
+        b. There is no additional *persistable* work to do on this task. In other words,
+            if we have any dependent tasks that we plan to run in a separate process,
+            we can go ahead and start them; there may be more work to do on this
+            task, but it will have to be done in that separate process, because its
+            results can't be serialized and transmitted. (On the other hand, if we
+            have a dependent task to run *in this same process*, we'll want to bring
+            this task to the CACHED level instead.) As with (a), for a task with
+            non-persistable output, this milestone is reached as soon as we compute
+            its provenance; for a task with persistable output, it's reached only
+            when the task is computed and its output is cached.
+
+    4. CACHED: The task has been computed and its output value is stored somewhere --
+        in the persistent cache, in memory on the TaskState, and/or in memory on this
+        entry (depending on the cache settings). This is the final level: after this,
+        there is no more work to do on this task.
     """
 
     CREATED = auto()
-
+    INITIALIZED = auto()
     PRIMED = auto()
     CACHED = auto()
+
+
+class EntryPriority(IntEnum):
+    """
+    Indicates a level of priority for a TaskRunnerEntry.
+
+    When multiple entries are in the PENDING stage, an entry with higher priority will
+    always be activated before one with lower priority. There are currently only two
+    priorities: DEFAULT and HIGH.
+
+    Currently, the only reason to prioritize one entry over another is because we may
+    want one entry's output to be saved to a persistent cache before another entry has
+    a chance to run (and possibly crash).
+    """
+
+    DEFAULT = auto()
+    HIGH = auto()
 
 
 # TODO Let's reorder the methods here with this order:
@@ -326,13 +359,42 @@ class TaskState:
     Represents the state of a task computation.  Keeps track of its position in
     the task graph, whether its values have been computed yet, additional
     intermediate state and the deriving logic.
+
+    Parameters
+    ----------
+    task: Task
+        The task whose state we're tracking.
+    dep_states: list of TaskStates
+        TaskStates that we depend on; these correspond to `task.dep_keys`.
+    followup_states: list of TaskStates
+        Other TaskStates that should run immediately after this one.
+    case_key: CaseKey
+        The case key shared by all the task's TaskKeys.
+        TODO There is no particular reason we need to pass this in instead of computing
+        it in the constructor. Once we restrict each task to having a single key,
+        this will be trivial to compute and we can remove this parameter.
+    func_attrs: FunctionAttributes
+        Additional details about the task's `compute_func` function.
+        TODO This should probably be on the Task object itself.
+    entity_defs_by_dnode: dict from DescriptorNode to EntityDefinition
+        Definitions of each entity (or other descriptor) produced by this task; has one
+        entry for each `task_key.dnode` in `task.keys`.
     """
 
-    def __init__(self, task, dep_states, case_key, func_attrs, entity_defs_by_dnode):
+    def __init__(
+        self,
+        task,
+        dep_states,
+        followup_states,
+        case_key,
+        func_attrs,
+        entity_defs_by_dnode,
+    ):
         assert len(entity_defs_by_dnode) == len(task.keys)
 
         self.task = task
         self.dep_states = dep_states
+        self.followup_states = followup_states
         self.case_key = case_key
         self.func_attrs = func_attrs
         self.entity_defs_by_dnode = entity_defs_by_dnode
@@ -372,6 +434,13 @@ class TaskState:
             self._result_value_hashes_by_dnode is not None
             or self._results_by_dnode is not None
         )
+
+    @property
+    def is_cached_persistently(self):
+        """
+        Indicates whether the task state's results are cached persistently.
+        """
+        return self._result_value_hashes_by_dnode is not None
 
     def output_would_be_missing(self):
         return single_unique_element(
@@ -449,7 +518,7 @@ class TaskState:
         else:
             self._result_value_hashes_by_dnode = None
 
-    def sync_after_subprocess_computation(self):
+    def sync_after_remote_computation(self):
         """
         Syncs the task state by populating and reloading data in the current process
         after completing the task state in a subprocess.
@@ -457,6 +526,11 @@ class TaskState:
         This is necessary because values populated in the task state are not
         communicated back from the subprocess.
         """
+
+        # If this state was never initialized, it doesn't have any out-of-date
+        # information, so there's no need to update anything.
+        if not self.is_initialized:
+            return
 
         assert self.should_persist
 
@@ -598,6 +672,9 @@ class TaskState:
             should_persist = False
         self.should_persist = should_persist
 
+        if self.should_persist:
+            assert len(self.followup_states) == 0
+
         self._are_caching_flags_set_up = True
 
     def refresh_cache_accessors(self, bootstrap):
@@ -695,50 +772,75 @@ class TaskState:
                 for task_key in self.task.keys
             }
 
-    def strip_state_for_subprocess(self, new_task_states_by_key=None):
-        """
-        Returns a copy of task state after keeping only the necessary data
-        required for to compute it. In addition, this also removes all the memoized
-        results since they can be expensive to serialize.
 
-        Mainly used
-        - because some results are impossible to serialize and
-        - to reduce IPC overhead when sending the state over to another subprocess.
+class RemoteSubgraph:
+    """
+    Represents a subset of a task graph to be computed remotely (i.e., in another
+    process).
 
-        Parameters
-        ----------
+    Given a target TaskState, this class identifies the minimal set of TaskStates that
+    should be run along with it; this includes all of its immediate non-persistable
+    ancestors (which can't be serialized and transmitted to the other process) and any
+    of their follow-up tasks (which need to be computed immediately after their
+    parents). It also maintains a copy of this subgraph with unnecessary data pruned;
+    these "stripped" TaskStates can be safely serialized with cloudpickle and sent to
+    the other process.
+    """
 
-        new_task_states_by_key: Dict from key to stripped states, optional, default is ``{}``
-            The cache for tracking stripped task states.
-        """
+    def __init__(self, target_state, bootstrap):
+        self._bootstrap = bootstrap
 
-        if new_task_states_by_key is None:
-            new_task_states_by_key = {}
+        self._stripped_states_by_task_key = {}
+        self.persistable_but_not_persisted_states = set()
 
-        # All task keys should point to the same task state.
-        if self.task_keys[0] in new_task_states_by_key:
-            return new_task_states_by_key[self.task_keys[0]]
+        self._strip_state(target_state)
 
-        # Let's make a copy of the task state.
-        # This is not a deep copy so we'll avoid mutating any of the member variables.
-        task_state = copy.copy(self)
+    def _strip_state(self, original_state):
+        task_key = original_state.task.keys[0]
+        if task_key in self._stripped_states_by_task_key:
+            return self._stripped_states_by_task_key[task_key]
+        original_state.set_up_caching_flags(self._bootstrap)
 
-        # Clear up memoized cache to avoid sending it through IPC.
-        task_state._results_by_dnode = None
-        # Clear up fields not needed in subprocess, for computing or for cache lookup.
-        task_state.func_attrs = None
-        task_state.entity_defs_by_dnode = None
-        task_state.case_key = None
-        task_state._provenance = None
+        # Make a copy of the TaskState, which we'll strip down to make it easier to
+        # serialize.
+        # (This is a shallow copy, so we'll make sure to avoid mutating any of its
+        # member variables.)
+        stripped_state = copy.copy(original_state)
+        self._stripped_states_by_task_key[task_key] = stripped_state
 
-        if task_state.is_cached:
-            task_state.dep_states = []
-            task_state.task = None
-        else:
-            task_state.dep_states = [
-                dep_state.strip_state_for_subprocess(new_task_states_by_key)
-                for dep_state in task_state.dep_states
-            ]
+        # Strip out data cached in memory -- we can't necessarily pickle it, so
+        # we need to get rid of it before trying to transmit this state to another
+        # process.
+        stripped_state._results_by_dnode = None
 
-        new_task_states_by_key[task_state.task_keys[0]] = task_state
-        return task_state
+        # These fields are picklable, but only needed for cache setup and
+        # initialization.
+        if stripped_state.is_initialized:
+            stripped_state.func_attrs = None
+            stripped_state.entity_defs_by_dnode = None
+            stripped_state.case_key = None
+
+        if stripped_state.should_persist:
+            assert len(stripped_state.followup_states) == 0
+
+            if stripped_state.is_cached_persistently:
+                stripped_state.task = None
+                stripped_state.dep_states = []
+
+            else:
+                self.persistable_but_not_persisted_states.add(original_state)
+
+        stripped_state.dep_states = [
+            self._strip_state(dep_state) for dep_state in stripped_state.dep_states
+        ]
+        stripped_state.followup_states = [
+            self._strip_state(followup_state)
+            for followup_state in stripped_state.followup_states
+        ]
+
+        return stripped_state
+
+    def get_stripped_state(self, original_state):
+        assert original_state in self.persistable_but_not_persisted_states
+        task_key = original_state.task.keys[0]
+        return self._stripped_states_by_task_key[task_key]

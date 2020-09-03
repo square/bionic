@@ -103,6 +103,18 @@ class BaseProvider:
             name for dnode in self.attrs.dnodes for name in dnode.all_entity_names()
         ]
 
+    # This is used to indicate that if we're outputting an aggregate descriptor type
+    # (like a tuple), then we'll need to set some followup tasks to make sure all the
+    # aggregated descriptors get persisted immediately. This field is gross, but once we
+    # have file descriptors it can go away, because the "crude" or "not-yet-persisted"
+    # values will have their own descriptors, and it will be obvious which tasks need
+    # to have followups.
+    # TODO In the meantime, if we start moving more attributes directly onto the Task
+    # class, this would be another good candidate.
+    @property
+    def task_output_may_need_followups_for_persistence(self):
+        return True
+
     def __repr__(self):
         descriptors = tuple(dnode.to_descriptor() for dnode in self.attrs.dnodes)
         return f"{self.__class__.__name__}{descriptors!r}"
@@ -364,6 +376,10 @@ class WrappingProvider(BaseProvider):
 
     def get_source_func(self):
         return self.wrapped_provider.get_source_func()
+
+    @property
+    def task_output_may_need_followups_for_persistence(self):
+        return self.wrapped_provider.task_output_may_need_followups_for_persistence
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.wrapped_provider})"
@@ -1065,6 +1081,12 @@ class TupleConstructionProvider(BaseDerivedProvider):
 
     def compute_values_from_deps(self, dep_values):
         return [tuple(dep_values)]
+
+    # When we're constructing a tuple, we depend on the individual child descriptors,
+    # so we don't need or want to introduce followup tasks to re-compute them.
+    @property
+    def task_output_may_need_followups_for_persistence(self):
+        return False
 
 
 class TupleDeconstructionProvider(BaseDerivedProvider):
