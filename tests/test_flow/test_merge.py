@@ -2,9 +2,10 @@ import pytest
 
 import bionic as bn
 from bionic.exception import (
-    UndefinedEntityError,
     AlreadyDefinedEntityError,
+    EntityValueError,
     IncompatibleEntityError,
+    UndefinedEntityError,
 )
 
 ALL_KEEP_VALUES = ["error", "old", "new", "combine"]
@@ -298,12 +299,12 @@ def test_protocols_conflict(builder):
 
     builder.merge(incoming_builder.build(), keep="old")
     builder.set("x", 1)
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         builder.set("x", "blue")
 
     builder.merge(incoming_builder.build(), keep="new")
     builder.set("x", "blue")
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         builder.set("x", 1)
 
 
@@ -315,7 +316,7 @@ def test_protocol_is_overwritten(builder):
 
     builder.merge(incoming_builder.build(), keep="new")
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(EntityValueError):
         builder.set("x", 3)
 
     assert builder.build().get("x") == "blue"

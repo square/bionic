@@ -249,7 +249,7 @@ class FlowState(pyrs.PClass):
         tokens = []
         for name, value in zip(names, values):
             protocol = self.get_entity_def(name).protocol
-            protocol.validate(value)
+            protocol.validate_for_entity(name, value)
             tokens.append(protocol.tokenize(value))
         provider = provider.add_case(case_key, values, tokens)
 
@@ -489,10 +489,6 @@ class FlowBuilder:
             )
             doc = docstring
 
-        # TODO We can remove this validation, since it also happens in add_case below.
-        for value in values:
-            protocol.validate(value)
-
         state = self._state
 
         state = state.define_entity(
@@ -541,9 +537,6 @@ class FlowBuilder:
         protocol = state.get_entity_def(name).protocol
 
         for value in values:
-            # TODO We can remove this validation, since it also happens in add_case
-            # below.
-            protocol.validate(value)
             case_key = CaseKey([(name, protocol.tokenize(value))])
             state = state.add_case(case_key, [name], [value])
 
@@ -633,7 +626,7 @@ class FlowBuilder:
             protocol = state.get_entity_def(name).protocol
             # TODO Both the validation and tokenization are also happening in
             # state.add_case below; maybe we can remove some duplicate work.
-            protocol.validate(value)
+            protocol.validate_for_entity(name, value)
             token = protocol.tokenize(value)
 
             values.append(value)

@@ -28,7 +28,7 @@ from .code_hasher import CodeHasher
 from .deps.optdep import import_optional_dependency
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
-from .exception import EntityComputationError, IncompatibleEntityError
+from .exception import EntityComputationError, EntityValueError, IncompatibleEntityError
 from .utils.misc import groups_dict, oneline
 
 import logging
@@ -483,9 +483,24 @@ class NameSplittingProvider(WrappingProvider):
             def wrapped_compute_func(dep_values):
                 (value_seq,) = task.compute(dep_values)
 
-                if len(value_seq) != len(self.attrs.dnodes):
+                try:
+                    value_seq_len = len(value_seq)
+                except TypeError:
                     descriptors = [dnode.to_descriptor() for dnode in self.attrs.dnodes]
-                    raise ValueError(
+                    raise EntityValueError(
+                        oneline(
+                            f"""
+                        Expected provider
+                        {self.wrapped_provider.attrs.dnodes[0].to_descriptor()!r} to
+                        return a sequence of {len(descriptors)} outputs named
+                        {descriptors!r};
+                        got a non-sequence output {value_seq!r}"""
+                        )
+                    )
+
+                if value_seq_len != len(self.attrs.dnodes):
+                    descriptors = [dnode.to_descriptor() for dnode in self.attrs.dnodes]
+                    raise EntityValueError(
                         oneline(
                             f"""
                         Expected provider
