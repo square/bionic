@@ -26,7 +26,8 @@ def flow(builder):
 
     @builder
     @bn.gather(over="full_name")
-    def all_names(gather_df):
+    @bn.returns("all_names,")
+    def _(gather_df):
         """Comma-separated list of names."""
         return ", ".join(gather_df["full_name"])
 
@@ -57,30 +58,31 @@ def nodes_by_name_from_dot(dot):
 
 
 def test_dag_size(flow_graph):
-    assert len(flow_graph.nodes) == 8
+    assert len(flow_graph.nodes) == 9
 
 
 def test_dot_properties(flow_dot):
     nodes = nodes_by_name_from_dot(flow_dot)
     assert set(nodes.keys()) == {
-        # pydot puts quotes around the name if it contains square brackets. (However,
-        # these quotes are not visible when the graph is rendered as an image.)
+        # We've wrapped all our names in quotes to work around pydot. However, they're
+        # not visible in the visualization.
         '"first_name[0]"',
         '"first_name[1]"',
-        "last_name",
+        '"last_name"',
         '"full_name[0]"',
         '"full_name[1]"',
         '"initials[0]"',
         '"initials[1]"',
-        "all_names",
+        '"all_names,"',
+        '"all_names"',
     }
 
-    assert nodes["last_name"].get_tooltip() is None
-    assert nodes["all_names"].get_tooltip() == "Comma-separated list of names."
+    assert nodes['"last_name"'].get_tooltip() is None
+    assert nodes['"all_names"'].get_tooltip() == "Comma-separated list of names."
     assert nodes['"initials[0]"'].get_tooltip() == "Just the initials."
     assert nodes['"initials[1]"'].get_tooltip() == "Just the initials."
 
-    assert nodes["last_name"].get_fillcolor() != nodes["all_names"].get_fillcolor()
+    assert nodes['"last_name"'].get_fillcolor() != nodes['"all_names"'].get_fillcolor()
     assert (
         nodes['"first_name[0]"'].get_fillcolor()
         == nodes['"first_name[1]"'].get_fillcolor()
