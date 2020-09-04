@@ -1138,7 +1138,7 @@ def test_changes_per_run_and_not_memoize(builder, make_counter):
 
     with pytest.warns(
         UserWarning,
-        match="aren't configured to be memoized but are decorated with @changes_per_run",
+        match="isn't configured to be memoized but is decorated with @changes_per_run",
     ):
         flow = builder.build()
         assert flow.get("x_plus_one") == 6
@@ -1148,7 +1148,7 @@ def test_changes_per_run_and_not_memoize(builder, make_counter):
 
     with pytest.warns(
         UserWarning,
-        match="aren't configured to be memoized but are decorated with @changes_per_run",
+        match="isn't configured to be memoized but is decorated with @changes_per_run",
     ):
         flow = builder.build()
         assert flow.get("x_plus_one") == 6

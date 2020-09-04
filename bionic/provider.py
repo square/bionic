@@ -234,7 +234,7 @@ class ValueProvider(BaseProvider):
         if self.has_any_cases():
             return [
                 Task(
-                    keys=[TaskKey(dnode=out_dnode, case_key=case_key)],
+                    key=TaskKey(dnode=out_dnode, case_key=case_key),
                     dep_keys=[],
                     compute_func=functools.partial(
                         self._compute,
@@ -250,14 +250,10 @@ class ValueProvider(BaseProvider):
         else:
             return [
                 Task(
-                    keys=[
-                        TaskKey(
-                            dnode=out_dnode,
-                            case_key=CaseKey(
-                                [(name, None) for name in self.entity_names]
-                            ),
-                        )
-                    ],
+                    key=TaskKey(
+                        dnode=out_dnode,
+                        case_key=CaseKey([(name, None) for name in self.entity_names]),
+                    ),
                     dep_keys=[],
                     compute_func=None,
                 )
@@ -265,9 +261,9 @@ class ValueProvider(BaseProvider):
 
     def _compute(self, dep_values, case_key):
         if self._output_is_tuple:
-            return [self._value_tuples_by_case_key[case_key]]
+            return self._value_tuples_by_case_key[case_key]
         else:
-            return [self._value_tuples_by_case_key[case_key][0]]
+            return self._value_tuples_by_case_key[case_key][0]
 
 
 class BaseDerivedProvider(BaseProvider):
@@ -297,7 +293,7 @@ class BaseDerivedProvider(BaseProvider):
 
         return [
             Task(
-                keys=[TaskKey(dnode=self._out_dnode, case_key=case_key)],
+                key=TaskKey(dnode=self._out_dnode, case_key=case_key),
                 dep_keys=[
                     TaskKey(
                         dnode=dep_dnode,
@@ -356,7 +352,7 @@ class FunctionProvider(BaseDerivedProvider):
                 """
                 )
             ) from e
-        return [value]
+        return value
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self._func})"
@@ -435,14 +431,8 @@ class RenamingProvider(WrappingProvider):
         (dnode,) = self.attrs.dnodes
 
         def wrap_task(task):
-            (task_key,) = task.keys
             return Task(
-                keys=[
-                    TaskKey(
-                        dnode=dnode,
-                        case_key=task_key.case_key,
-                    )
-                ],
+                key=TaskKey(dnode=dnode, case_key=task.key.case_key),
                 dep_keys=task.dep_keys,
                 compute_func=task.compute,
             )
@@ -677,7 +667,7 @@ class GatherProvider(WrappingProvider):
             # over the network, we need to either use dill or refactor this
             # code.
             return Task(
-                keys=task.keys,
+                key=task.key,
                 dep_keys=wrapped_dep_keys,
                 compute_func=wrapped_compute_func,
             )
@@ -814,14 +804,14 @@ class PyplotProvider(WrappingProvider):
                 plt.figure()
 
                 # Run the task, which will do the plotting.
-                values = task.compute(inner_dep_values)
-                if values != [None]:
+                value = task.compute(inner_dep_values)
+                if value is not None:
                     raise ValueError(
                         oneline(
                             f"""
                         Providers wrapped by {self.__class__.__name__}
-                        should not return values;
-                        got values {tuple(values)!r}"""
+                        should not return any value;
+                        got value {value!r}"""
                         )
                     )
 
@@ -835,10 +825,10 @@ class PyplotProvider(WrappingProvider):
                 # Load the buffer into an Image object.
                 image = self._Image.open(bio)
 
-                return [image]
+                return image
 
             return Task(
-                keys=task.keys,
+                key=task.key,
                 dep_keys=outer_dep_keys,
                 compute_func=wrapped_compute_func,
             )
@@ -881,14 +871,11 @@ class NewOutputDescriptorProvider(WrappingProvider):
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         def wrap_task(task):
-            (task_key,) = task.keys
             return Task(
-                keys=[
-                    TaskKey(
-                        dnode=self.out_dnode,
-                        case_key=task_key.case_key,
-                    )
-                ],
+                key=TaskKey(
+                    dnode=self.out_dnode,
+                    case_key=task.key.case_key,
+                ),
                 dep_keys=task.dep_keys,
                 compute_func=task.compute,
             )
@@ -991,7 +978,7 @@ class ArgDescriptorSubstitutionProvider(WrappingProvider):
                 for inner_dep_key in inner_dep_keys
             ]
             return Task(
-                keys=task.keys,
+                key=task.key,
                 dep_keys=outer_dep_keys,
                 compute_func=task.compute,
             )
@@ -1021,7 +1008,7 @@ class TupleConstructionProvider(BaseDerivedProvider):
         )
 
     def compute_values_from_deps(self, dep_values):
-        return [tuple(dep_values)]
+        return tuple(dep_values)
 
     # When we're constructing a tuple, we depend on the individual child descriptors,
     # so we don't need or want to introduce followup tasks to re-compute them.
@@ -1052,7 +1039,7 @@ class TupleDeconstructionProvider(BaseDerivedProvider):
 
     def compute_values_from_deps(self, dep_values):
         (input_tuple,) = dep_values
-        return [input_tuple[self._element_ix]]
+        return input_tuple[self._element_ix]
 
 
 # -- Helpers for managing case keys.

@@ -45,8 +45,8 @@ class Task:
 
     Attributes
     ----------
-    keys: list of TaskKeys
-        Keys corresponding to the output values computed by this task.
+    key: TaskKey
+        Key corresponding to the output value computed by this task.
     dep_keys: list of TaskKeys
         Keys corresponding to the input values required by this task.
     compute_func: function taking a single ``dep_values`` argument
@@ -56,7 +56,7 @@ class Task:
         used to determine what message to log when this task is computed.
     """
 
-    keys = attr.ib(converter=tuple)
+    key = attr.ib()
     dep_keys = attr.ib(converter=tuple)
     compute_func = attr.ib()
     is_simple_lookup = attr.ib(default=False)
@@ -64,13 +64,8 @@ class Task:
     def compute(self, dep_values):
         return self.compute_func(dep_values)
 
-    def key_for_dnode(self, dnode):
-        matching_keys = [task_key for task_key in self.keys if task_key.dnode == dnode]
-        (key,) = matching_keys
-        return key
-
     def __repr__(self):
-        return f"Task({self.keys!r}, {self.dep_keys!r})"
+        return f"Task({self.key!r}, {self.dep_keys!r})"
 
 
 @attr.s(frozen=True)

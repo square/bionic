@@ -114,10 +114,9 @@ class EntityDeriver:
             doc = self._obtain_entity_def_for_dnode(dnode).doc
 
             for task_ix, task in enumerate(
-                sorted(tasks, key=lambda task: task.keys[0].case_key)
+                sorted(tasks, key=lambda task: task.key.case_key)
             ):
-                task_key = task.key_for_dnode(dnode)
-                state = self._get_or_create_task_state_for_key(task_key)
+                state = self._get_or_create_task_state_for_key(task.key)
 
                 if len(tasks) == 1:
                     node_name = descriptor
@@ -125,18 +124,18 @@ class EntityDeriver:
                     node_name = f"{dnode.to_descriptor(near_commas=True)}[{task_ix}]"
 
                 graph.add_node(
-                    task_key,
+                    task.key,
                     name=node_name,
                     descriptor=descriptor,
-                    case_key=task_key.case_key,
+                    case_key=task.key.case_key,
                     task_ix=task_ix,
                     doc=doc,
                 )
 
                 for dep_state in state.dep_states:
-                    for dep_task_key in dep_state.task.keys:
-                        graph.add_edge(dep_task_key, task_key)
-                        dnodes_to_add_to_graph.append(dep_task_key.dnode)
+                    dep_task_key = dep_state.task.key
+                    graph.add_edge(dep_task_key, task.key)
+                    dnodes_to_add_to_graph.append(dep_task_key.dnode)
 
             dnodes_already_added.add(dnode)
 
@@ -319,9 +318,7 @@ class EntityDeriver:
             dep_dinfo.dnode: dep_dinfo.key_space for dep_dinfo in dep_dinfos
         }
         dep_task_key_lists_by_dnode = {
-            dep_dinfo.dnode: [
-                task.key_for_dnode(dep_dinfo.dnode) for task in dep_dinfo.tasks
-            ]
+            dep_dinfo.dnode: [task.key for task in dep_dinfo.tasks]
             for dep_dinfo in dep_dinfos
         }
 
@@ -334,12 +331,7 @@ class EntityDeriver:
             dep_key_spaces_by_dnode,
             dep_task_key_lists_by_dnode,
         )
-        tasks_by_key = {
-            task_key: task
-            for task in tasks
-            for task_key in task.keys
-            if task_key.dnode == dnode
-        }
+        tasks_by_key = {task.key: task for task in tasks}
 
         dinfo = DescriptorInfo(
             dnode=dnode,
@@ -375,10 +367,7 @@ class EntityDeriver:
         dnode = task_key.dnode
         dinfo = self._get_or_create_dinfo_for_dnode(dnode)
         task = dinfo.tasks_by_key[task_key]
-
-        # All keys in this task should have the same case key, so the set below
-        # should have exactly one element.
-        (case_key,) = set(task_key.case_key for task_key in task.keys)
+        case_key = task.key.case_key
 
         # TODO We could have cached this in the DescriptorInfo object, but for now it's
         # not expensive to just recompute it, so we'll just do that. However, we could
@@ -389,10 +378,7 @@ class EntityDeriver:
         provider = self._obtain_provider_for_dnode(dnode)
         func_attrs = provider.get_func_attrs(case_key)
 
-        entity_defs_by_dnode = {
-            task_key.dnode: self._obtain_entity_def_for_dnode(task_key.dnode)
-            for task_key in task.keys
-        }
+        entity_def = self._obtain_entity_def_for_dnode(task.key.dnode)
 
         # With the precursors out of the way, we're ready to create the TaskState.
         # However, we're leaving the references to its neighboring task states empty
@@ -403,15 +389,13 @@ class EntityDeriver:
             # We'll update these two lists later.
             dep_states=[],
             followup_states=[],
-            case_key=case_key,
             func_attrs=func_attrs,
-            entity_defs_by_dnode=entity_defs_by_dnode,
+            entity_def=entity_def,
         )
         # We immediately put this TaskState in the "in-progress" cache so it will be
         # available as we recursively construct its neighbors.
-        for state_task_key in task.keys:
-            assert state_task_key not in in_progress_states_by_key
-            in_progress_states_by_key[state_task_key] = task_state
+        assert task.key not in in_progress_states_by_key
+        in_progress_states_by_key[task.key] = task_state
 
         # Now we can recursively construct all of its dependency task states and add
         # references to them.
@@ -438,9 +422,8 @@ class EntityDeriver:
 
         # Now the TaskState is fully initialized, so we can put it in the real cache
         # and return it.
-        for state_task_key in task.keys:
-            assert state_task_key not in self._saved_task_states_by_key
-            self._saved_task_states_by_key[state_task_key] = task_state
+        assert task.key not in self._saved_task_states_by_key
+        self._saved_task_states_by_key[task.key] = task_state
         return task_state
 
     def _bootstrap_singleton_entity(self, entity_name):
@@ -490,7 +473,7 @@ class EntityDeriver:
 
         dinfo = self._get_or_create_dinfo_for_dnode(dnode)
         requested_task_states = [
-            self._get_or_create_task_state_for_key(task.keys[0]) for task in dinfo.tasks
+            self._get_or_create_task_state_for_key(task.key) for task in dinfo.tasks
         ]
 
         task_key_logger = TaskKeyLogger(self._bootstrap)
@@ -499,18 +482,10 @@ class EntityDeriver:
             flow_instance_uuid=self._flow_instance_uuid,
             task_key_logger=task_key_logger,
         )
-        results_by_dnode_by_task_key = task_runner.run(requested_task_states)
+        results = task_runner.run(requested_task_states)
+        assert len(results) == len(requested_task_states)
 
-        for state in requested_task_states:
-            assert state.task.keys[0] in results_by_dnode_by_task_key
-
-        return ResultGroup(
-            results=[
-                results_by_dnode_by_task_key[state.task.keys[0]][dnode]
-                for state in requested_task_states
-            ],
-            key_space=dinfo.key_space,
-        )
+        return ResultGroup(results=results, key_space=dinfo.key_space)
 
 
 @attr.s(frozen=True)
