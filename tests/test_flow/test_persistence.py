@@ -1280,3 +1280,88 @@ def test_caching_dir_with_whitespaces(builder, make_counter, tmp_path):
     assert builder.build().get("one") == 1
     assert builder.build().get("one") == 1
     assert counter.times_called() == 1
+
+
+@pytest.fixture
+def make_tracked_class():
+    """
+    Creates a "tracked" class which keeps a count of how many of its instances are in
+    memory.
+    """
+
+    def _make_tracked_class():
+        # The Tracked class we're about to make is not picklable (since it's nested in
+        # this function), so we'll also need a custom protocol for it.
+        class TrackedProtocol(bn.protocols.BaseProtocol):
+            def get_fixed_file_extension(self):
+                return "tracked"
+
+            def write(self, value, path):
+                path.write_text(str(value.value))
+
+            def read(self, path):
+                return Tracked(int(path.read_text()))
+
+        class Tracked:
+            n_instances_in_memory = 0
+            protocol = TrackedProtocol()
+
+            def __init__(self, value):
+                self.__class__.n_instances_in_memory += 1
+                self.value = value
+
+            def __del__(self):
+                self.__class__.n_instances_in_memory -= 1
+
+        return Tracked
+
+    return _make_tracked_class
+
+
+def test_non_memoized_value_is_garbage_collected(builder, make_tracked_class):
+    Tracked = make_tracked_class()
+
+    @builder
+    @bn.memoize(False)
+    @Tracked.protocol
+    def tracked_x():
+        return Tracked(1)
+
+    @builder
+    def x_plus_one(tracked_x):
+        assert Tracked.n_instances_in_memory == 1
+        return tracked_x.value + 1
+
+    @builder
+    def x_plus_two(x_plus_one):
+        assert Tracked.n_instances_in_memory == 0
+        return x_plus_one + 1
+
+    assert builder.build().get("x_plus_two") == 3
+
+
+def test_non_memoized_values_are_garbage_collected(builder, make_tracked_class):
+    Tracked = make_tracked_class()
+
+    @builder
+    @bn.memoize(False)
+    @Tracked.protocol
+    @bn.outputs("tracked_x", "tracked_y")
+    def _():
+        return Tracked(1), Tracked(-1)
+
+    @builder
+    def x_plus_one(tracked_x):
+        # Because of how multi-output functions are memoized, both tracked_x and
+        # tracked_y are stored in memory together. In the future it would be good to
+        # optimize this so they can be stored separately, in which case we can change
+        # this fromn 2 to 1.
+        assert Tracked.n_instances_in_memory == 2
+        return tracked_x.value + 1
+
+    @builder
+    def x_plus_two(x_plus_one):
+        assert Tracked.n_instances_in_memory == 0
+        return x_plus_one + 1
+
+    assert builder.build().get("x_plus_two") == 3
