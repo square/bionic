@@ -413,9 +413,8 @@ This can also be explicitly re-enabled for individual entities:
         return f'Hello {subject}.'
 
 When both persistent and in-memory caching are disabled for an entity, Bionic
-will cache its values in a temporary in-memory cache that only lasts for the
-duration of the :meth:`Flow.get <bionic.Flow.get>` call. These temporarily-cached
-values are discarded when the call is completed.
+will hold its value in memory just long enough to compute everything that directly
+depends on it, and then discard it.
 
 
 .. _changes_per_run :

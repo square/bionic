@@ -96,6 +96,13 @@ Deprecated Features
   crashes on Mac OS when using multiprocessing. Versions 3.1.x and 3.3+ are still
   supported.
 
+Improvements
+............
+
+- For entities with both persistent and in-memory caching disabled, their values are now
+  kept in memory only as long as necessary for anything dependent on them to be
+  computed, rather than for the entire duration of a ``Flow.get`` call.
+
 Bug Fixes
 .........
 

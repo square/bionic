@@ -46,9 +46,11 @@ class TaskRunnerEntry:
     ---------------
     level: EntryLevel
         The level of progress reached by this entry's TaskState.
-    incoming_reqs: list of EntryRequirement
-        All requirements placed on this entry by other entries.
-    outgoing_reqs: list of EntryRequirement
+    applicable_reqs: list of EntryRequirement
+        All requirements placed on this entry.
+    transient_applicable_reqs: list of EntryRequirement
+        The subset of ``applicable_reqs`` that are transient.
+    blocking_reqs: list of EntryRequirement
         All requirements placed on other entries by this one.
     stage: EntryStage
         The position of this entry within the bookkeeping system of its owning
@@ -66,8 +68,9 @@ class TaskRunnerEntry:
         # DAG. We set this once we start processing the entry.
         self.dep_entries = None
 
-        self.incoming_reqs = set()
-        self.outgoing_reqs = set()
+        self.applicable_reqs = set()
+        self.transient_applicable_reqs = set()
+        self.blocking_reqs = set()
         self.priority = EntryPriority.DEFAULT
 
     @property
@@ -97,16 +100,16 @@ class TaskRunnerEntry:
     @property
     def required_level(self):
         return max(
-            (req.level for req in self.incoming_reqs), default=EntryLevel.CREATED
+            (req.level for req in self.applicable_reqs), default=EntryLevel.CREATED
         )
 
     @property
-    def all_incoming_reqs_are_met(self):
+    def all_applicable_reqs_are_met(self):
         return self.level >= self.required_level
 
     @property
-    def all_outgoing_reqs_are_met(self):
-        return all(req.is_met for req in self.outgoing_reqs)
+    def all_blocking_reqs_are_met(self):
+        return all(req.is_met for req in self.blocking_reqs)
 
     @property
     def _is_cached(self):
@@ -215,6 +218,20 @@ class TaskRunnerEntry:
             return self.results_by_dnode
         return self.state.get_cached_results(task_key_logger)
 
+    def reevaluate_required_memoization(self):
+        """
+        If this entry is no longer required to be cached, discard any entry-level
+        memoized values to save memory.
+
+        This doesn't affect anything memoized by a TaskState, only by this
+        TaskRunnerEntry. The goal here is: if a value is *not* memoized at the
+        TaskState level (i.e., it's marked with ``@memoize(False)``), we should only
+        memoize it at the entry level while it's still needed, and then allow it to
+        be garbage-collected ASAP.
+        """
+        if self.required_level < EntryLevel.CACHED:
+            self.results_by_dnode = None
+
     def __str__(self):
         return f"TaskRunnerEntry({', '.join(str(key) for key in self.state.task_keys)})"
 
@@ -269,22 +286,46 @@ class EntryStage(Enum):
 @attr.s(frozen=True)
 class EntryRequirement:
     """
-    Represents a requirement from one entry to another.
+    Represents a need for an entry (``entry``) to to reach a certain level
+    (``level``) of progress.
 
-    A requirement indicates that one entry (`src_entry`) can't make any further progress
-    until another entry (`dst_entry`) has reached a certain level of progress (`level`).
+    Requirements come in three varieties:
 
-    Note: `src_entry` can also be `None`, indicating some sort of external or a priori
-    requirement. On the other hand, `dst_entry` cannot be `None`.
+    - A *sourced* requirement originates from another entry (``source_entry``) and indicates
+      that that entry can't make any progress until the requirement is met. The
+      requirement can be discarded once the source entry reaches the COMPLETED stage.
+
+    - A *transient* requirement indicates that we want the entry to reach this level
+      once, but we don't care what happens afterwards. (For example, we may want an
+      entry to reach the CACHED level because we want to be sure that its value is
+      persisted.) The requirement can be discarded once the destination entry reaches the
+      COMPLETED stage.
+
+    - A *permanent* requirement indicates that we want the entry to reach this level and
+      stay there until the end of the computation. This requirement is never discarded.
+
+    Attributes
+    ----------
+
+    entry: TaskRunnerEntry
+        The entry for which progress is required.
+    level: EntryLevel
+        The level of progress that ``entry`` needs to reach to meet this requirement.
+    source_entry: EntryLevel, optional
+        If this is a *sourced* requirement: the entry whose progress is blocked by this
+        requirement. Otherwise, None.
+    is_transient: bool
+        Indicates whether this is a *transient* requirement.
     """
 
-    src_entry = attr.ib()
-    dst_entry = attr.ib()
+    entry = attr.ib()
     level = attr.ib()
+    source_entry = attr.ib(default=None)
+    is_transient = attr.ib(default=False)
 
     @property
     def is_met(self):
-        return self.dst_entry.level >= self.level
+        return self.entry.level >= self.level
 
 
 class EntryLevel(IntEnum):

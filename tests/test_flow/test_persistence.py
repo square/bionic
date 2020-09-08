@@ -1318,45 +1318,43 @@ def make_tracked_class():
     return _make_tracked_class
 
 
-def test_non_memoized_value_is_garbage_collected(builder, make_tracked_class):
+@pytest.mark.parametrize("persist", [True, False])
+@pytest.mark.parametrize("multi_out", [True, False])
+def test_non_memoized_value_is_garbage_collected(
+    builder, make_tracked_class, persist, multi_out
+):
     Tracked = make_tracked_class()
 
-    @builder
-    @bn.memoize(False)
-    @Tracked.protocol
-    def tracked_x():
-        return Tracked(1)
+    if multi_out:
+
+        @builder
+        @bn.memoize(False)
+        @bn.persist(persist)
+        @Tracked.protocol
+        @bn.outputs("tracked_x", "tracked_y")
+        def _():
+            return Tracked(1), Tracked(-1)
+
+    else:
+
+        @builder
+        @bn.memoize(False)
+        @bn.persist(persist)
+        @Tracked.protocol
+        def tracked_x():
+            return Tracked(1)
 
     @builder
     def x_plus_one(tracked_x):
-        assert Tracked.n_instances_in_memory == 1
-        return tracked_x.value + 1
+        if multi_out:
+            # Because of how multi-output functions are memoized, both tracked_x and
+            # tracked_y are stored in memory together. In the future it would be good
+            # to optimize this so they can be stored separately, in which case we can
+            # change this fromn 2 to 1.
+            assert Tracked.n_instances_in_memory == 2
+        else:
+            assert Tracked.n_instances_in_memory == 1
 
-    @builder
-    def x_plus_two(x_plus_one):
-        assert Tracked.n_instances_in_memory == 0
-        return x_plus_one + 1
-
-    assert builder.build().get("x_plus_two") == 3
-
-
-def test_non_memoized_values_are_garbage_collected(builder, make_tracked_class):
-    Tracked = make_tracked_class()
-
-    @builder
-    @bn.memoize(False)
-    @Tracked.protocol
-    @bn.outputs("tracked_x", "tracked_y")
-    def _():
-        return Tracked(1), Tracked(-1)
-
-    @builder
-    def x_plus_one(tracked_x):
-        # Because of how multi-output functions are memoized, both tracked_x and
-        # tracked_y are stored in memory together. In the future it would be good to
-        # optimize this so they can be stored separately, in which case we can change
-        # this fromn 2 to 1.
-        assert Tracked.n_instances_in_memory == 2
         return tracked_x.value + 1
 
     @builder

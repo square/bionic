@@ -78,9 +78,7 @@ class TaskCompletionRunner:
             for state in states:
                 state.set_up_caching_flags(self._bootstrap)
                 entry = self._get_or_create_entry_for_state(state)
-                self._add_requirement(
-                    src_entry=None, dst_entry=entry, level=EntryLevel.CACHED
-                )
+                self._add_permanent_requirement(entry, EntryLevel.CACHED)
 
             while self._has_pending_entries():
                 entry = self._activate_next_pending_entry()
@@ -125,7 +123,11 @@ class TaskCompletionRunner:
         # so we'll need them to be primed.
         self._set_up_entry_dependencies(entry)
         for dep_entry in entry.dep_entries:
-            self._add_requirement(entry, dep_entry, EntryLevel.PRIMED)
+            self._add_sourced_requirement(
+                source_entry=entry,
+                target_entry=dep_entry,
+                level=EntryLevel.PRIMED,
+            )
         if self._mark_entry_blocked_if_necessary(entry):
             return
 
@@ -180,9 +182,9 @@ class TaskCompletionRunner:
                 if target_entry == entry:
                     assert target_entry.level >= EntryLevel.INITIALIZED
                 else:
-                    self._add_requirement(
-                        src_entry=entry,
-                        dst_entry=target_entry,
+                    self._add_sourced_requirement(
+                        source_entry=entry,
+                        target_entry=target_entry,
                         level=EntryLevel.INITIALIZED,
                     )
             if self._mark_entry_blocked_if_necessary(entry):
@@ -194,9 +196,8 @@ class TaskCompletionRunner:
                 # required level might only be INITIALIZED, in which case it would
                 # already be COMPLETED. However, we know it's not already CACHED,
                 # because it's `persistable_but_not_persisted`.)
-                self._add_requirement(
-                    src_entry=None,
-                    dst_entry=target_entry,
+                self._add_transient_requirement(
+                    entry=target_entry,
                     level=EntryLevel.CACHED,
                 )
                 if target_entry.stage == EntryStage.PENDING:
@@ -238,7 +239,11 @@ class TaskCompletionRunner:
         # Otherwise we'll compute this entry locally. In that case, it's not enough
         # for our dependencies to be primed; they also need to have cached values.
         for dep_entry in entry.dep_entries:
-            self._add_requirement(entry, dep_entry, EntryLevel.CACHED)
+            self._add_sourced_requirement(
+                source_entry=entry,
+                target_entry=dep_entry,
+                level=EntryLevel.CACHED,
+            )
         if self._mark_entry_blocked_if_necessary(entry):
             return
 
@@ -256,16 +261,46 @@ class TaskCompletionRunner:
             dep_entries.append(dep_entry)
         entry.dep_entries = dep_entries
 
-    def _add_requirement(self, src_entry, dst_entry, level):
-        req = EntryRequirement(src_entry=src_entry, dst_entry=dst_entry, level=level)
-        if req.src_entry is not None:
-            req.src_entry.outgoing_reqs.add(req)
-        req.dst_entry.incoming_reqs.add(req)
+    # We support three basic kinds of requirements, described in the documentation for
+    # the EntryRequirement class.
+    def _add_sourced_requirement(self, source_entry, target_entry, level):
+        self._add_requirement(
+            EntryRequirement(
+                entry=target_entry, level=level, source_entry=source_entry
+            ),
+        )
+
+    def _add_transient_requirement(self, entry, level):
+        self._add_requirement(
+            EntryRequirement(entry=entry, level=level, is_transient=True),
+        )
+
+    def _add_permanent_requirement(self, entry, level):
+        self._add_requirement(
+            EntryRequirement(entry=entry, level=level),
+        )
+
+    def _add_requirement(self, req):
+        if req.source_entry is not None:
+            assert not req.is_transient
+            # Check if we can already discard this requirement.
+            if req.is_met and req.source_entry.stage == EntryStage.COMPLETED:
+                return
+            req.source_entry.blocking_reqs.add(req)
+
+        elif req.is_transient:
+            # Check if we can already discard this requirement.
+            if req.is_met and req.entry.stage == EntryStage.COMPLETED:
+                return
+
+            req.entry.transient_applicable_reqs.add(req)
+
+        req.entry.applicable_reqs.add(req)
         if not req.is_met:
-            if req.src_entry is not None:
-                self._raise_entry_priority(req.dst_entry, req.src_entry.priority)
-            if req.dst_entry.stage == EntryStage.COMPLETED:
-                self._mark_entry_pending(req.dst_entry)
+            if req.source_entry is not None:
+                self._raise_entry_priority(req.entry, req.source_entry.priority)
+            if req.entry.stage == EntryStage.COMPLETED:
+                self._mark_entry_pending(req.entry)
 
     def _raise_entry_priority(self, entry, new_priority):
         if entry.priority >= new_priority:
@@ -280,9 +315,9 @@ class TaskCompletionRunner:
                 key=task_key, value=entry, priority=new_priority
             )
 
-        for req in entry.outgoing_reqs:
+        for req in entry.blocking_reqs:
             if not req.is_met:
-                self._raise_entry_priority(req.dst_entry, new_priority)
+                self._raise_entry_priority(req.entry, new_priority)
 
     def _get_or_create_entry_for_state(self, state):
         task_key = state.task_keys[0]
@@ -338,15 +373,16 @@ class TaskCompletionRunner:
     def _mark_entry_completed_if_possible(self, entry):
         assert entry.stage in [EntryStage.ACTIVE, EntryStage.IN_PROGRESS]
 
-        for req in entry.incoming_reqs:
+        # Check all our applicable requirements to see if any entries should be unblocked.
+        for req in entry.applicable_reqs:
             if req.is_met:
                 if (
-                    req.src_entry is not None
-                    and req.src_entry.stage == EntryStage.BLOCKED
-                    and req.src_entry.all_outgoing_reqs_are_met
+                    req.source_entry is not None
+                    and req.source_entry.stage == EntryStage.BLOCKED
+                    and req.source_entry.all_blocking_reqs_are_met
                 ):
-                    self._mark_entry_pending(req.src_entry)
-        if not entry.all_incoming_reqs_are_met:
+                    self._mark_entry_pending(req.source_entry)
+        if not entry.all_applicable_reqs_are_met:
             return False
 
         if entry.stage == EntryStage.IN_PROGRESS:
@@ -358,22 +394,29 @@ class TaskCompletionRunner:
             for followup_state in entry.state.followup_states:
                 followup_entry = self._get_or_create_entry_for_state(followup_state)
                 self._raise_entry_priority(followup_entry, EntryPriority.HIGH)
-                self._add_requirement(
-                    src_entry=None,
-                    dst_entry=followup_entry,
+                self._add_transient_requirement(
+                    entry=followup_entry,
                     level=EntryLevel.CACHED,
                 )
 
         entry.stage = EntryStage.COMPLETED
 
-        # TODO This might be a good place to prune old, already-met requirements.
+        # At this point we can discard all our blocking requirements.
+        entries_to_reevaluate = set()
+        for req in list(entry.blocking_reqs) + list(entry.transient_applicable_reqs):
+            entries_to_reevaluate.add(req.entry)
+            req.entry.applicable_reqs.remove(req)
+        entry.blocking_reqs.clear()
+        entry.transient_applicable_reqs.clear()
+        for entry in entries_to_reevaluate:
+            entry.reevaluate_required_memoization()
 
         return True
 
     def _mark_entry_blocked_if_necessary(self, entry):
         assert entry.stage == EntryStage.ACTIVE
 
-        if entry.all_outgoing_reqs_are_met:
+        if entry.all_blocking_reqs_are_met:
             return False
 
         entry.stage = EntryStage.BLOCKED
