@@ -146,7 +146,14 @@ class Task:
 
 
 def run():
-    # TODO stackdriver logging
+    import google.cloud.logging
+    from google.cloud.logging.handlers import CloudLoggingHandler
+
+    client = google.cloud.logging.Client()
+    handler = CloudLoggingHandler(client)
+    google.cloud.logging.handlers.setup_logging(handler)
+    logging.getLogger().setLevel(logging.DEBUG)
+
     ipath = sys.argv[-1]
     logging.info(f"Reading task from {ipath}")
     fs = blocks.filesystem.GCSNativeFileSystem()
