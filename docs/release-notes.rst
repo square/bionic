@@ -79,7 +79,7 @@ New Features
 
 - ``Flow`` now has a :meth:`Flow.reload <bionic.Flow.reload>` method that
   updates the flow instance to use reloaded modules. It is similar to
-  `Flow.reloading <bionic.Flow.reloading>`, but modifies the flow instance in
+  :meth:`Flow.reloading <bionic.Flow.reloading>`, but modifies the flow instance in
   place.
 
 Cache Compatibility Changes
