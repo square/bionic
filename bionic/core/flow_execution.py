@@ -364,11 +364,30 @@ class TaskCompletionRunner:
                     level=EntryLevel.CACHED,
                 )
 
+            for dep_entry in entry.dep_entries:
+                self._vacate_completed_entry_if_possible(dep_entry)
+
         entry.stage = EntryStage.COMPLETED
 
         # TODO This might be a good place to prune old, already-met requirements.
 
         return True
+
+    def _vacate_completed_entry_if_possible(self, entry):
+        assert entry.stage == EntryStage.COMPLETED
+
+        # We only vacate an entry if it has followup entries.
+        if len(entry.state.followup_states) == 0:
+            return
+
+        # We only vacate an entry once all its followups are cached; at that point,
+        # we know we won't need this one's value again.
+        for followup_state in entry.state.followup_states:
+            followup_entry = self._get_or_create_entry_for_state(followup_state)
+            if followup_entry.level != EntryLevel.CACHED:
+                return
+
+        entry.vacate()
 
     def _mark_entry_blocked_if_necessary(self, entry):
         assert entry.stage == EntryStage.ACTIVE

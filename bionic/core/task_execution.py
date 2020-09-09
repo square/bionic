@@ -59,6 +59,7 @@ class TaskRunnerEntry:
         self.state = state
         self.future = None
         self.results_by_dnode = None
+        self.is_vacated = False
         self._stage = None
         self.stage = EntryStage.COMPLETED
 
@@ -211,9 +212,57 @@ class TaskRunnerEntry:
 
         assert self._is_cached
 
+        if self.is_vacated:
+            identifier = ", ".join(
+                repr(task_key.dnode.to_descriptor())
+                for task_key in self.state.task_keys
+            )
+            message = f"""
+            Attempted to access a memoized value for {identifier} after it was vacated;
+            this should never happen unless you're using an undocumented descriptor
+            feature; otherwise, this is probably a bug in Bionic.
+            """
+            raise AssertionError(oneline(message))
+
         if self.results_by_dnode:
             return self.results_by_dnode
         return self.state.get_cached_results(task_key_logger)
+
+    def vacate(self):
+        """
+        Deletes all results memoized on this entry.
+
+        The purpose is to avoid holding values in memory if we know they won't be
+        needed. This is used for tuple-producing entries once all their followups
+        have been completed. We know we won't need the tuple values anymore (see NOTE
+        below), and we want the downstream entries to be the ones to decide if the
+        values stay in memory or not.
+
+        Does not affect anything memoized on the TaskState -- only on this entry itself.
+
+        NOTE We assume tuple entries will never be requested directly by user code,
+        so the only entries that need to access their values are the
+        automatically-created followup tasks. This assumption is not actually safe if
+        the user uses tuple descriptors, but these aren't currently documented. Once
+        we have file descriptors, the only tasks with followups will be the "crude"
+        pre-persisted values, which we won't document and which the user will have no
+        reason to access. Furthermore, at that point we should be able to simplify
+        the task architecture, so it may be easier to implement this "vacation" idea
+        more gracefully, such as by allowing an entry to become un-CACHED and then
+        get recomputed again.
+        """
+
+        if self.results_by_dnode is None:
+            return
+
+        self.is_vacated = True
+        # Instead of setting this to None, we set it to an empty dict. If we just set it
+        # to None, then _is_cached would return False and it would look like this entry
+        # had become un-CACHED, which could cause confusing behavior. This way, the
+        # entry will continue be CACHED, but is_vacated will cause us to throw an
+        # exception if anyone tries to actually access the cached values (which should
+        # never happen).
+        self.results_by_dnode = {}
 
     def __str__(self):
         return f"TaskRunnerEntry({', '.join(str(key) for key in self.state.task_keys)})"
