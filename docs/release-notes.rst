@@ -99,10 +99,10 @@ Deprecated Features
 Bug Fixes
 .........
 
-- Fixed an `issue <https://github.com/square/bionic/issues/111>`_ where non-persistable
+- Fixed an `issue <https://github.com/square/bionic/issues/111>`__ where non-persistable
   entities could be spuriously recomputed even when their values weren't directly
   needed.
-- Fixed an `issue <https://github.com/square/bionic/issues/229>`_ where caching fails
+- Fixed an `issue <https://github.com/square/bionic/issues/229>`__ where caching fails
   when cache directory paths contain whitespaces.
 
 Documentation
