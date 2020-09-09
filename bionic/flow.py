@@ -1463,6 +1463,10 @@ class Flow:
           functions is defined in
         * does not merge another Flow or FlowBuilder from another module.
 
+        You will need to use versioning to ensure that any code changes are
+        detected properly. Otherwise, the flow may keep using cached values
+        from previous versions of the code.
+
         The most straightforward way to meet these requirements is to define
         your flow in a module as:
 

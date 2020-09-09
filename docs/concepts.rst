@@ -209,6 +209,8 @@ Bionic's caching can be seen in action in the `ML tutorial`_.
 
 .. _ML tutorial: tutorials/ml_workflow.ipynb
 
+.. _cache-invalidation-and-versioning:
+
 Cache Invalidation and Versioning
 .................................
 
@@ -955,6 +957,11 @@ the flow instance to use the reloaded modules.  (This is a fairly magical
 procedure -- in complicated cases, it may not be able to figure out how to do
 this.  In these cases it will try to throw an exception rather than fail
 silently.) All future operations on the flow will reflect its updated status.
+
+To ensure that any code changes are detected properly, you will need to use
+versioning (see :ref:`cache-invalidation-and-versioning` and
+:ref:`automatic-versioning`). Otherwise, the flow may keep using cached values
+from previous versions of the code.
 
 You can also use the :meth:`Flow.reloading <bionic.Flow.reloading>` method to
 get a new copy of the flow that uses reloaded modules, without modifying the
