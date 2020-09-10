@@ -18,7 +18,6 @@ from .provider import (
     AttrUpdateProvider,
     PyplotProvider,
     RenamingProvider,
-    NameSplittingProvider,
     ArgDescriptorSubstitutionProvider,
     NewOutputDescriptorProvider,
 )
@@ -254,9 +253,7 @@ def outputs(*names):
         A decorator which can be applied to an entity function.
     """
 
-    return decorator_updating_accumulator(
-        lambda acc: acc.wrap_provider(NameSplittingProvider, names)
-    )
+    return returns(",".join(names) + ",")
 
 
 def docs(*docs):
