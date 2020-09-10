@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def run_in_subprocess(task_completion_runner, states):
     task_completion_runner.run(states)
-    return [state.task_keys[0] for state in states]
+    return [state.task_key for state in states]
 
 
 class TaskCompletionRunner:
@@ -91,11 +91,12 @@ class TaskCompletionRunner:
             assert len(self._in_progress_entries_by_task_key) == 0
             assert len(self._blocked_entries) == 0
 
-            results = {}
+            results = []
             for state in states:
-                task_key = state.task_keys[0]
+                task_key = state.task_key
                 entry = self._entries_by_task_key[task_key]
-                results[task_key] = entry.get_cached_results(self.task_key_logger)
+                result = entry.get_cached_result(self.task_key_logger)
+                results.append(result)
             return results
 
         finally:
@@ -139,7 +140,7 @@ class TaskCompletionRunner:
         # If this entry is persistable, we may be able to load it from the persistent
         # cache, which would immediately get us to the CACHED level.
         if entry.state.should_persist:
-            entry.state.attempt_to_access_persistent_cached_values()
+            entry.state.attempt_to_access_persistent_cached_value()
 
         # Otherwise, if it's not persistable, then initializing it should have gotten it
         # to the PRIMED level.
@@ -274,7 +275,7 @@ class TaskCompletionRunner:
         entry.priority = new_priority
 
         if entry.stage == EntryStage.PENDING:
-            task_key = entry.state.task_keys[0]
+            task_key = entry.state.task_key
             self._pending_entries_kps.pop(task_key)
             self._pending_entries_kps.push(
                 key=task_key, value=entry, priority=new_priority
@@ -285,7 +286,7 @@ class TaskCompletionRunner:
                 self._raise_entry_priority(req.dst_entry, new_priority)
 
     def _get_or_create_entry_for_state(self, state):
-        task_key = state.task_keys[0]
+        task_key = state.task_key
         if task_key in self._entries_by_task_key:
             return self._entries_by_task_key[task_key]
         # Before doing anything with this task state, we should make sure its
@@ -317,7 +318,7 @@ class TaskCompletionRunner:
     def _mark_entry_active(self, entry):
         assert entry.stage == EntryStage.PENDING
 
-        task_key = entry.state.task_keys[0]
+        task_key = entry.state.task_key
         self._pending_entries_kps.pop(task_key)
 
         entry.stage = EntryStage.ACTIVE
@@ -351,7 +352,7 @@ class TaskCompletionRunner:
 
         if entry.stage == EntryStage.IN_PROGRESS:
             entry.future = None
-            del self._in_progress_entries_by_task_key[entry.state.task_keys[0]]
+            del self._in_progress_entries_by_task_key[entry.state.task_key]
 
         if entry.level >= EntryLevel.CACHED:
             # If we have any followup tasks, we want to run them immediately.
@@ -408,7 +409,7 @@ class TaskCompletionRunner:
 
         pending_entry.stage = EntryStage.PENDING
         self._pending_entries_kps.push(
-            key=pending_entry.state.task_keys[0],
+            key=pending_entry.state.task_key,
             value=pending_entry,
             priority=pending_entry.priority,
         )
@@ -423,7 +424,7 @@ class TaskCompletionRunner:
         in_progress_entry.stage = EntryStage.IN_PROGRESS
         in_progress_entry.future = future
         self._in_progress_entries_by_task_key[
-            in_progress_entry.state.task_keys[0]
+            in_progress_entry.state.task_key
         ] = in_progress_entry
 
 

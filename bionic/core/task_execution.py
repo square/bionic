@@ -28,7 +28,7 @@ from enum import auto, Enum, IntEnum
 from ..datatypes import ProvenanceDigest, Query, Result
 from ..exception import CodeVersioningError
 from ..persistence import Provenance
-from ..utils.misc import oneline, single_unique_element
+from ..utils.misc import oneline
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class TaskRunnerEntry:
     def __init__(self, state):
         self.state = state
         self.future = None
-        self.results_by_dnode = None
+        self.result = None
         self.is_vacated = False
         self._stage = None
         self.stage = EntryStage.COMPLETED
@@ -111,7 +111,7 @@ class TaskRunnerEntry:
 
     @property
     def _is_cached(self):
-        return self.results_by_dnode is not None or self.state.is_cached
+        return self.result is not None or self.state.is_cached
 
     @property
     def _is_primed(self):
@@ -128,12 +128,16 @@ class TaskRunnerEntry:
 
     def compute(self, task_key_logger):
         """
-        Computes the values of an entry by running its task. Requires that all
+        Computes the value of an entry by running its task. Requires that all
         the task's dependencies are already computed.
         """
 
+        # TODO There are a few cases here where we acccess private members on
+        # self.state; should we clean this up?
+
         state = self.state
         task = self.state.task
+        query = self.state._query
 
         assert state.is_initialized
         assert not state.is_cached
@@ -141,27 +145,23 @@ class TaskRunnerEntry:
         dep_results = []
         for dep_entry, dep_key in zip(self.dep_entries, task.dep_keys):
             assert dep_entry._is_cached
-            dep_results_by_dnode = dep_entry.get_cached_results(task_key_logger)
-            dep_results.append(dep_results_by_dnode[dep_key.dnode])
+            dep_result = dep_entry.get_cached_result(task_key_logger)
+            dep_results.append(dep_result)
 
         if not task.is_simple_lookup:
-            for task_key in state.task_keys:
-                task_key_logger.log_computing(task_key)
+            task_key_logger.log_computing(state.task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
 
         # If we have any missing outputs, exit early with a missing result.
         if state.output_would_be_missing():
-            results_by_dnode = {}
-            result_value_hashes_by_dnode = {}
-            for query in state._queries:
-                result = Result(query=query, value=None, value_is_missing=True)
-                results_by_dnode[query.dnode] = result
-                result_value_hashes_by_dnode[query.dnode] = ""
-            state._results_by_dnode = results_by_dnode
+            result = Result(query=query, value=None, value_is_missing=True)
+            value_hash = ""
+            # TODO Should we do this even when memoization is disabled?
+            state._result = result
             if state.should_persist:
-                state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-            return state._results_by_dnode
+                state._result_value_hash = value_hash
+            return result
 
         else:
             # If we have no missing outputs, we should not be consuming any missing
@@ -170,67 +170,53 @@ class TaskRunnerEntry:
                 dep_key.case_key.has_missing_values for dep_key in task.dep_keys
             )
 
-        values = task.compute(dep_values)
-        assert len(values) == len(state.task_keys)
+        value = task.compute(dep_values)
 
-        for query in state._queries:
-            if task.is_simple_lookup:
-                task_key_logger.log_accessed_from_definition(query.task_key)
-            else:
-                task_key_logger.log_computed(query.task_key)
-
-        results_by_dnode = {}
-        result_value_hashes_by_dnode = {}
-        for ix, (query, value) in enumerate(zip(state._queries, values)):
-            query.protocol.validate_for_dnode(query.dnode, value)
-
-            result = Result(query=query, value=value)
-
-            if state.should_persist:
-                accessor = state._cache_accessors[ix]
-                accessor.save_result(result)
-
-                value_hash = accessor.load_result_value_hash()
-                result_value_hashes_by_dnode[query.dnode] = value_hash
-
-            results_by_dnode[query.dnode] = result
-
-        # We cache the hashed values eagerly since they are cheap to load.
-        if state.should_persist:
-            state._result_value_hashes_by_dnode = result_value_hashes_by_dnode
-        # Memoize results at this point only if results should not persist.
-        # Otherwise, load it lazily later so that if the serialized/deserialized
-        # value is not exactly the same as the original, we still
-        # always return the same value.
-        elif state.should_memoize:
-            state._results_by_dnode = results_by_dnode
+        if task.is_simple_lookup:
+            task_key_logger.log_accessed_from_definition(state.task_key)
         else:
-            self.results_by_dnode = results_by_dnode
+            task_key_logger.log_computed(state.task_key)
 
-    def get_cached_results(self, task_key_logger):
-        "Returns the results of an already-computed entry."
+        query.protocol.validate_for_dnode(query.dnode, value)
+        result = Result(query=query, value=value)
+
+        if state.should_persist:
+            accessor = self.state._cache_accessor
+            accessor.save_result(result)
+            # We cache the hashed values eagerly since they are cheap to load.
+            state._result_value_hash = accessor.load_result_value_hash()
+
+        # If we're not persisting the result, this is our only chance to memoize it;
+        # otherwise, we can memoize it later if/when we load it get_cached_result.
+        # (It's important to memoize the value we loaded, not the one we just computed,
+        # because they may be subtly different and we want all downstream tasks to get
+        # exactly the same value.)
+        elif state.should_memoize:
+            state._result = result
+        else:
+            self.result = result
+
+    def get_cached_result(self, task_key_logger):
+        "Returns the result of an already-computed entry."
 
         assert self._is_cached
 
         if self.is_vacated:
-            identifier = ", ".join(
-                repr(task_key.dnode.to_descriptor())
-                for task_key in self.state.task_keys
-            )
+            descriptor = self.state.task_key.dnode.to_descriptor()
             message = f"""
-            Attempted to access a memoized value for {identifier} after it was vacated;
+            Attempted to access a memoized value for {descriptor} after it was vacated;
             this should never happen unless you're using an undocumented descriptor
             feature; otherwise, this is probably a bug in Bionic.
             """
             raise AssertionError(oneline(message))
 
-        if self.results_by_dnode:
-            return self.results_by_dnode
-        return self.state.get_cached_results(task_key_logger)
+        if self.result is not None:
+            return self.result
+        return self.state.get_cached_result(task_key_logger)
 
     def vacate(self):
         """
-        Deletes all results memoized on this entry.
+        Deletes any result memoized on this entry.
 
         The purpose is to avoid holding values in memory if we know they won't be
         needed. This is used for tuple-producing entries once all their followups
@@ -252,20 +238,20 @@ class TaskRunnerEntry:
         get recomputed again.
         """
 
-        if self.results_by_dnode is None:
+        if self.result is None:
             return
 
         self.is_vacated = True
-        # Instead of setting this to None, we set it to an empty dict. If we just set it
-        # to None, then _is_cached would return False and it would look like this entry
-        # had become un-CACHED, which could cause confusing behavior. This way, the
-        # entry will continue be CACHED, but is_vacated will cause us to throw an
+        # Instead of setting this to None, we set it to a dummy string. If we just set
+        # it to None, then _is_cached would return False and it would look like this
+        # entry had become un-CACHED, which could cause confusing behavior. This way,
+        # the entry will continue be CACHED, but is_vacated will cause us to throw an
         # exception if anyone tries to actually access the cached values (which should
         # never happen).
-        self.results_by_dnode = {}
+        self.result = "SHOULD NEVER BE ACCESSED"
 
     def __str__(self):
-        return f"TaskRunnerEntry({', '.join(str(key) for key in self.state.task_keys)})"
+        return f"TaskRunnerEntry({self.state.task_key})"
 
 
 class EntryStage(Enum):
@@ -417,17 +403,11 @@ class TaskState:
         TaskStates that we depend on; these correspond to `task.dep_keys`.
     followup_states: list of TaskStates
         Other TaskStates that should run immediately after this one.
-    case_key: CaseKey
-        The case key shared by all the task's TaskKeys.
-        TODO There is no particular reason we need to pass this in instead of computing
-        it in the constructor. Once we restrict each task to having a single key,
-        this will be trivial to compute and we can remove this parameter.
     func_attrs: FunctionAttributes
         Additional details about the task's `compute_func` function.
         TODO This should probably be on the Task object itself.
-    entity_defs_by_dnode: dict from DescriptorNode to EntityDefinition
-        Definitions of each entity (or other descriptor) produced by this task; has one
-        entry for each `task_key.dnode` in `task.keys`.
+    entity_def: EntityDefinition
+        Definitions of the entity (or other descriptor) produced by this task.
     """
 
     def __init__(
@@ -435,21 +415,17 @@ class TaskState:
         task,
         dep_states,
         followup_states,
-        case_key,
         func_attrs,
-        entity_defs_by_dnode,
+        entity_def,
     ):
-        assert len(entity_defs_by_dnode) == len(task.keys)
-
         self.task = task
         self.dep_states = dep_states
         self.followup_states = followup_states
-        self.case_key = case_key
         self.func_attrs = func_attrs
-        self.entity_defs_by_dnode = entity_defs_by_dnode
+        self.entity_def = entity_def
 
         # Cached values.
-        self.task_keys = task.keys
+        self.task_key = task.key
 
         # These are set by set_up_caching_flags()
         self._are_caching_flags_set_up = False
@@ -459,16 +435,16 @@ class TaskState:
         # These are set by initialize().
         self.is_initialized = False
         self._provenance = None
-        self._queries = None
-        self._cache_accessors = None
+        self._query = None
+        self._cache_accessor = None
 
-        # This can be set by compute(), _load_value_hashes(), or
-        # attempt_to_access_persistent_cached_values().
+        # This can be set by compute(), _load_value_hash(), or
+        # attempt_to_access_persistent_cached_value().
         # This will be present only if should_persist is True.
-        self._result_value_hashes_by_dnode = None
+        self._result_value_hash = None
 
-        # This can be set by get_cached_results() or compute().
-        self._results_by_dnode = None
+        # This can be set by get_cached_result() or compute().
+        self._result = None
 
     @property
     def should_cache(self):
@@ -477,70 +453,59 @@ class TaskState:
     @property
     def is_cached(self):
         """
-        Indicates whether the task state's results are cached.
+        Indicates whether the task state's result is cached.
         """
-        return (
-            self._result_value_hashes_by_dnode is not None
-            or self._results_by_dnode is not None
-        )
+        return self._result_value_hash is not None or self._result is not None
 
     @property
     def is_cached_persistently(self):
         """
-        Indicates whether the task state's results are cached persistently.
+        Indicates whether the task state's result is cached persistently.
         """
-        return self._result_value_hashes_by_dnode is not None
+        return self._result_value_hash is not None
 
     def output_would_be_missing(self):
-        return single_unique_element(
-            task_key.case_key.has_missing_values for task_key in self.task.keys
-        )
+        return self.task_key.case_key.has_missing_values
 
     def __repr__(self):
         return f"TaskState({self.task!r})"
 
-    def get_cached_results(self, task_key_logger):
-        "Returns the results of an already-computed task state."
+    def get_cached_result(self, task_key_logger):
+        "Returns the result of an already-computed task state."
 
         assert self.is_cached
 
-        if self._results_by_dnode:
-            for task_key in self.task_keys:
-                task_key_logger.log_accessed_from_memory(task_key)
-            return self._results_by_dnode
+        if self._result is not None:
+            task_key_logger.log_accessed_from_memory(self.task_key)
+            return self._result
 
-        results_by_dnode = dict()
-        for accessor in self._cache_accessors:
-            result = accessor.load_result()
-            task_key_logger.log_loaded_from_disk(result.query.task_key)
+        result = self._cache_accessor.load_result()
+        task_key_logger.log_loaded_from_disk(result.query.task_key)
 
-            # Make sure the result is saved in all caches under this exact
-            # query.
-            accessor.save_result(result)
-
-            results_by_dnode[result.query.dnode] = result
+        # Make sure the result is saved in all caches under this exact query.
+        self._cache_accessor.save_result(result)
 
         if self.should_memoize:
-            self._results_by_dnode = results_by_dnode
+            self._result = result
 
-        return results_by_dnode
+        return result
 
-    def attempt_to_access_persistent_cached_values(self):
+    def attempt_to_access_persistent_cached_value(self):
         """
-        Loads the hashes of the persisted values for this task, if they exist.
+        Loads the hash of the persisted value for this task, if it exists.
 
-        If persisted values are available in the cache, this object's `is_cached`
-        property will become true. Otherwise, nothing will happen.
+        If the persisted value is available in the cache, this object's `is_cached`
+        property will become True. Otherwise, nothing will happen.
         """
         assert self.is_initialized
         assert not self.is_cached
 
         if not self.should_persist:
             return
-        if not all(axr.can_load() for axr in self._cache_accessors):
+        if not self._cache_accessor.can_load():
             return
 
-        self._load_value_hashes()
+        self._load_value_hash()
 
     def refresh_all_persistent_cache_state(self, bootstrap):
         """
@@ -555,17 +520,17 @@ class TaskState:
         if not self.is_initialized or not self.should_persist:
             return
 
-        self.refresh_cache_accessors(bootstrap)
+        self.refresh_cache_accessor(bootstrap)
 
         # If we haven't loaded anything from the cache, we can stop here.
-        if self._result_value_hashes_by_dnode is None:
+        if self._result_value_hash is None:
             return
 
-        # Otherwise, let's update our value hashes from the cache.
-        if all(axr.can_load() for axr in self._cache_accessors):
-            self._load_value_hashes()
+        # Otherwise, let's update our value hash from the cache.
+        if self._cache_accessor.can_load():
+            self._load_value_hash()
         else:
-            self._result_value_hashes_by_dnode = None
+            self._result_value_hash = None
 
     def sync_after_remote_computation(self):
         """
@@ -583,18 +548,17 @@ class TaskState:
 
         assert self.should_persist
 
-        # First, let's flush the stored entries in cache accessors. Since we just
+        # First, let's flush the stored entries in our cache accessor. Since we just
         # computed this entry in a subprocess, there should be a new cache entry that
-        # isn't reflected yet in our local accessors.
+        # isn't reflected yet in our local accessor.
         # (We don't just call self.refresh_cache_accessors() because we don't
         # particularly want to do the cache versioning check -- it's a little late to
         # do anything if it fails now.)
-        for accessor in self._cache_accessors:
-            accessor.flush_stored_entries()
+        self._cache_accessor.flush_stored_entries()
 
         # Then, populate the value hashes.
-        if self._result_value_hashes_by_dnode is None:
-            self._load_value_hashes()
+        if self._result_value_hash is None:
+            self._load_value_hash()
 
     def initialize(self, bootstrap, flow_instance_uuid):
         "Initializes the task state to get it ready for completion."
@@ -616,13 +580,13 @@ class TaskState:
             )
 
         dep_provenance_digests_by_task_key = {
-            dep_key: dep_state._get_digests_by_dnode()[dep_key.dnode]
+            dep_key: dep_state._get_digest()
             for dep_key, dep_state in zip(self.task.dep_keys, self.dep_states)
         }
 
         self._provenance = Provenance.from_computation(
             code_fingerprint=self.func_attrs.code_fingerprint,
-            case_key=self.case_key,
+            case_key=self.task_key.case_key,
             dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
             treat_bytecode_as_functional=treat_bytecode_as_functional,
             can_functionally_change_per_run=self.func_attrs.changes_per_run,
@@ -630,18 +594,15 @@ class TaskState:
         )
 
         # Then set up queries.
-        self._queries = [
-            Query(
-                task_key=task_key,
-                protocol=self.entity_defs_by_dnode[task_key.dnode].protocol,
-                provenance=self._provenance,
-            )
-            for task_key in self.task_keys
-        ]
+        self._query = Query(
+            task_key=self.task_key,
+            protocol=self.entity_def.protocol,
+            provenance=self._provenance,
+        )
 
         # Lastly, set up cache accessors.
         if self.should_persist:
-            self.refresh_cache_accessors(bootstrap)
+            self.refresh_cache_accessor(bootstrap)
 
         self.is_initialized = True
 
@@ -651,26 +612,14 @@ class TaskState:
         if self._are_caching_flags_set_up:
             return
 
-        # In theory different entities for a single task could have different cache
-        # settings, but I'm not sure it can happen in practice (given the way
-        # grouped entities are created). At any rate, once we have tuple
-        # descriptors, each task state will only be responsible for a single entity
-        # and this won't be an issue.
-        optional_should_memoize, optional_should_persist = single_unique_element(
-            (entity_def.optional_should_memoize, entity_def.optional_should_persist)
-            for entity_def in self.entity_defs_by_dnode.values()
-        )
-
-        if optional_should_memoize is not None:
-            should_memoize = optional_should_memoize
+        if self.entity_def.optional_should_memoize is not None:
+            should_memoize = self.entity_def.optional_should_memoize
         elif bootstrap is not None:
             should_memoize = bootstrap.should_memoize_default
         else:
             should_memoize = True
         if self.func_attrs.changes_per_run and not should_memoize:
-            descriptors = [
-                task_key.dnode.to_descriptor() for task_key in self.task_keys
-            ]
+            descriptor = self.task_key.dnode.to_descriptor()
             if bootstrap is None or bootstrap.should_memoize_default:
                 fix_message = (
                     "removing `memoize(False)` from the corresponding function"
@@ -678,8 +627,8 @@ class TaskState:
             else:
                 fix_message = "applying `@memoize(True)` to the corresponding function"
             message = f"""
-            Descriptors {descriptors!r} aren't configured to be memoized but
-            are decorated with @changes_per_run. We will memoize it anyway:
+            Descriptor {descriptor!r} isn't configured to be memoized but
+            is decorated with @changes_per_run. We will memoize it anyway:
             since @changes_per_run implies that this value can have a different
             value each time it’s computed, we need to memoize its value to make
             sure it’s consistent across the entire flow. To avoid this warning,
@@ -690,16 +639,14 @@ class TaskState:
 
         if self.output_would_be_missing():
             should_persist = False
-        elif optional_should_persist is not None:
-            should_persist = optional_should_persist
+        elif self.entity_def.optional_should_persist is not None:
+            should_persist = self.entity_def.optional_should_persist
         elif bootstrap is not None:
             should_persist = bootstrap.should_persist_default
         else:
             should_persist = False
         if should_persist and bootstrap is None:
-            descriptors = [
-                task_key.dnode.to_descriptor() for task_key in self.task_keys
-            ]
+            descriptor = self.task_key.dnode.to_descriptor()
             if self.task.is_simple_lookup:
                 disable_message = """
                 applying `@persist(False)` or `@immediate` to the corresponding
@@ -709,12 +656,11 @@ class TaskState:
                 passing `persist=False` when you `declare` / `assign` the entity
                 values"""
             message = f"""
-            Descriptors {descriptors!r} are set to be persisted but they can't be
-            because core bootstrap entities depend on them.
-            The corresponding values will not be serialized and deserialized,
-            which may cause the values to be subtly different.
-            To avoid this warning, disable persistence for the decorators
-            by {disable_message}."""
+            Descriptor {descriptor!r} is set to be persisted, but it can't be
+            because core bootstrap entities depend on it.
+            The corresponding value will not be serialized and deserialized,
+            which may cause that value to be subtly different.
+            To avoid this warning, disable persistence by {disable_message}."""
             # TODO We should choose between `logger.warn` and `warnings.warn` and use
             # one consistently.
             logger.warn(message)
@@ -726,9 +672,9 @@ class TaskState:
 
         self._are_caching_flags_set_up = True
 
-    def refresh_cache_accessors(self, bootstrap):
+    def refresh_cache_accessor(self, bootstrap):
         """
-        Initializes the cache acessors for this task state.
+        Initializes the cache acessor for this task state.
 
         This sets up state that allows us to read and write cache entries for this
         task's value. This includes some in-memory representations of exernal persistent
@@ -736,90 +682,73 @@ class TaskState:
         in order to wipe this state and allow it get back in sync with the real world.
         """
 
-        self._cache_accessors = [
-            bootstrap.persistent_cache.get_accessor(query) for query in self._queries
-        ]
+        self._cache_accessor = bootstrap.persistent_cache.get_accessor(self._query)
 
         if bootstrap.versioning_policy.check_for_bytecode_errors:
-            self._check_accessors_for_version_problems()
+            self._check_accessor_for_version_problems()
 
-    def _check_accessors_for_version_problems(self):
+    def _check_accessor_for_version_problems(self):
         """
         Checks for any versioning errors -- i.e., any cases where a task's
         function code was updated but its version annotation was not.
         """
 
-        accessors_needing_saving = []
-        for accessor in self._cache_accessors:
-            old_prov = accessor.load_provenance()
+        old_prov = self._cache_accessor.load_provenance()
+        if old_prov is None:
+            return
 
-            if old_prov is None:
-                continue
+        new_prov = self._cache_accessor.query.provenance
+        if old_prov.exactly_matches(new_prov):
+            return
 
-            new_prov = accessor.query.provenance
-
-            if old_prov.exactly_matches(new_prov):
-                continue
-            accessors_needing_saving.append(accessor)
-
-            if old_prov.code_version_minor == new_prov.code_version_minor:
-                if old_prov.bytecode_hash != new_prov.bytecode_hash:
-                    raise CodeVersioningError(
-                        oneline(
-                            f"""
-                        Found a cached artifact with the same
-                        descriptor ({accessor.query.dnode.to_descriptor()!r}) and
-                        version (major={old_prov.code_version_major!r},
-                        minor={old_prov.code_version_minor!r}),
-                        But created by different code
-                        (old hash {old_prov.bytecode_hash!r},
-                        new hash {new_prov.bytecode_hash!r}).
-                        Did you change your code but not update the
-                        version number?
-                        Change @version(major=) to indicate that your
-                        function's behavior has changed, or @version(minor=)
-                        to indicate that it has *not* changed."""
-                        )
-                    )
-
-        for accessor in accessors_needing_saving:
-            accessor.update_provenance()
-
-    def _load_value_hashes(self):
-        """
-        Reads (from disk) and saves (in memory) this task's value hashes.
-        """
-
-        result_value_hashes_by_dnode = {}
-        for accessor in self._cache_accessors:
-            value_hash = accessor.load_result_value_hash()
-            if value_hash is None:
-                raise AssertionError(
+        if old_prov.code_version_minor == new_prov.code_version_minor:
+            if old_prov.bytecode_hash != new_prov.bytecode_hash:
+                raise CodeVersioningError(
                     oneline(
                         f"""
-                    Failed to load cached value (hash) for descriptor
-                    {accessor.query.dnode.to_descriptor()!r}.
-                    This suggests we did not successfully compute the task
-                    in a subprocess, or the entity wasn't cached;
-                    this should be impossible!"""
+                    Found a cached artifact with the same
+                    descriptor ({self._cache_accessor.query.dnode.to_descriptor()!r})
+                    and version (major={old_prov.code_version_major!r},
+                    minor={old_prov.code_version_minor!r}),
+                    But created by different code
+                    (old hash {old_prov.bytecode_hash!r},
+                    new hash {new_prov.bytecode_hash!r}).
+                    Did you change your code but not update the
+                    version number?
+                    Change @version(major=) to indicate that your
+                    function's behavior has changed, or @version(minor=)
+                    to indicate that it has *not* changed."""
                     )
                 )
-            result_value_hashes_by_dnode[accessor.query.dnode] = value_hash
-        self._result_value_hashes_by_dnode = result_value_hashes_by_dnode
 
-    def _get_digests_by_dnode(self):
+        self._cache_accessor.update_provenance()
+
+    def _load_value_hash(self):
+        """
+        Reads (from disk) and saves (in memory) this task's value hash.
+        """
+
+        value_hash = self._cache_accessor.load_result_value_hash()
+        if value_hash is None:
+            raise AssertionError(
+                oneline(
+                    f"""
+                Failed to load cached value (hash) for descriptor
+                {self._cache_accessor.query.dnode.to_descriptor()!r}.
+                This suggests we did not successfully compute the task
+                in a subprocess, or the entity wasn't cached;
+                this should be impossible!"""
+                )
+            )
+        self._result_value_hash = value_hash
+
+    def _get_digest(self):
         if self.should_persist:
-            assert self._result_value_hashes_by_dnode is not None
-            return {
-                dnode: ProvenanceDigest.from_value_hash(value_hash)
-                for dnode, value_hash in self._result_value_hashes_by_dnode.items()
-            }
+            assert self._result_value_hash is not None
+            return ProvenanceDigest.from_value_hash(self._result_value_hash)
         else:
             assert self._provenance is not None
-            return {
-                task_key.dnode: ProvenanceDigest.from_provenance(self._provenance)
-                for task_key in self.task.keys
-            }
+            return ProvenanceDigest.from_provenance(self._provenance)
 
 
 class RemoteSubgraph:
@@ -845,7 +774,7 @@ class RemoteSubgraph:
         self._strip_state(target_state)
 
     def _strip_state(self, original_state):
-        task_key = original_state.task.keys[0]
+        task_key = original_state.task_key
         if task_key in self._stripped_states_by_task_key:
             return self._stripped_states_by_task_key[task_key]
         original_state.set_up_caching_flags(self._bootstrap)
@@ -860,13 +789,13 @@ class RemoteSubgraph:
         # Strip out data cached in memory -- we can't necessarily pickle it, so
         # we need to get rid of it before trying to transmit this state to another
         # process.
-        stripped_state._results_by_dnode = None
+        stripped_state._result = None
 
         # These fields are picklable, but only needed for cache setup and
         # initialization.
         if stripped_state.is_initialized:
             stripped_state.func_attrs = None
-            stripped_state.entity_defs_by_dnode = None
+            stripped_state.entity_def = None
             stripped_state.case_key = None
 
         if stripped_state.should_persist:
@@ -891,5 +820,4 @@ class RemoteSubgraph:
 
     def get_stripped_state(self, original_state):
         assert original_state in self.persistable_but_not_persisted_states
-        task_key = original_state.task.keys[0]
-        return self._stripped_states_by_task_key[task_key]
+        return self._stripped_states_by_task_key[original_state.task_key]
