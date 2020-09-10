@@ -108,7 +108,7 @@ def gcs_builder(builder, tmp_gcs_url_prefix):
 @pytest.fixture(scope="function")
 def aip_builder(gcs_builder, gcp_project):
     gcs_builder.set("core__aip_execution__enabled", True)
-    gcs_builder.set("core__aip_execution__gcp_project", gcp_project)
+    gcs_builder.set("core__aip_execution__gcp_project_name", gcp_project)
 
     return gcs_builder
 

@@ -1853,7 +1853,7 @@ def create_default_flow_state():
         return ProcessExecutor(core__parallel_execution__worker_count)
 
     builder.assign("core__aip_execution__enabled", False, persist=False)
-    builder.assign("core__aip_execution__gcp_project", None, persist=False)
+    builder.assign("core__aip_execution__gcp_project_name", None, persist=False)
     builder.assign(
         "core__aip_execution__docker_image_name", "bionic:latest", persist=False
     )
@@ -1861,11 +1861,11 @@ def create_default_flow_state():
     @builder
     @decorators.immediate
     def core__aip_execution__docker_image_uri(
-        core__aip_execution__gcp_project,
+        core__aip_execution__gcp_project_name,
         core__aip_execution__docker_image_name,
     ):
         image_name = core__aip_execution__docker_image_name
-        project = core__aip_execution__gcp_project
+        project = core__aip_execution__gcp_project_name
 
         if image_name is None or project is None:
             return None
@@ -1876,15 +1876,15 @@ def create_default_flow_state():
     @decorators.immediate
     def core__aip_execution__config(
         core__aip_execution__enabled,
-        core__aip_execution__gcp_project,
+        core__aip_execution__gcp_project_name,
         core__aip_execution__docker_image_uri,
         core__flow_name,
     ):
         if not core__aip_execution__enabled:
             return None
-        if core__aip_execution__gcp_project is None:
+        if core__aip_execution__gcp_project_name is None:
             error_message = """
-                core__aip_execution__gcp_project is None, but needs a
+                core__aip_execution__gcp_project_name is None, but needs a
                 value. AIP uses project to verify IAM permissions.
             """
             raise AssertionError(oneline(error_message))
@@ -1897,7 +1897,7 @@ def create_default_flow_state():
             raise AssertionError(oneline(error_message))
         return AipConfig(
             uuid=f"{core__flow_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            project=core__aip_execution__gcp_project,
+            project_name=core__aip_execution__gcp_project_name,
             image_uri=core__aip_execution__docker_image_uri,
         )
 

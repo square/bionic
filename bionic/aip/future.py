@@ -49,19 +49,17 @@ class Future(_Future):
 
     """
 
-    def __init__(self, project: str, job_id: str, output: str):
+    def __init__(self, project_name: str, job_id: str, output: str):
         # Scope the import to the class to avoid raising for anyone not using it.
-        discovery = import_optional_dependency(
-            "googleapiclient.discovery", raise_on_missing=True
-        )
-        self.project = project
+        discovery = import_optional_dependency("googleapiclient.discovery")
+        self.project_name = project_name
         self.job_id = job_id
         self.output = output
         self.aip = discovery.build("ml", "v1", cache_discovery=False)
 
     @property
     def name(self):
-        return f"projects/{self.project}/jobs/{self.job_id}"
+        return f"projects/{self.project_name}/jobs/{self.job_id}"
 
     def cancel(self):
         request = self.aip.projects().jobs().cancel(name=self.name)
@@ -89,7 +87,7 @@ class Future(_Future):
 
     def result(self, timeout: int = None):
         # Scope the import to this function to avoid raising for anyone not using it.
-        blocks = import_optional_dependency("blocks", raise_on_missing=True)
+        blocks = import_optional_dependency("blocks")
 
         # This will need an update to support other serializers.
         exc = self.exception(timeout)

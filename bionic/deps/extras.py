@@ -32,7 +32,12 @@ extras["dask"] = ["dask[dataframe]"]
 extras["gcp"] = ["google-cloud-storage"]
 extras["parallel"] = ["cloudpickle", "loky"]
 extras["geopandas"] = ["geopandas"]
-extras["aip"] = ["google-api-python-client", "sq-blocks", "cloudpickle"]
+extras["aip"] = [
+    "google-api-python-client",
+    "google-cloud-logging",
+    "sq-blocks",
+    "cloudpickle",
+]
 
 extras["examples"] = combine(extras["standard"], ["scikit-learn"])
 extras["full"] = combine(*extras.values())
