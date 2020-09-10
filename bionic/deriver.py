@@ -294,7 +294,7 @@ class EntityDeriver:
                 name=dnode.to_descriptor(),
                 protocol=TupleProtocol(len(dnode.children)),
                 doc=f"A Python tuple with {len(dnode.children)} values.",
-                optional_should_memoize=True,
+                optional_should_memoize=False,
                 optional_should_persist=False,
             )
 

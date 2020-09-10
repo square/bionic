@@ -1340,23 +1340,59 @@ def test_non_memoized_value_is_garbage_collected(builder, make_tracked_class):
     assert builder.build().get("x_plus_two") == 3
 
 
-def test_non_memoized_values_are_garbage_collected(builder, make_tracked_class):
+# TODO Once we unify @outputs with tuples, we can remove this parametrization and just
+# use @outputs.
+@pytest.mark.parametrize("use_tuples", [True, False])
+def test_non_memoized_values_are_garbage_collected(
+    builder, make_tracked_class, use_tuples
+):
     Tracked = make_tracked_class()
+
+    if use_tuples:
+        output_decorator = bn.returns("tracked_x, tracked_y")
+    else:
+        output_decorator = bn.outputs("tracked_x", "tracked_y")
 
     @builder
     @bn.memoize(False)
     @Tracked.protocol
-    @bn.outputs("tracked_x", "tracked_y")
+    @output_decorator
     def _():
         return Tracked(1), Tracked(-1)
 
     @builder
     def x_plus_one(tracked_x):
-        # Because of how multi-output functions are memoized, both tracked_x and
-        # tracked_y are stored in memory together. In the future it would be good to
-        # optimize this so they can be stored separately, in which case we can change
-        # this fromn 2 to 1.
-        assert Tracked.n_instances_in_memory == 2
+        if use_tuples:
+            assert Tracked.n_instances_in_memory == 1
+        else:
+            # Because of how multi-output functions are memoized, both tracked_x and
+            # tracked_y are stored in memory together. In the future it would be good
+            # to optimize this so they can be stored separately, in which case we can
+            # change this from 2 to 1.
+            assert Tracked.n_instances_in_memory == 2
+        return tracked_x.value + 1
+
+    @builder
+    def x_plus_two(x_plus_one):
+        assert Tracked.n_instances_in_memory == 0
+        return x_plus_one + 1
+
+    assert builder.build().get("x_plus_two") == 3
+
+
+def test_non_memoized_complex_tuples_are_garbage_collected(builder, make_tracked_class):
+    Tracked = make_tracked_class()
+
+    @builder
+    @bn.memoize(False)
+    @Tracked.protocol
+    @bn.returns("(tracked_x, tracked_y), tracked_z")
+    def _():
+        return (Tracked(1), Tracked(-1)), Tracked(0)
+
+    @builder
+    def x_plus_one(tracked_x):
+        assert Tracked.n_instances_in_memory == 1
         return tracked_x.value + 1
 
     @builder
