@@ -31,6 +31,14 @@ class State(Enum):
     def is_cancelled(self):
         return self in {State.CANCELLING, State.CANCELLED}
 
+    def is_finished(self):
+        return self in {
+            State.SUCCEEDED,
+            State.FAILED,
+            State.CANCELLING,
+            State.CANCELLED,
+        }
+
 
 class Future(_Future):
     """This future represents a job running on AI platform
@@ -77,7 +85,7 @@ class Future(_Future):
 
     def done(self):
         state, _ = self._get_state_and_error()
-        return state is State.SUCCEEDED or state.is_cancelled()
+        return state.is_finished()
 
     def result(self, timeout: int = None):
         # Scope the import to this function to avoid raising for anyone not using it.

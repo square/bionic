@@ -10,6 +10,7 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 
 """
 
+from .aip.task import TaskConfig as AipTaskConfig
 from .datatypes import CodeVersion
 from .decoration import decorator_updating_accumulator
 from .descriptors.parsing import dnode_from_descriptor, entity_dnode_from_descriptor
@@ -434,6 +435,41 @@ def returns(out_descriptor):
     out_dnode = dnode_from_descriptor(out_descriptor)
     return decorator_updating_accumulator(
         lambda acc: acc.wrap_provider(NewOutputDescriptorProvider, out_dnode)
+    )
+
+
+def aip_task_config(machine, worker_count=None, worker_machine=None):
+    """
+    Indicates that the decorated function should be computed in AIP.
+    This decorator requires AIP based distributed execution to be enabled, which
+    can be done by setting ``core__aip_execution__enabled`` core entity.
+
+    This decorator is currently experimental and does not have any additional
+    user-facing documentation. It may change in non-backwards-compatible ways.
+
+    Parameters
+    ----------
+    machine: String
+        The machine type that should be used to compute the function on AIP.
+    worker_count: String, optional
+        The number of workers that should be used to compute the function on AIP.
+    worker_machine: String, optional
+        The machine type that should be used by the worker nodes.
+
+    Returns
+    -------
+    Function:
+        A decorator which can be applied to an entity function.
+    """
+
+    config = AipTaskConfig(
+        machine=machine,
+        worker_count=worker_count,
+        worker_machine=worker_machine,
+    )
+
+    return decorator_updating_accumulator(
+        lambda acc: acc.wrap_provider(AttrUpdateProvider, "aip_task_config", config)
     )
 
 

@@ -5,6 +5,7 @@ to completion.
 
 from concurrent.futures import wait, FIRST_COMPLETED
 import logging
+import time
 
 from .task_execution import (
     EntryLevel,
@@ -68,12 +69,16 @@ class TaskCompletionRunner:
 
     @property
     def _parallel_execution_enabled(self):
-        return self._bootstrap is not None and self._bootstrap.executor is not None
+        return self._bootstrap.process_executor if self._bootstrap is not None else None
+
+    @property
+    def _aip_execution_enabled(self):
+        return self._bootstrap.aip_executor if self._bootstrap is not None else None
 
     def run(self, states):
         try:
             if self._parallel_execution_enabled:
-                self._bootstrap.executor.start_logging()
+                self._bootstrap.process_executor.start_logging()
 
             for state in states:
                 state.set_up_caching_flags(self._bootstrap)
@@ -101,7 +106,7 @@ class TaskCompletionRunner:
 
         finally:
             if self._parallel_execution_enabled:
-                self._bootstrap.executor.stop_logging()
+                self._bootstrap.process_executor.stop_logging()
 
     def _process_active_entry(self, entry):
         """
@@ -153,8 +158,12 @@ class TaskCompletionRunner:
 
         # At this point we'll need to actually compute the entry. If possible, we
         # prefer to compute it remotely.
+        aip_execution_enabled_for_entry = (
+            self._aip_execution_enabled
+            and entry.state.func_attrs.aip_task_config is not None
+        )
         can_compute_remotely = (
-            self._parallel_execution_enabled
+            (aip_execution_enabled_for_entry or self._parallel_execution_enabled)
             and entry.state.should_persist
             and not entry.state.task.is_simple_lookup
         )
@@ -220,17 +229,27 @@ class TaskCompletionRunner:
                 remote_subgraph.get_stripped_state(target_entry.state)
                 for target_entry in target_entries
             ]
-            new_bootstrap = self._bootstrap.evolve(executor=None)
+            new_bootstrap = self._bootstrap.evolve(
+                aip_executor=None, process_executor=None
+            )
             new_task_completion_runner = TaskCompletionRunner(
                 bootstrap=new_bootstrap,
                 flow_instance_uuid=self._flow_instance_uuid,
                 task_key_logger=self.task_key_logger,
             )
-            future = self._bootstrap.executor.submit(
-                run_in_subprocess,
-                new_task_completion_runner,
-                stripped_target_states,
-            )
+            if aip_execution_enabled_for_entry:
+                future = self._bootstrap.aip_executor.submit(
+                    entry.state.func_attrs.aip_task_config,
+                    run_in_subprocess,
+                    new_task_completion_runner,
+                    stripped_target_states,
+                )
+            else:
+                future = self._bootstrap.process_executor.submit(
+                    run_in_subprocess,
+                    new_task_completion_runner,
+                    stripped_target_states,
+                )
 
             for target_entry in target_entries:
                 self._mark_entry_in_progress(target_entry, future)
@@ -328,8 +347,26 @@ class TaskCompletionRunner:
         futures = set(
             entry.future for entry in self._in_progress_entries_by_task_key.values()
         )
-        finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
+        if self._parallel_execution_enabled:
+            finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
+        else:
+            assert self._aip_execution_enabled
+            # TODO: This works for PoC, but maybe there is a better way
+            # to do this. Also consider making the sleep time configurable.
+            # See this comment for example
+            # https://github.com/square/bionic/pull/253#discussion_r487066911
+            while all(future.running() for future in futures):
+                time.sleep(10)
+            finished_futures = [future for future in futures if future.done()]
         for finished_future in finished_futures:
+            # TODO: If there is an error, consider waiting till all
+            # futures are done. With AIP execution, we can have one
+            # task fail while others are running. If we don't wait till
+            # those tasks are done, the user might perform another
+            # `get` operation that can spawn the same Task again. Apart
+            # from wasted resource, the other problem is that the older
+            # and newer tasks can potentially conflict writing to the
+            # same cache file.
             task_keys = finished_future.result()
             for task_key in task_keys:
                 entry = self._entries_by_task_key[task_key]
@@ -439,10 +476,20 @@ class TaskKeyLogger:
     def __init__(self, bootstrap):
         self._level = logging.INFO if bootstrap is not None else logging.DEBUG
 
-        executor = bootstrap.executor if bootstrap is not None else None
+        executor = bootstrap.process_executor if bootstrap is not None else None
         if executor is not None:
             self._already_logged_task_key_set = executor.create_synchronized_set()
         else:
+            # TODO: When AIP execution is enabled, we will send this
+            # SynchronizedSet to AIP jobs for logging task keys. AIP
+            # will get the already added keys to the set, but any
+            # updates made to the set in AIP won't be returned back to
+            # the main process. This will results in progress reporting
+            # being inaccurate, since any job computed in AIP would not
+            # be logged and will be logged as loaded from disk in the
+            # main process as a result. We should fix AIP progress
+            # reporting by either logging the keys in the main process
+            # or rethinking how we do progress reporting.
             self._already_logged_task_key_set = SynchronizedSet()
 
     def _log(self, template, task_key, is_resolved=True):

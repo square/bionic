@@ -43,11 +43,13 @@ class ProviderAttributes:
         code_version=None,
         orig_flow_name=None,
         changes_per_run=None,
+        aip_task_config=None,
     ):
         self.out_dnode = out_dnode
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
         self.changes_per_run = changes_per_run
+        self.aip_task_config = aip_task_config
 
 
 class BaseProvider:
@@ -64,6 +66,7 @@ class BaseProvider:
         return FunctionAttributes(
             code_fingerprint=self.get_code_fingerprint(case_key),
             changes_per_run=self.attrs.changes_per_run,
+            aip_task_config=self.attrs.aip_task_config,
         )
 
     def get_code_fingerprint(self, case_key):

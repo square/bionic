@@ -105,6 +105,21 @@ def gcs_builder(builder, tmp_gcs_url_prefix):
     return builder
 
 
+@pytest.fixture(scope="function")
+def aip_builder(gcs_builder, gcp_project):
+    gcs_builder.set("core__aip_execution__enabled", True)
+    gcs_builder.set("core__aip_execution__gcp_project", gcp_project)
+
+    return gcs_builder
+
+
+@pytest.fixture(scope="session")
+def gcp_project(request):
+    project = request.config.getoption("--project")
+    assert project is not None
+    return project
+
+
 @pytest.fixture(scope="session")
 def gcs_url_stem(request):
     url = request.config.getoption("--bucket")

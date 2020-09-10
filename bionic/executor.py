@@ -6,19 +6,45 @@ work in a parallel setting.
 """
 
 import copy
+from functools import partial
 import logging
+from multiprocessing.managers import SyncManager
 import queue
 import sys
 import threading
 import traceback
+from uuid import uuid4
 
-from multiprocessing.managers import SyncManager
-
+from .aip.task import Task
 from .deps.optdep import import_optional_dependency
 from .utils.misc import oneline, SynchronizedSet
 
 
-class Executor:
+class AipExecutor:
+    """
+    Encapsulates all objects related to remote execution on Google AIP
+    in one place.
+    """
+
+    def __init__(self, aip_config):
+        self._aip_config = aip_config
+
+    def submit(self, task_config, fn, *args, **kwargs):
+        return Task(
+            # TODO: Use a better identifiable name, maybe a combination
+            # of entity name and case key.
+            # This is a temporary workaround. We are changing the random
+            # UUID in such a manner because AIP names have to start with
+            # a letter and only accepts alphanumeric and underscore
+            # characters.
+            name="a" + str(uuid4()).replace("-", ""),
+            config=self._aip_config,
+            task_config=task_config,
+            function=partial(fn, *args, **kwargs),
+        ).submit()
+
+
+class ProcessExecutor:
     """
     Encapsulates all objects related to parallel execution in one place.
     It wraps the Loky process pool executor in a way that allows logging
