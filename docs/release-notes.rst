@@ -111,6 +111,8 @@ Bug Fixes
   needed.
 - Fixed an `issue <https://github.com/square/bionic/issues/229>`__ where caching fails
   when cache directory paths contain whitespaces.
+- Fixed an `issue <https://github.com/square/bionic/issues/233>`__ where reloading of
+  flows that merge other flows from other modules does not work correctly.
 
 Documentation
 .............
