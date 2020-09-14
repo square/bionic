@@ -169,14 +169,14 @@ class EntityDeriver:
         static_providers_by_dnode = {}
 
         def register_provider(provider):
-            for dnode in provider.attrs.dnodes:
-                assert dnode not in static_providers_by_dnode
-                static_providers_by_dnode[dnode] = provider
+            dnode = provider.attrs.out_dnode
+            assert dnode not in static_providers_by_dnode
+            static_providers_by_dnode[dnode] = provider
 
-                if isinstance(dnode, ast.TupleNode):
-                    for child_dnode in dnode.children:
-                        child_provider = TupleDeconstructionProvider(child_dnode, dnode)
-                        register_provider(child_provider)
+            if isinstance(dnode, ast.TupleNode):
+                for child_dnode in dnode.children:
+                    child_provider = TupleDeconstructionProvider(child_dnode, dnode)
+                    register_provider(child_provider)
 
         for provider in set(self._flow_state.providers_by_name.values()):
             register_provider(provider)

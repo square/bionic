@@ -39,12 +39,12 @@ logger = logging.getLogger(__name__)
 class ProviderAttributes:
     def __init__(
         self,
-        dnodes,
+        out_dnode,
         code_version=None,
         orig_flow_name=None,
         changes_per_run=None,
     ):
-        self.dnodes = dnodes
+        self.out_dnode = out_dnode
         self.code_version = code_version
         self.orig_flow_name = orig_flow_name
         self.changes_per_run = changes_per_run
@@ -99,9 +99,7 @@ class BaseProvider:
 
     @property
     def entity_names(self):
-        return [
-            name for dnode in self.attrs.dnodes for name in dnode.all_entity_names()
-        ]
+        return [name for name in self.attrs.out_dnode.all_entity_names()]
 
     # This is used to indicate that if we're outputting an aggregate descriptor type
     # (like a tuple), then we'll need to set some followup tasks to make sure all the
@@ -116,8 +114,7 @@ class BaseProvider:
         return True
 
     def __repr__(self):
-        descriptors = tuple(dnode.to_descriptor() for dnode in self.attrs.dnodes)
-        return f"{self.__class__.__name__}{descriptors!r}"
+        return f"{self.__class__.__name__}{self.attrs.out_dnode.to_descriptor()!r}"
 
 
 class ValueProvider(BaseProvider):
@@ -126,12 +123,10 @@ class ValueProvider(BaseProvider):
         names = []
         for provider in value_providers:
             assert isinstance(provider, ValueProvider)
-            assert len(provider.attrs.dnodes) == 1
             assert not provider._has_any_values
 
-            (dnode,) = provider.attrs.dnodes
-            assert isinstance(dnode, ast.EntityNode)
-            names.append(dnode.to_entity_name())
+            assert isinstance(provider.attrs.out_dnode, ast.EntityNode)
+            names.append(provider.attrs.out_dnode.to_entity_name())
 
         return ValueProvider(names)
 
@@ -147,7 +142,7 @@ class ValueProvider(BaseProvider):
             output_is_tuple = True
 
         super(ValueProvider, self).__init__(
-            attrs=ProviderAttributes(dnodes=[dnode], changes_per_run=False),
+            attrs=ProviderAttributes(out_dnode=dnode, changes_per_run=False),
         )
 
         self.key_space = CaseKeySpace(names)
@@ -229,7 +224,7 @@ class ValueProvider(BaseProvider):
         assert not dep_key_spaces_by_dnode
         assert not dep_task_key_lists_by_dnode
 
-        (out_dnode,) = self.attrs.dnodes
+        out_dnode = self.attrs.out_dnode
 
         if self.has_any_cases():
             return [
@@ -269,7 +264,7 @@ class ValueProvider(BaseProvider):
 class BaseDerivedProvider(BaseProvider):
     def __init__(self, out_dnode, dep_dnodes):
         super(BaseDerivedProvider, self).__init__(
-            attrs=ProviderAttributes(dnodes=[out_dnode])
+            attrs=ProviderAttributes(out_dnode=out_dnode)
         )
 
         self._out_dnode = out_dnode
@@ -338,17 +333,11 @@ class FunctionProvider(BaseDerivedProvider):
         try:
             value = self._func(*dep_values)
         except Exception as e:
-            names = [dnode.to_descriptor() for dnode in self.attrs.dnodes]
-            descriptor_description = (
-                f"descriptor {names[0]!r}"
-                if len(names) == 1
-                else f"descriptors {names!r}"
-            )
             raise EntityComputationError(
                 oneline(
                     f"""
                 An exception was thrown while computing the value of
-                {descriptor_description}
+                descriptor {self.attrs.out_dnode.to_descriptor()!r}
                 """
                 )
             ) from e
@@ -411,28 +400,15 @@ class RenamingProvider(WrappingProvider):
 
         super(RenamingProvider, self).__init__(wrapped_provider)
 
-        orig_dnodes = wrapped_provider.attrs.dnodes
-        if len(orig_dnodes) != 1:
-            orig_descriptors = [dnode.to_descriptor() for dnode in orig_dnodes]
-            raise ValueError(
-                oneline(
-                    f"""
-                Can't rename a provider that already has multiple
-                names; need exactly one name but got {tuple(orig_descriptors)!r}"""
-                )
-            )
-
-        dnode = entity_dnode_from_descriptor(name)
+        out_dnode = entity_dnode_from_descriptor(name)
 
         self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.dnodes = [dnode]
+        self.attrs.out_dnode = out_dnode
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
-        (dnode,) = self.attrs.dnodes
-
         def wrap_task(task):
             return Task(
-                key=TaskKey(dnode=dnode, case_key=task.key.case_key),
+                key=TaskKey(dnode=self.attrs.out_dnode, case_key=task.key.case_key),
                 dep_keys=task.dep_keys,
                 compute_func=task.compute,
             )
@@ -849,25 +825,10 @@ class NewOutputDescriptorProvider(WrappingProvider):
     def __init__(self, wrapped_provider, out_dnode):
         super(NewOutputDescriptorProvider, self).__init__(wrapped_provider)
 
-        # TODO Ideally we would disallow any kind of double-renaming, not just this
-        # special case.
-        orig_dnodes = wrapped_provider.attrs.dnodes
-        if len(orig_dnodes) != 1:
-            # Note that once we have tuple descriptors, we'll never have more than one
-            # output dnode, so we'll be able to remove this.
-            orig_descriptors = [dnode.to_descriptor() for dnode in orig_dnodes]
-            raise ValueError(
-                oneline(
-                    f"""
-                Can't change output for a provider that already has multiple
-                names; need exactly one name but got {tuple(orig_descriptors)!r}"""
-                )
-            )
-
         self.out_dnode = out_dnode
 
         self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.dnodes = [out_dnode]
+        self.attrs.out_dnode = out_dnode
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         def wrap_task(task):
