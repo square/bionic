@@ -602,16 +602,6 @@ class Inventory:
                 level="exact",
             )
 
-        samecode_url_prefix = self._samecode_metadata_url_prefix_for_query(query)
-        samecode_urls = [
-            url for url in equivalent_urls if url.startswith(samecode_url_prefix)
-        ]
-        if len(samecode_urls) > 0:
-            return MetadataMatch(
-                metadata_url=samecode_urls[0],
-                level="samecode",
-            )
-
         nominal_url_prefix = self._nominal_metadata_url_prefix_for_query(query)
         nominal_urls = [
             url for url in equivalent_urls if url.startswith(nominal_url_prefix)
@@ -643,14 +633,6 @@ class Inventory:
             + "/"
             + "mv_"
             + minor_version_token
-        )
-
-    def _samecode_metadata_url_prefix_for_query(self, query):
-        return (
-            self._nominal_metadata_url_prefix_for_query(query)
-            + "/"
-            + "bc_"
-            + query.provenance.bytecode_hash
         )
 
     def _exact_metadata_url_for_query(self, query):
@@ -942,7 +924,7 @@ def valid_filename_from_query(query):
     return query.dnode.to_descriptor().replace(" ", "-")
 
 
-CACHE_SCHEMA_VERSION = 8
+CACHE_SCHEMA_VERSION = 9
 
 
 class YamlRecordParsingError(Exception):
@@ -1001,12 +983,15 @@ class ArtifactMetadataRecord:
 
 class Provenance:
     """
+
     Describes the code and data used to generate (possibly-yet-to-be-computed)
     value.  Provides a set of hashes that can be used to determine if two
     such values are meaningfully different, without actually examining the
     values.
 
     Provenances can "match" at several different levels of precision.
+
+    FIXME-2 update this to match what actually happens
 
     1. Functional match: all input data is the same, and all functions involved
     in the computation have matching major versions.  This is the lowest level
@@ -1085,7 +1070,6 @@ class Provenance:
             for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
         ]
 
-        exact_deps_hash = hash_simple_obj_to_hex(exact_deps_list)
         functional_hash = hash_simple_obj_to_hex(
             dict(
                 code=functional_code_dict,
@@ -1103,10 +1087,8 @@ class Provenance:
             body_dict=dict(
                 case_key=dict(case_key),
                 code=full_code_dict,
-                functional_deps=functional_deps_list,
                 functional_hash=functional_hash,
                 exact_hash=exact_hash,
-                exact_deps_hash=exact_deps_hash,
             )
         )
 
@@ -1121,7 +1103,6 @@ class Provenance:
 
         self.functional_hash = d["functional_hash"]
         self.exact_hash = d["exact_hash"]
-        self.exact_deps_hash = d["exact_deps_hash"]
         self.code_version_major = d["code"]["functional"]["code_version_major"]
         self.code_version_minor = d["code"]["nonfunctional"]["code_version_minor"]
         self.bytecode_hash = d["code"]["bytecode_hash"]
@@ -1138,6 +1119,3 @@ class Provenance:
 
     def exactly_matches(self, prov):
         return self.exact_hash == prov.exact_hash
-
-    def dependencies_exactly_match(self, prov):
-        return self.exact_deps_hash == prov.exact_deps_hash
