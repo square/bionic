@@ -1,0 +1,19 @@
+artifact_url: ../../../../artifacts/z/dda77a1b-54fb-402e-b796-83c8d7615d47/z.json
+descriptor: z
+provenance:
+  case_key:
+    z: '4'
+  code:
+    bytecode_hash: null
+    nominal:
+      code_version_minor: '0'
+      functional:
+        cache_schema_version: 9
+        code_version_major: '4'
+        orig_flow_name: null
+  dep_digests: []
+  descriptor: z
+  exact_hash: 4212f72e8dd6323ef2bd5106242de3c5b4b4f0fb486dcbf353050dd06cb4c518
+  functional_hash: df5e6331290ad11ca3c1a8e7adafe28d92e1aa62b20d8ebaa7c7306fc1eb7c62
+  nominal_hash: 7a5d917fe207533c556a6f74ccd79f0d2706395e52ecc5c080877ff43ad8f293
+value_hash: f683a42168

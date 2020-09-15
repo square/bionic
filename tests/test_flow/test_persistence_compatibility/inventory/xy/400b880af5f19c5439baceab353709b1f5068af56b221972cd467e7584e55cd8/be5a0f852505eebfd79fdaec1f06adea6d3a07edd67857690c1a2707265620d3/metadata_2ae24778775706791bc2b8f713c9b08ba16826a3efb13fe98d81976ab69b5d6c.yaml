@@ -1,0 +1,28 @@
+artifact_url: ../../../../artifacts/xy/bf320d95-88a0-4159-8f04-149030f5317b/xy.json
+descriptor: xy
+provenance:
+  case_key:
+    x: '2'
+    y: '3'
+  code:
+    bytecode_hash: 8fea46bda6a2004a832d2bec7cf2ddb0
+    nominal:
+      code_version_minor: '0'
+      functional:
+        cache_schema_version: 9
+        code_version_major: '0'
+        orig_flow_name: null
+  dep_digests:
+  - exact_hash: 154223632a
+    functional_hash: 154223632a
+    nominal_hash: 154223632a
+    provenance: null
+  - exact_hash: 0a16e6f027
+    functional_hash: 0a16e6f027
+    nominal_hash: 0a16e6f027
+    provenance: null
+  descriptor: xy
+  exact_hash: 2ae24778775706791bc2b8f713c9b08ba16826a3efb13fe98d81976ab69b5d6c
+  functional_hash: 400b880af5f19c5439baceab353709b1f5068af56b221972cd467e7584e55cd8
+  nominal_hash: be5a0f852505eebfd79fdaec1f06adea6d3a07edd67857690c1a2707265620d3
+value_hash: 5438247b8c

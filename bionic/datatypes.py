@@ -106,26 +106,6 @@ class Result:
         return f"Result({self.query!r}, {self.value!r})"
 
 
-@attr.s(frozen=True)
-class ProvenanceDigest:
-    """
-    A collection of values used by Provenance for different chained hashes.
-    These hashes depend on the entities and can come from either another
-    provenance or the value hash of a result.
-    """
-
-    functional_hash = attr.ib()
-    exact_hash = attr.ib()
-
-    @classmethod
-    def from_provenance(cls, provenance):
-        return cls(provenance.functional_hash, provenance.exact_hash)
-
-    @classmethod
-    def from_value_hash(cls, value_hash):
-        return cls(value_hash, value_hash)
-
-
 class CaseKeySpace(ImmutableSequence):
     """
     A set of CaseKey names (without values) -- represents a space of possible
