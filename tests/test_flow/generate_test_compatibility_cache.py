@@ -12,6 +12,7 @@
 # "Test data" section in .gitignore.
 
 import os
+import shutil
 
 import bionic as bn
 
@@ -69,6 +70,8 @@ if __name__ == "__main__":
         return ResettingCallCounter()
 
     flow = Harness(CACHE_TEST_DIR, make_counter).flow
+
+    shutil.rmtree(CACHE_TEST_DIR)
 
     # call methods to write to cache
     flow.get("xy")
