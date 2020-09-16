@@ -196,7 +196,8 @@ class EntityDeriver:
             versioning_policy=self._bootstrap_singleton_entity(
                 "core__versioning_policy"
             ),
-            executor=self._bootstrap_singleton_entity("core__executor"),
+            aip_executor=self._bootstrap_singleton_entity("core__aip_executor"),
+            process_executor=self._bootstrap_singleton_entity("core__process_executor"),
             should_memoize_default=self._bootstrap_singleton_entity(
                 "core__memoize_by_default"
             ),
@@ -496,7 +497,8 @@ class Bootstrap:
 
     persistent_cache = attr.ib()
     versioning_policy = attr.ib()
-    executor = attr.ib()
+    aip_executor = attr.ib()
+    process_executor = attr.ib()
     should_memoize_default = attr.ib()
     should_persist_default = attr.ib()
 

@@ -11,10 +11,12 @@ from bionic.aip.future import Future
 
 
 @attr.s(auto_attribs=True)
-class Resource:
-    """Description of a computing resource, which can be a single machine or a cluster of machines
+class TaskConfig:
+    """
+    Contains configuration that can differ per task, which can be a
+    single machine or a cluster of machines.
 
-    In the future could be extended to support GPUs and similar
+    In the future could be extended to support GPUs and similar.
     """
 
     machine: str
@@ -23,8 +25,9 @@ class Resource:
 
 
 @attr.s(auto_attribs=True)
-class Job:
-    """A job groups together individual tasks, all of which share these properties
+class Config:
+    """
+    Contains configuration that remains the same across all tasks.
 
     Attributes
     ----------
@@ -34,7 +37,6 @@ class Job:
         The full address on gcr of the docker image for the tasks
     project: str
         The GCP project where the jobs will be run
-
     """
 
     uuid: str
@@ -47,32 +49,34 @@ class Job:
 @attr.s(auto_attribs=True)
 class Task:
     name: str
-    job: Job
     function: Callable
-    resource: Resource
+    config: Config
+    task_config: TaskConfig
 
     def job_id(self):
-        return f"{self.job.uuid}_{self.name}"
+        return f"{self.config.uuid}_{self.name}"
 
     def inputs_uri(self):
-        # In a future version it might be better to make this path specified by the flow,
-        # so that it can be inside a GCS cache location and different file types
-        return f"gs://{self.job.project}/bionic/{self.job.uuid}/{self.name}-inputs.cloudpickle"
+        # In a future version it might be better to make this path
+        # specified by the flow, so that it can be inside a GCS cache
+        # location and different file types.
+        return f"gs://{self.config.project}/bionic/{self.config.uuid}/{self.name}-inputs.cloudpickle"
 
     def output_uri(self):
-        # In a future version it might be better to make this path specified by the flow,
-        # so that it can be inside a GCS cache location and different file types
-        return f"gs://{self.job.project}/bionic/{self.job.uuid}/{self.name}-output.cloudpickle"
+        # In a future version it might be better to make this path
+        # specified by the flow, so that it can be inside a GCS cache
+        # location and different file types.
+        return f"gs://{self.config.project}/bionic/{self.config.uuid}/{self.name}-output.cloudpickle"
 
     def _ai_platform_job_spec(self):
         """Conversion from our task data model to a job request on ai platform"""
         output = {
-            "jobId": f"{self.job.uuid}_{self.name}",
-            "labels": {"job": self.job.uuid},
+            "jobId": f"{self.config.uuid}_{self.name}",
+            "labels": {"job": self.config.uuid},
             "trainingInput": {
-                "serviceAccount": self.job.account,
-                "masterType": self.resource.machine,
-                "masterConfig": {"imageUri": self.job.image_uri},
+                "serviceAccount": self.config.account,
+                "masterType": self.task_config.machine,
+                "masterConfig": {"imageUri": self.config.image_uri},
                 "args": ["python", "-m", "bionic.aip.task", self.inputs_uri()],
                 "packageUris": [],
                 "region": "us-west1",
@@ -80,47 +84,52 @@ class Task:
                 "scaleTier": "CUSTOM",
             },
         }
-        if self.job.network is not None:
-            output["trainingInput"]["network"] = self.job.network
+        if self.config.network is not None:
+            output["trainingInput"]["network"] = self.config.network
 
-        if self.resource.worker_count is not None and self.resource.worker_count > 0:
-            output["trainingInput"]["workerCount"] = self.resource.worker_count
-            output["trainingInput"]["workerType"] = self.resource.worker_machine
-            output["trainingInput"]["workerConfig"] = {"imageUri": self.job.image_uri}
+        if (
+            self.task_config.worker_count is not None
+            and self.task_config.worker_count > 0
+        ):
+            output["trainingInput"]["workerCount"] = self.task_config.worker_count
+            output["trainingInput"]["workerType"] = self.task_config.worker_machine
+            output["trainingInput"]["workerConfig"] = {
+                "imageUri": self.config.image_uri
+            }
 
         return output
 
+    def _stage(self):
+        # Scope the blocks import to this function to avoid raising for anyone not using it.
+        blocks = import_optional_dependency("blocks", raise_on_missing=True)
+        cloudpickle = import_optional_dependency("cloudpickle", raise_on_missing=True)
 
-def _stage(task):
-    # Scope the blocks import to this function to avoid raising for anyone not using it.
-    blocks = import_optional_dependency("blocks", raise_on_missing=True)
-    cloudpickle = import_optional_dependency("cloudpickle", raise_on_missing=True)
+        path = self.inputs_uri()
+        logging.info(f"Staging task {self.name} at {path}")
+        with blocks.filesystem.GCSNativeFileSystem().open(path, "wb") as f:
+            cloudpickle.dump(self, f)
 
-    path = task.inputs_uri()
-    logging.info(f"Staging task {task.name} at {path}")
-    with blocks.filesystem.GCSNativeFileSystem().open(path, "wb") as f:
-        cloudpickle.dump(task, f)
+    def submit(self) -> Future:
+        # Scope the import to this function to avoid raising for anyone not using it.
+        discovery = import_optional_dependency(
+            "googleapiclient.discovery", raise_on_missing=True
+        )
 
+        self._stage()
+        spec = self._ai_platform_job_spec()
 
-def submit(task) -> Future:
-    # Scope the import to this function to avoid raising for anyone not using it.
-    discovery = import_optional_dependency(
-        "googleapiclient.discovery", raise_on_missing=True
-    )
+        aip = discovery.build("ml", "v1", cache_discovery=False)
+        logging.info(f"Submitting {self.config.project}: {self}")
 
-    task._stage()
-    spec = task._ai_platform_job_spec()
-
-    aip = discovery.build("ml", "v1", cache_discovery=False)
-    logging.info(f"Submitting {task.job.project}: {task}")
-
-    request = (
-        aip.projects().jobs().create(body=spec, parent=f"projects/{task.job.project}")
-    )
-    request.execute()
-    url = f'https://console.cloud.google.com/ai-platform/jobs/{spec["jobId"]}'
-    logging.info(f"Started task on AI Platform: {url}")
-    return Future(task.job.project, task.job_id(), task.output_uri())
+        request = (
+            aip.projects()
+            .jobs()
+            .create(body=spec, parent=f"projects/{self.config.project}")
+        )
+        request.execute()
+        url = f'https://console.cloud.google.com/ai-platform/jobs/{spec["jobId"]}'
+        logging.info(f"Started task on AI Platform: {url}")
+        return Future(self.config.project, self.job_id(), self.output_uri())
 
 
 def run():

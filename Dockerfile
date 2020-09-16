@@ -1,5 +1,5 @@
 # An example docker image that can be used to test the AIP integration
-FROM python:3.7
+FROM python:3.8
 
 WORKDIR /code
 
@@ -15,4 +15,3 @@ RUN python setup.py egg_info && \
 COPY . ./
 
 RUN pip install -e .
-

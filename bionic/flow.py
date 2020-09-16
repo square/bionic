@@ -7,6 +7,7 @@ import os
 import shutil
 import warnings
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path, PosixPath
 from textwrap import dedent
 from uuid import uuid4
@@ -15,6 +16,7 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
+from .aip.task import Config as AipConfig
 from .cache_api import Cache
 from .datatypes import (
     CaseKey,
@@ -29,7 +31,7 @@ from .exception import (
     UnsetEntityError,
     AttributeValidationError,
 )
-from .executor import Executor
+from .executor import AipExecutor, ProcessExecutor
 from .persistence import LocalStore, GcsCloudStore, PersistentCache
 from .provider import (
     ValueProvider,
@@ -1819,7 +1821,7 @@ def create_default_flow_state():
         if gcs_enabled:
             if gcs_url is None:
                 raise AssertionError(
-                    "core__persistent_cache__gcs__url is None, " "but needs a value"
+                    "core__persistent_cache__gcs__url is None, but needs a value"
                 )
             return GcsCloudStore(gcs_url)
         else:
@@ -1842,12 +1844,84 @@ def create_default_flow_state():
 
     @builder
     @decorators.immediate
-    def core__executor(
+    def core__process_executor(
         core__parallel_execution__enabled,
         core__parallel_execution__worker_count,
     ):
         if not core__parallel_execution__enabled:
             return None
-        return Executor(core__parallel_execution__worker_count)
+        return ProcessExecutor(core__parallel_execution__worker_count)
+
+    builder.assign("core__aip_execution__enabled", False, persist=False)
+    builder.assign("core__aip_execution__gcp_project", None, persist=False)
+    builder.assign(
+        "core__aip_execution__docker_image_name", "bionic:latest", persist=False
+    )
+
+    @builder
+    @decorators.immediate
+    def core__aip_execution__docker_image_uri(
+        core__aip_execution__gcp_project,
+        core__aip_execution__docker_image_name,
+    ):
+        image_name = core__aip_execution__docker_image_name
+        project = core__aip_execution__gcp_project
+
+        if image_name is None or project is None:
+            return None
+
+        return f"gcr.io/{project}/{image_name}"
+
+    @builder
+    @decorators.immediate
+    def core__aip_execution__config(
+        core__aip_execution__enabled,
+        core__aip_execution__gcp_project,
+        core__aip_execution__docker_image_uri,
+        core__flow_name,
+    ):
+        if not core__aip_execution__enabled:
+            return None
+        if core__aip_execution__gcp_project is None:
+            error_message = """
+                core__aip_execution__gcp_project is None, but needs a
+                value. AIP uses project to verify IAM permissions.
+            """
+            raise AssertionError(oneline(error_message))
+        if core__aip_execution__docker_image_uri is None:
+            error_message = """
+                core__aip_execution__docker_image_uri is None, but
+                needs a value. AIP uses the docker image from the
+                Container Registry to run jobs and workers.
+            """
+            raise AssertionError(oneline(error_message))
+        return AipConfig(
+            uuid=f"{core__flow_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            project=core__aip_execution__gcp_project,
+            image_uri=core__aip_execution__docker_image_uri,
+        )
+
+    @builder
+    @decorators.immediate
+    def core__aip_executor(
+        core__parallel_execution__enabled,
+        core__aip_execution__enabled,
+        core__aip_execution__config,
+    ):
+        if not core__aip_execution__enabled:
+            return None
+        # TODO: Remove this restriction once we unify the wait logic
+        # for aip and process futures in flow execution.
+        if core__parallel_execution__enabled:
+            error_message = """
+                Both core__aip_execution__enabled and
+                core__aip_execution__enabled, but only one can be
+                enabled.
+            """
+            raise AssertionError(oneline(error_message))
+        # TODO: Add checks that all the AIP libraries are installed. Otherwise,
+        # users have to wait till job submission to get the error back that the
+        # required libraries are not installed.
+        return AipExecutor(core__aip_execution__config)
 
     return builder._state.mark_all_entities_default()
