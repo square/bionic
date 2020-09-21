@@ -1,0 +1,19 @@
+artifact_url: ../../../../artifacts/z/ef7027b4-8b3a-4cd1-8473-f8902c8e4347/z.json
+descriptor: z
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - z
+    - '4'
+  code_fingerprint:
+    bytecode_hash: null
+    orig_flow_name: null
+    version:
+      major: '4'
+      minor: '0'
+  dep_digests: []
+  descriptor: z
+  exact_hash: d7eafc5840935992df76ee7c3bbd841996646d1768d0067f72d2b6557ef2d4c9
+  functional_hash: c1c1f47c2e0f7e919852a333f115e8b2c5ea628a5618b2da29ea6f7c2b4d5b82
+  nominal_hash: 670630eff1ef2d88507e3ae6cfa18e6d06471b019f730ffb261ad79987f4bff0
+value_hash: f683a42168

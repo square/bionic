@@ -4,16 +4,18 @@ point of entry is the PersistentCache, which encapsulates this functionality.
 """
 
 import attr
+import cattr
 import os
 import shutil
 import tempfile
+from typing import List, Optional, Tuple
 import yaml
 import warnings
 from uuid import uuid4
 from pathlib import Path
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
-from .datatypes import Result
+from .datatypes import CodeFingerprint, Result
 from .gcs import GcsTool
 from .utils.files import (
     ensure_dir_exists,
@@ -639,7 +641,10 @@ class Inventory:
     def _load_metadata_if_valid_else_delete(self, url):
         try:
             metadata_yaml = self._fs.read_bytes(url).decode("utf8")
-            metadata_record = ArtifactMetadataRecord.from_yaml(metadata_yaml, url)
+            metadata_record = ArtifactMetadataRecord.from_relativized_yaml(
+                metadata_yaml,
+                url,
+            )
         except Exception as e:
             raise InternalCacheStateError.from_failure("metadata record", url, e)
 
@@ -660,15 +665,14 @@ class Inventory:
     def _create_and_write_metadata(self, query, artifact_url, value_hash):
         metadata_url = self._exact_metadata_url_for_query(query)
 
-        metadata_record = ArtifactMetadataRecord.from_content(
-            dnode=query.dnode,
+        metadata_record = ArtifactMetadataRecord(
+            descriptor=query.dnode.to_descriptor(),
             artifact_url=artifact_url,
             provenance=query.provenance,
-            metadata_url=metadata_url,
             value_hash=value_hash,
         )
-
-        self._fs.write_bytes(metadata_record.to_yaml().encode("utf8"), metadata_url)
+        metadata_yaml = metadata_record.to_relativized_yaml(metadata_url)
+        self._fs.write_bytes(metadata_yaml.encode("utf8"), metadata_url)
 
         return metadata_url, metadata_record
 
@@ -921,65 +925,17 @@ def valid_filename_from_query(query):
     return query.dnode.to_descriptor().replace(" ", "-")
 
 
-CACHE_SCHEMA_VERSION = 9
+CACHE_SCHEMA_VERSION = 10
 
 
 class YamlRecordParsingError(Exception):
     pass
 
 
-class ArtifactMetadataRecord:
-    """
-    Describes a persisted artifact.  Intended to be stored as a YAML file.
-    """
-
-    @classmethod
-    def from_content(cls, dnode, artifact_url, provenance, metadata_url, value_hash):
-        return cls(
-            body_dict=dict(
-                descriptor=dnode.to_descriptor(),
-                artifact_url=relativize_url(artifact_url, metadata_url),
-                provenance=provenance.to_dict(),
-                value_hash=value_hash,
-            )
-        )
-
-    @classmethod
-    def from_yaml(cls, yaml_str, metadata_url):
-        try:
-            body_dict = yaml.load(yaml_str, Loader=YamlLoader)
-        except yaml.error.YAMLError as e:
-            raise YamlRecordParsingError(f"Couldn't parse {cls.__name__}") from e
-        record = cls(body_dict=body_dict)
-        record.artifact_url = derelativize_url(record.artifact_url, metadata_url)
-        return record
-
-    def __init__(self, body_dict):
-        try:
-            self._dict = body_dict
-            self.descriptor = self._dict["descriptor"]
-            self.artifact_url = self._dict["artifact_url"]
-            self.provenance = Provenance.from_dict(self._dict["provenance"])
-            self.value_hash = self._dict["value_hash"]
-        except KeyError as e:
-            raise YamlRecordParsingError(
-                f"YAML for ArtifactMetadataRecord was missing field: {e}"
-            )
-
-    def to_yaml(self):
-        return yaml.dump(
-            self._dict,
-            default_flow_style=False,
-            encoding=None,
-            Dumper=YamlDumper,
-        )
-
-    def __repr__(self):
-        return f"ArtifactMetadataRecord({self.descriptor!r})"
-
-
-# TODO Could we use something like the cattr library instead of our own custom dict
-# stuff?
+# We don't use frozen=True because Provenance has list fields, which are not hashable.
+# We could replace them with tuples, but those result in annoying `!!python/tuple`
+# annotations when serialized to YAML.
+@attr.s
 class Provenance:
     """
     Describes the code and data used to generate (possibly-yet-to-be-computed)
@@ -1024,6 +980,19 @@ class Provenance:
     must be a versioning error.
     """
 
+    descriptor: str = attr.ib()
+    # We don't use this for anything; it's just included to allow humans to distinguish
+    # between different cases when examining a serialized YAML file.
+    case_key_elements: List[Tuple[str, str]] = attr.ib()
+
+    dep_digests: List["ProvenanceDigest"] = attr.ib()
+
+    code_fingerprint: CodeFingerprint = attr.ib()
+
+    functional_hash: str = attr.ib()
+    nominal_hash: str = attr.ib()
+    exact_hash: str = attr.ib()
+
     @classmethod
     def from_computation(
         cls,
@@ -1034,112 +1003,48 @@ class Provenance:
         can_functionally_change_per_run,
         flow_instance_uuid,
     ):
-        dep_task_key_provenance_digest_pairs = sorted(
-            dep_provenance_digests_by_task_key.items()
-        )
-
-        functional_code_dict = dict(
-            orig_flow_name=code_fingerprint.orig_flow_name,
-            code_version_major=code_fingerprint.version.major,
-            cache_schema_version=CACHE_SCHEMA_VERSION,
-        )
-        nominal_code_dict = dict(
-            functional=functional_code_dict,
-            code_version_minor=code_fingerprint.version.minor,
-        )
-        exact_code_dict = dict(
-            nominal=nominal_code_dict,
-        )
-
-        bytecode_hash = code_fingerprint.bytecode_hash
-        exact_code_dict["bytecode_hash"] = bytecode_hash
-        if treat_bytecode_as_functional:
-            functional_code_dict["bytecode_hash"] = bytecode_hash
-
-        # If the function's output can change with each run, we add the flow uuid to the
-        # hash so that it will be different each time.
-        if can_functionally_change_per_run:
-            functional_code_dict["flow_instance_uuid"] = flow_instance_uuid
-
-        # This section is a bit repetitive, but I'm not sure there's much to be done
-        # about it.
-        functional_deps_list = [
-            dict(
-                descriptor=task_key.dnode.to_descriptor(),
-                hash=provenance_digest.functional_hash,
-            )
-            for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
+        sorted_dep_digests = [
+            dep_digest
+            for _, dep_digest in sorted(dep_provenance_digests_by_task_key.items())
         ]
-        nominal_deps_list = [
-            dict(
-                descriptor=task_key.dnode.to_descriptor(),
-                hash=provenance_digest.nominal_hash,
-            )
-            for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
-        ]
-        exact_deps_list = [
-            dict(
-                descriptor=task_key.dnode.to_descriptor(),
-                hash=provenance_digest.exact_hash,
-            )
-            for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
-        ]
-
         functional_hash = hash_simple_obj_to_hex(
-            dict(
-                code=functional_code_dict,
-                deps=functional_deps_list,
-            )
+            [
+                [dep_digest.functional_hash for dep_digest in sorted_dep_digests],
+                code_fingerprint.orig_flow_name,
+                code_fingerprint.version.major,
+                CACHE_SCHEMA_VERSION,
+                (
+                    code_fingerprint.bytecode_hash
+                    if treat_bytecode_as_functional
+                    else None
+                ),
+                (flow_instance_uuid if can_functionally_change_per_run else None),
+            ]
         )
         nominal_hash = hash_simple_obj_to_hex(
-            dict(
-                code=nominal_code_dict,
-                deps=nominal_deps_list,
-            )
+            [
+                functional_hash,
+                [dep_digest.nominal_hash for dep_digest in sorted_dep_digests],
+                code_fingerprint.version.minor,
+            ]
         )
         exact_hash = hash_simple_obj_to_hex(
-            dict(
-                code=exact_code_dict,
-                deps=exact_deps_list,
-            )
+            [
+                nominal_hash,
+                [dep_digest.exact_hash for dep_digest in sorted_dep_digests],
+                code_fingerprint.bytecode_hash,
+            ]
         )
 
         return cls(
-            body_dict=dict(
-                descriptor=task_key.dnode.to_descriptor(),
-                case_key=dict(task_key.case_key),
-                dep_digests=[
-                    digest.to_dict()
-                    for _, digest in dep_task_key_provenance_digest_pairs
-                ],
-                code=exact_code_dict,
-                functional_hash=functional_hash,
-                nominal_hash=nominal_hash,
-                exact_hash=exact_hash,
-            )
+            descriptor=task_key.dnode.to_descriptor(),
+            case_key_elements=list(sorted(task_key.case_key.items())),
+            dep_digests=sorted_dep_digests,
+            code_fingerprint=code_fingerprint,
+            functional_hash=functional_hash,
+            nominal_hash=nominal_hash,
+            exact_hash=exact_hash,
         )
-
-    @classmethod
-    def from_dict(cls, body_dict):
-        return cls(body_dict=body_dict)
-
-    def __init__(self, body_dict=None):
-        self._dict = body_dict
-
-        d = self._dict
-
-        self.descriptor = d["descriptor"]
-        self.functional_hash = d["functional_hash"]
-        self.nominal_hash = d["nominal_hash"]
-        self.exact_hash = d["exact_hash"]
-        self.code_version_major = d["code"]["nominal"]["functional"][
-            "code_version_major"
-        ]
-        self.code_version_minor = d["code"]["nominal"]["code_version_minor"]
-        self.bytecode_hash = d["code"]["bytecode_hash"]
-
-    def to_dict(self):
-        return self._dict
 
     def __repr__(self):
         hash_fn = self.functional_hash[:8]
@@ -1149,11 +1054,16 @@ class Provenance:
         return f"Provenance[{hash_fn}/{v_maj}.{v_min}/{hash_ex}]"
 
     @property
-    def dep_digests(self):
-        return [
-            ProvenanceDigest.from_dict(digest_dict)
-            for digest_dict in self._dict["dep_digests"]
-        ]
+    def code_version_major(self):
+        return self.code_fingerprint.version.major
+
+    @property
+    def code_version_minor(self):
+        return self.code_fingerprint.version.minor
+
+    @property
+    def bytecode_hash(self):
+        return self.code_fingerprint.bytecode_hash
 
     def nominally_matches(self, prov):
         return self.nominal_hash == prov.nominal_hash
@@ -1162,7 +1072,7 @@ class Provenance:
         return self.exact_hash == prov.exact_hash
 
 
-@attr.s(frozen=True)
+@attr.s
 class ProvenanceDigest:
     """
     A collection of values used by Provenance for different chained hashes.
@@ -1170,10 +1080,10 @@ class ProvenanceDigest:
     provenance or the value hash of a result.
     """
 
-    functional_hash = attr.ib()
-    nominal_hash = attr.ib()
-    exact_hash = attr.ib()
-    provenance = attr.ib()
+    functional_hash: str = attr.ib()
+    nominal_hash: str = attr.ib()
+    exact_hash: str = attr.ib()
+    provenance: Optional[Provenance] = attr.ib()
 
     @classmethod
     def from_provenance(cls, provenance):
@@ -1193,15 +1103,77 @@ class ProvenanceDigest:
             provenance=None,
         )
 
-    @classmethod
-    def from_dict(cls, body_dict):
-        fields_dict = dict(body_dict)
-        if fields_dict["provenance"] is not None:
-            fields_dict["provenance"] = Provenance.from_dict(fields_dict["provenance"])
-        return cls(**fields_dict)
 
-    def to_dict(self):
-        body_dict = attr.asdict(self)
-        if body_dict["provenance"] is not None:
-            body_dict["provenance"] = body_dict["provenance"].to_dict()
-        return body_dict
+# This converts the field Provenance.dep_digests from a forward reference to a real
+# type; if we don't do this, cattr will fail to handle it properly. (This could also be
+# resolved by adding a structure hook for ForwardReference('ProvenanceDigest'), but
+# that isn't available in Python 3.6. It can be accessed as _ForwardReference, but that
+# seemed to cause the interpreter to abort unpredictably in our tests so I didn't want
+# to use it. Similarly, we can use `from __future__ import annotations` to remove
+# the need forward references, but that also isn't available in 3.6.)
+attr.resolve_types(Provenance)
+METADATA_CONVERTER = cattr.Converter()
+
+
+@attr.s
+class ArtifactMetadataRecord:
+    """
+    Describes a persisted artifact.  Intended to be stored as a YAML file.
+    """
+
+    descriptor: str = attr.ib()
+    artifact_url: str = attr.ib()
+    provenance: Provenance = attr.ib()
+    value_hash: str = attr.ib()
+
+    def to_relativized_yaml(self, metadata_url):
+        """
+        Serializes this object to a YAML string suitable for storage.
+
+        The YAML representation directly maps to the structure of this class, except
+        that the ``artifact_url`` field will be converted to be relative to
+        ``metadata_url``. This allows the artifact and metadata files to be moved
+        around, as long as their relative position remains the same.
+        """
+        relativized_record = self._relativize(metadata_url)
+        body_dict = METADATA_CONVERTER.unstructure(relativized_record)
+        return yaml.dump(
+            body_dict,
+            default_flow_style=False,
+            encoding=None,
+            Dumper=YamlDumper,
+        )
+
+    @classmethod
+    def from_relativized_yaml(cls, yaml_str, metadata_url):
+        """
+        Deserializes this object from a YAML string.
+
+        This is the inverse operation to ``to_relativized_yaml``, and it correspondingly
+        reverses the relativization of the artifact URL: the deserialized object will
+        have an absolute ``artifact_url`` field.
+        """
+        try:
+            body_dict = yaml.load(yaml_str, Loader=YamlLoader)
+            relativized_record = METADATA_CONVERTER.structure(
+                body_dict, ArtifactMetadataRecord
+            )
+        except Exception as e:
+            raise YamlRecordParsingError(f"Couldn't parse {cls.__name__}: {e}") from e
+
+        return relativized_record._derelativize(metadata_url)
+
+    def __repr__(self):
+        return f"ArtifactMetadataRecord({self.descriptor!r})"
+
+    def _relativize(self, metadata_url):
+        return attr.evolve(
+            self,
+            artifact_url=relativize_url(self.artifact_url, metadata_url),
+        )
+
+    def _derelativize(self, metadata_url):
+        return attr.evolve(
+            self,
+            artifact_url=derelativize_url(self.artifact_url, metadata_url),
+        )
