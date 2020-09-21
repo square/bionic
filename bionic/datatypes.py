@@ -237,6 +237,11 @@ def str_from_version_value(value):
         raise ValueError(f"Version values must be str, int, or None: got {value!r}")
 
 
+# The CodeVersion and CodeFingerprint classs are used (indirectly) by
+# persistence.ArtifactMetadataRecord and can be serialized to YAML and stored in the
+# persistent cache. That means if we add new fields to them, we also need to update
+# persistence.CACHE_SCHEMA_VERSION.
+# TODO Should we just move these classes to persistence.py as well?
 @attr.s(frozen=True)
 class CodeVersion:
     """
@@ -246,8 +251,8 @@ class CodeVersion:
     version indicates a nonfunctional change.
     """
 
-    major = attr.ib(converter=str_from_version_value)
-    minor = attr.ib(converter=str_from_version_value)
+    major: str = attr.ib(converter=str_from_version_value)
+    minor: str = attr.ib(converter=str_from_version_value)
 
 
 @attr.s(frozen=True)
@@ -256,9 +261,9 @@ class CodeFingerprint:
     A collection of characteristics attempting to uniquely identify a function.
     """
 
-    version = attr.ib()
-    bytecode_hash = attr.ib()
-    orig_flow_name = attr.ib()
+    version: CodeVersion = attr.ib()
+    bytecode_hash: str = attr.ib()
+    orig_flow_name: str = attr.ib()
 
 
 @attr.s(frozen=True)

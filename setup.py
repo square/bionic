@@ -16,7 +16,8 @@ with open("README.md") as readme_file:
     readme = readme_file.read()
 
 requirements = [
-    "attrs",
+    "attrs>=20.1",
+    "cattrs",
     "PyYAML",
     "numpy",
     "pandas",
