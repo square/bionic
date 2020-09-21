@@ -32,6 +32,9 @@ def run():
 
 
 def _set_up_logging(job_id, project_id):
+    if os.environ.get("BIONIC_NO_STACKDRIVER", False):
+        return
+
     # TODO This is the ID of the hyperparameter tuning trial currently
     # running on this VM. This field is only set if the current
     # training job is a hyperparameter tuning job. Conductor uses this
