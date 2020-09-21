@@ -24,6 +24,13 @@ class ReadCountingProtocol(bn.protocols.PicklableProtocol):
         return super(ReadCountingProtocol, self).read(path)
 
 
+def raises_versioning_error_for_entity(entity_name):
+    return pytest.raises(
+        CodeVersioningError,
+        match=f".*function that outputs '{entity_name}'.*",
+    )
+
+
 # It would be nice to move the builder setup into fixtures, but since we need
 # to access the bound functions as well (to check the number of times they were
 # called), it's easiest to just have one long test.
@@ -385,7 +392,7 @@ def test_versioning_assist(builder, make_counter):
         call_counter.mark()
         return x * y
 
-    with pytest.raises(CodeVersioningError):
+    with raises_versioning_error_for_entity("f"):
         builder.build().get("f")
 
     builder.delete("f")
@@ -407,7 +414,7 @@ def test_versioning_assist(builder, make_counter):
         call_counter.mark()
         return y * x
 
-    with pytest.raises(CodeVersioningError):
+    with raises_versioning_error_for_entity("f"):
         builder.build().get("f")
 
     builder.delete("f")
@@ -427,7 +434,7 @@ def test_versioning_assist(builder, make_counter):
         call_counter.mark()
         return x ** y
 
-    with pytest.raises(CodeVersioningError):
+    with raises_versioning_error_for_entity("f"):
         builder.build().get("f")
 
     builder.delete("f")
@@ -469,7 +476,7 @@ def test_indirect_versioning_assist(builder, make_counter):
         y_call_counter.mark()
         return 4
 
-    with pytest.raises(CodeVersioningError):
+    with raises_versioning_error_for_entity("y"):
         builder.build().get("f")
 
     @builder  # noqa: F811
@@ -488,7 +495,7 @@ def test_indirect_versioning_assist(builder, make_counter):
         y_call_counter.mark()
         return len("xxxx")
 
-    with pytest.raises(CodeVersioningError):
+    with raises_versioning_error_for_entity("y"):
         builder.build().get("f")
 
     @builder  # noqa: F811
@@ -512,6 +519,73 @@ def test_indirect_versioning_assist(builder, make_counter):
     assert builder.build().get("f") == 6
     assert y_call_counter.times_called() == 0
     assert f_call_counter.times_called() == 0
+
+
+def test_indirect_nonpersisted_versioning_assist(builder, make_counter):
+    y_call_counter = make_counter()
+    f_call_counter = make_counter()
+
+    builder.set("core__versioning_mode", "assist")
+
+    builder.assign("x", 2)
+
+    @builder
+    @bn.persist(False)
+    def y():
+        y_call_counter.mark()
+        return 3
+
+    @builder
+    def f(x, y):
+        f_call_counter.mark()
+        return x + y
+
+    assert builder.build().get("f") == 5
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    @bn.persist(False)
+    def y():  # noqa: F811
+        y_call_counter.mark()
+        return 4
+
+    with raises_versioning_error_for_entity("y"):
+        builder.build().get("f")
+
+
+def test_indirect_nonpersisted_versioning_auto(builder, make_counter):
+    y_call_counter = make_counter()
+    f_call_counter = make_counter()
+
+    builder.set("core__versioning_mode", "auto")
+
+    builder.assign("x", 2)
+
+    @builder
+    @bn.persist(False)
+    def y():
+        y_call_counter.mark()
+        return 3
+
+    @builder
+    def f(x, y):
+        f_call_counter.mark()
+        return x + y
+
+    assert builder.build().get("f") == 5
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
+
+    @builder  # noqa: F811
+    @bn.persist(False)
+    def y():  # noqa: F811
+        y_call_counter.mark()
+        return 4
+
+    assert builder.build().get("f") == 6
+    assert y_call_counter.times_called() == 1
+    assert f_call_counter.times_called() == 1
 
 
 def test_versioning_auto(builder, make_counter):

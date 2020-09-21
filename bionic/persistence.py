@@ -27,7 +27,6 @@ from .utils.urls import (
     relativize_url,
     url_from_path,
 )
-from .tokenization import tokenize
 
 import logging
 
@@ -602,16 +601,6 @@ class Inventory:
                 level="exact",
             )
 
-        samecode_url_prefix = self._samecode_metadata_url_prefix_for_query(query)
-        samecode_urls = [
-            url for url in equivalent_urls if url.startswith(samecode_url_prefix)
-        ]
-        if len(samecode_urls) > 0:
-            return MetadataMatch(
-                metadata_url=samecode_urls[0],
-                level="samecode",
-            )
-
         nominal_url_prefix = self._nominal_metadata_url_prefix_for_query(query)
         nominal_urls = [
             url for url in equivalent_urls if url.startswith(nominal_url_prefix)
@@ -637,20 +626,10 @@ class Inventory:
         )
 
     def _nominal_metadata_url_prefix_for_query(self, query):
-        minor_version_token = tokenize(query.provenance.code_version_minor)
         return (
             self._equivalent_metadata_url_prefix_for_query(query)
             + "/"
-            + "mv_"
-            + minor_version_token
-        )
-
-    def _samecode_metadata_url_prefix_for_query(self, query):
-        return (
-            self._nominal_metadata_url_prefix_for_query(query)
-            + "/"
-            + "bc_"
-            + query.provenance.bytecode_hash
+            + query.provenance.nominal_hash
         )
 
     def _exact_metadata_url_for_query(self, query):
@@ -942,7 +921,7 @@ def valid_filename_from_query(query):
     return query.dnode.to_descriptor().replace(" ", "-")
 
 
-CACHE_SCHEMA_VERSION = 8
+CACHE_SCHEMA_VERSION = 9
 
 
 class YamlRecordParsingError(Exception):
@@ -999,6 +978,8 @@ class ArtifactMetadataRecord:
         return f"ArtifactMetadataRecord({self.descriptor!r})"
 
 
+# TODO Could we use something like the cattr library instead of our own custom dict
+# stuff?
 class Provenance:
     """
     Describes the code and data used to generate (possibly-yet-to-be-computed)
@@ -1006,35 +987,48 @@ class Provenance:
     such values are meaningfully different, without actually examining the
     values.
 
+    A provenance summarizes the following information:
+    1. The code used to generate the value for a descriptor.
+    2. Digests (ProvenanceDigest objects, containing various hashes) of each
+      dependency value consumed by the code.
+
+    These digests may correspond to either persisted or non-persisted value; in the
+    latter case, the digest contains a reference to that value's provenance as well.
+    This means that each provenance incorporates information not just about its own
+    value's code, but also the code of any immediate non-persisted ancestors. The
+    point of this is to allow us to detect and diagnose "versioning errors":
+    situations where a user has modified the code of one of their functions but has
+    forgotten to update its @version decorator. When we load a persisted value, we
+    can compare its persisted provenance to its expected provenance to determine if
+    any of the code used to generate that value has changed.
+
     Provenances can "match" at several different levels of precision.
 
-    1. Functional match: all input data is the same, and all functions involved
-    in the computation have matching major versions.  This is the lowest level
-    of matching, but it's a sufficient condition to treat two artifacts as
-    interchangeable.  The only purpose of the higher levels is to allow
-    recursive searches for possible versioning errors, where the user has
-    changed a function's bytecode but failed to update its version.
+    1. Functional match: the code generating this value has the same major version,
+    and all dependency data functionally matches. This is the lowest level of
+    matching, but it's a sufficient condition to treat two artifacts as
+    interchangeable. The only purpose of the higher levels is to allow recursive
+    searches for possible versioning errors.
 
-    2. Nominal match: as above, plus the function that computes this value has
-    a matching minor version.  If two provenances don't nominally match, then
-    they have different versions, which means this particular descriptor doesn't
-    have a versioning error (although its dependencies might or might not).
+    2. Nominal match: the code generating this value has the same version (both major
+    and minor), and all dependency data nominally matches. If two provenances *don't*
+    nominally match, then code of different versions was used to generate their
+    values, which rules out the possibility of a versioning error.
 
-    3. "Samecode" match: as above, plus the function that computes this value
-    has matching bytecode.  If two provenances are a nominal match but not
-    a samecode match, that suggests the user may have made a versioning error
-    in this descriptor.
+    3. Exact match: The code generating this value has the same version and the same
+    bytecode, and all dependency data exactly matches. If two provenances *do*
+    exactly match, then the same code should have been used to generate their values,
+    so again there must not be a versioning error.
 
-    4. Exact match: as above, plus all dependencies exactly match.  If two
-    provenances exactly match, then there is no chance of any versioning error
-    anywhere in this descriptor's dependency tree.
+    If two provenances *do* match nominally but *don't* match exactly, we know there
+    must be a versioning error.
     """
 
     @classmethod
     def from_computation(
         cls,
+        task_key,
         code_fingerprint,
-        case_key,
         dep_provenance_digests_by_task_key,
         treat_bytecode_as_functional,
         can_functionally_change_per_run,
@@ -1049,31 +1043,37 @@ class Provenance:
             code_version_major=code_fingerprint.version.major,
             cache_schema_version=CACHE_SCHEMA_VERSION,
         )
-        nonfunctional_code_dict = dict(
+        nominal_code_dict = dict(
+            functional=functional_code_dict,
             code_version_minor=code_fingerprint.version.minor,
+        )
+        exact_code_dict = dict(
+            nominal=nominal_code_dict,
         )
 
         bytecode_hash = code_fingerprint.bytecode_hash
+        exact_code_dict["bytecode_hash"] = bytecode_hash
         if treat_bytecode_as_functional:
             functional_code_dict["bytecode_hash"] = bytecode_hash
-        else:
-            nonfunctional_code_dict["bytecode_hash"] = bytecode_hash
 
-        # The function's output changes with each run; to reflect that,
-        # we add the flow uuid to the hash so that it will be different
-        # each time.
+        # If the function's output can change with each run, we add the flow uuid to the
+        # hash so that it will be different each time.
         if can_functionally_change_per_run:
             functional_code_dict["flow_instance_uuid"] = flow_instance_uuid
 
-        full_code_dict = dict(
-            functional=functional_code_dict,
-            nonfunctional=nonfunctional_code_dict,
-            bytecode_hash=bytecode_hash,
-        )
+        # This section is a bit repetitive, but I'm not sure there's much to be done
+        # about it.
         functional_deps_list = [
             dict(
                 descriptor=task_key.dnode.to_descriptor(),
                 hash=provenance_digest.functional_hash,
+            )
+            for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
+        ]
+        nominal_deps_list = [
+            dict(
+                descriptor=task_key.dnode.to_descriptor(),
+                hash=provenance_digest.nominal_hash,
             )
             for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
         ]
@@ -1085,28 +1085,37 @@ class Provenance:
             for task_key, provenance_digest in dep_task_key_provenance_digest_pairs
         ]
 
-        exact_deps_hash = hash_simple_obj_to_hex(exact_deps_list)
         functional_hash = hash_simple_obj_to_hex(
             dict(
                 code=functional_code_dict,
                 deps=functional_deps_list,
             )
         )
+        nominal_hash = hash_simple_obj_to_hex(
+            dict(
+                code=nominal_code_dict,
+                deps=nominal_deps_list,
+            )
+        )
         exact_hash = hash_simple_obj_to_hex(
             dict(
-                code=full_code_dict,
+                code=exact_code_dict,
                 deps=exact_deps_list,
             )
         )
 
         return cls(
             body_dict=dict(
-                case_key=dict(case_key),
-                code=full_code_dict,
-                functional_deps=functional_deps_list,
+                descriptor=task_key.dnode.to_descriptor(),
+                case_key=dict(task_key.case_key),
+                dep_digests=[
+                    digest.to_dict()
+                    for _, digest in dep_task_key_provenance_digest_pairs
+                ],
+                code=exact_code_dict,
                 functional_hash=functional_hash,
+                nominal_hash=nominal_hash,
                 exact_hash=exact_hash,
-                exact_deps_hash=exact_deps_hash,
             )
         )
 
@@ -1119,11 +1128,14 @@ class Provenance:
 
         d = self._dict
 
+        self.descriptor = d["descriptor"]
         self.functional_hash = d["functional_hash"]
+        self.nominal_hash = d["nominal_hash"]
         self.exact_hash = d["exact_hash"]
-        self.exact_deps_hash = d["exact_deps_hash"]
-        self.code_version_major = d["code"]["functional"]["code_version_major"]
-        self.code_version_minor = d["code"]["nonfunctional"]["code_version_minor"]
+        self.code_version_major = d["code"]["nominal"]["functional"][
+            "code_version_major"
+        ]
+        self.code_version_minor = d["code"]["nominal"]["code_version_minor"]
         self.bytecode_hash = d["code"]["bytecode_hash"]
 
     def to_dict(self):
@@ -1136,8 +1148,60 @@ class Provenance:
         hash_ex = self.exact_hash[:8]
         return f"Provenance[{hash_fn}/{v_maj}.{v_min}/{hash_ex}]"
 
+    @property
+    def dep_digests(self):
+        return [
+            ProvenanceDigest.from_dict(digest_dict)
+            for digest_dict in self._dict["dep_digests"]
+        ]
+
+    def nominally_matches(self, prov):
+        return self.nominal_hash == prov.nominal_hash
+
     def exactly_matches(self, prov):
         return self.exact_hash == prov.exact_hash
 
-    def dependencies_exactly_match(self, prov):
-        return self.exact_deps_hash == prov.exact_deps_hash
+
+@attr.s(frozen=True)
+class ProvenanceDigest:
+    """
+    A collection of values used by Provenance for different chained hashes.
+    These hashes depend on the entities and can come from either another
+    provenance or the value hash of a result.
+    """
+
+    functional_hash = attr.ib()
+    nominal_hash = attr.ib()
+    exact_hash = attr.ib()
+    provenance = attr.ib()
+
+    @classmethod
+    def from_provenance(cls, provenance):
+        return cls(
+            functional_hash=provenance.functional_hash,
+            nominal_hash=provenance.nominal_hash,
+            exact_hash=provenance.exact_hash,
+            provenance=provenance,
+        )
+
+    @classmethod
+    def from_value_hash(cls, value_hash):
+        return cls(
+            functional_hash=value_hash,
+            nominal_hash=value_hash,
+            exact_hash=value_hash,
+            provenance=None,
+        )
+
+    @classmethod
+    def from_dict(cls, body_dict):
+        fields_dict = dict(body_dict)
+        if fields_dict["provenance"] is not None:
+            fields_dict["provenance"] = Provenance.from_dict(fields_dict["provenance"])
+        return cls(**fields_dict)
+
+    def to_dict(self):
+        body_dict = attr.asdict(self)
+        if body_dict["provenance"] is not None:
+            body_dict["provenance"] = body_dict["provenance"].to_dict()
+        return body_dict

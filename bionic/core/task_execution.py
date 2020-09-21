@@ -25,9 +25,9 @@ import warnings
 
 from enum import auto, Enum, IntEnum
 
-from ..datatypes import ProvenanceDigest, Query, Result
+from ..datatypes import Query, Result
 from ..exception import CodeVersioningError
-from ..persistence import Provenance
+from ..persistence import Provenance, ProvenanceDigest
 from ..utils.misc import oneline
 
 logger = logging.getLogger(__name__)
@@ -585,8 +585,8 @@ class TaskState:
         }
 
         self._provenance = Provenance.from_computation(
+            task_key=self.task_key,
             code_fingerprint=self.func_attrs.code_fingerprint,
-            case_key=self.task_key.case_key,
             dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
             treat_bytecode_as_functional=treat_bytecode_as_functional,
             can_functionally_change_per_run=self.func_attrs.changes_per_run,
@@ -701,25 +701,71 @@ class TaskState:
         if old_prov.exactly_matches(new_prov):
             return
 
-        if old_prov.code_version_minor == new_prov.code_version_minor:
-            if old_prov.bytecode_hash != new_prov.bytecode_hash:
-                raise CodeVersioningError(
-                    oneline(
-                        f"""
-                    Found a cached artifact with the same
-                    descriptor ({self._cache_accessor.query.dnode.to_descriptor()!r})
-                    and version (major={old_prov.code_version_major!r},
-                    minor={old_prov.code_version_minor!r}),
-                    But created by different code
-                    (old hash {old_prov.bytecode_hash!r},
-                    new hash {new_prov.bytecode_hash!r}).
-                    Did you change your code but not update the
-                    version number?
-                    Change @version(major=) to indicate that your
-                    function's behavior has changed, or @version(minor=)
-                    to indicate that it has *not* changed."""
-                    )
-                )
+        if old_prov.nominally_matches(new_prov):
+            # If we have a nominal match but not an exact match, that means the
+            # user must changed a function's bytecode but not its version. To report
+            # this, we first need to figure out which function changed. It could be
+            # the one for this task, or it could be any immediate non-persisted
+            # ancestor of this one. Fortunately, each provenance contains links to each of
+            # its dependency digests, and a digest of non-persisted value contains that
+            # value's provenance, so we can recursively search through our ancestor
+            # provenances until we find which one caused the mismatch.
+            def locate_mismatched_provenances_and_raise(old_prov, new_prov):
+                assert old_prov.nominally_matches(new_prov)
+                # If the bytecode doesn't match, we found the problematic pair.
+                if old_prov.bytecode_hash != new_prov.bytecode_hash:
+                    message = f"""
+                        Found a cached artifact with the same descriptor
+                        ({self._cache_accessor.query.dnode.to_descriptor()!r})
+                        and version (major={old_prov.code_version_major!r},
+                        minor={old_prov.code_version_minor!r}),
+                        but created by different code.
+                        It appears that the code function that outputs
+                        {new_prov.descriptor!r}
+                        was changed (old bytecode hash {old_prov.bytecode_hash!r};
+                        new bytecode hash {new_prov.bytecode_hash!r})
+                        but the function's version number was not.
+                        Change @version(major=) to indicate that your
+                        function's behavior has changed, or @version(minor=)
+                        to indicate that it has *not* changed.
+                        """
+                    raise CodeVersioningError(oneline(message))
+                # If the provenances nominally match, they must have essentially the
+                # same structure.
+                assert len(old_prov.dep_digests) == len(new_prov.dep_digests)
+                # Since these provenances match nominally and have matching bytcode,
+                # the mismatch must be in one of their dependencies. We'll iterate
+                # through them to figure out which one.
+                for old_dep_digest, new_dep_digest in zip(
+                    old_prov.dep_digests, new_prov.dep_digests
+                ):
+                    # If this digest pair matches, it must not be where the problem is.
+                    if old_dep_digest.exact_hash == new_dep_digest.exact_hash:
+                        continue
+
+                    # Not all digests have provenances, but these should. Digests of
+                    # non-persisted values have provenances, and if these were persisted
+                    # then their exact hashes would be the same as their nominal hashes,
+                    # so they would have matched above.
+                    old_dep_prov = old_dep_digest.provenance
+                    new_dep_prov = new_dep_digest.provenance
+                    locate_mismatched_provenances_and_raise(old_dep_prov, new_dep_prov)
+                assert False
+
+            try:
+                locate_mismatched_provenances_and_raise(old_prov, new_prov)
+            except AssertionError as e:
+                message = f"""
+                Enncountered an internal error while performing an assisted versioning
+                check. This should be impossible and is probably a bug in Bionic; please
+                report this stace track to the developers. However, it's also likely
+                that you need to update the ``@version`` annotation on the function
+                that outputs {self._cache_accessor.query.provenance.descriptor}.
+                If that doesn't fix the warning, you can try filtering the warning with
+                ``warnings.filterwarnings``; deleting the disk cache; or disabling
+                assisted versioning.
+                """
+                logger.warn(oneline(message), exc_info=e)
 
         self._cache_accessor.update_provenance()
 

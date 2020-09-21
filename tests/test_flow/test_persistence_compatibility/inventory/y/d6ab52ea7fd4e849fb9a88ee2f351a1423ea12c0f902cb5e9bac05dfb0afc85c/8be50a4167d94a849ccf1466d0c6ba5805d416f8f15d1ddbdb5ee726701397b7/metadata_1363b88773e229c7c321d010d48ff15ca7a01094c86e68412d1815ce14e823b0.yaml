@@ -1,0 +1,19 @@
+artifact_url: ../../../../artifacts/y/aac636a9-f9fa-4311-b452-5d231d7fc408/y.json
+descriptor: y
+provenance:
+  case_key:
+    y: '3'
+  code:
+    bytecode_hash: null
+    nominal:
+      code_version_minor: '0'
+      functional:
+        cache_schema_version: 9
+        code_version_major: '3'
+        orig_flow_name: null
+  dep_digests: []
+  descriptor: y
+  exact_hash: 1363b88773e229c7c321d010d48ff15ca7a01094c86e68412d1815ce14e823b0
+  functional_hash: d6ab52ea7fd4e849fb9a88ee2f351a1423ea12c0f902cb5e9bac05dfb0afc85c
+  nominal_hash: 8be50a4167d94a849ccf1466d0c6ba5805d416f8f15d1ddbdb5ee726701397b7
+value_hash: 0a16e6f027

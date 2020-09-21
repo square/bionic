@@ -113,6 +113,8 @@ Bug Fixes
   when cache directory paths contain whitespaces.
 - Fixed an `issue <https://github.com/square/bionic/issues/233>`__ where reloading of
   flows that merge other flows from other modules does not work correctly.
+- Fixed a bug where assisted versioning fails to detect code changes in non-persistable
+  entities.
 
 Documentation
 .............
