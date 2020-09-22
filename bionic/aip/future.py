@@ -3,6 +3,7 @@ import time
 from concurrent.futures import Future as _Future, TimeoutError, CancelledError
 from enum import Enum, auto
 
+from bionic.aip.client import get_aip_client
 from bionic.deps.optdep import import_optional_dependency
 
 
@@ -50,12 +51,10 @@ class Future(_Future):
     """
 
     def __init__(self, project_name: str, job_id: str, output: str):
-        # Scope the import to the class to avoid raising for anyone not using it.
-        discovery = import_optional_dependency("googleapiclient.discovery")
         self.project_name = project_name
         self.job_id = job_id
         self.output = output
-        self.aip = discovery.build("ml", "v1", cache_discovery=False)
+        self.aip = get_aip_client()
 
     @property
     def name(self):
@@ -97,7 +96,9 @@ class Future(_Future):
         try:
             return blocks.unpickle(self.output)
         except:  # NOQA
-            logging.warning(f"Failed to load output from succesful job at {self.path}")
+            logging.warning(
+                f"Failed to load output from succesful job at {self.output}"
+            )
             raise
 
     def exception(self, timeout: int = None):

@@ -1,18 +1,22 @@
+import getpass
+import random
+from multiprocessing.managers import SyncManager
+
 import pytest
 
-import getpass
-from multiprocessing.managers import SyncManager
-import random
-
+import bionic as bn
+from .fakes import run_in_fake_gcp, FakeGCS
 from ..helpers import (
-    gsutil_path_exists,
-    gsutil_wipe_path,
     SimpleCounter,
     ResettingCallCounter,
+    gsutil_wipe_path,
+    gsutil_path_exists,
 )
 
-from .fakes import FakeAipExecutor
-import bionic as bn
+
+@pytest.fixture
+def fake_gcs():
+    return FakeGCS()
 
 
 # Parameterizing a fixture adds the parameter in the test name at the end,
@@ -27,6 +31,23 @@ import bionic as bn
 )
 def parallel_execution_enabled(request):
     return request.param == "parallel"
+
+
+# This allows tests that depend on GCS and/or AIP to be run locally using fake
+# GCP, and again using real GCP if the correct command line parameters are
+# provided.
+@pytest.fixture(
+    params=[
+        pytest.param("fake-gcp", marks=pytest.mark.fake_gcp),
+        pytest.param("real-gcp", marks=pytest.mark.real_gcp),
+    ],
+)
+def use_fake_gcp(request, fake_gcs):
+    if request.param == "fake-gcp":
+        with run_in_fake_gcp(fake_gcs):
+            yield True
+    else:
+        yield False
 
 
 # We provide this at the top level because we want everyone using FlowBuilder
@@ -90,7 +111,7 @@ def make_list(process_manager):
     return _make_list
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_builder(builder, tmp_gcs_url_prefix):
     URL_PREFIX = "gs://"
     assert tmp_gcs_url_prefix.startswith(URL_PREFIX)
@@ -107,28 +128,6 @@ def gcs_builder(builder, tmp_gcs_url_prefix):
 
 
 @pytest.fixture
-def fake_aip_builder(gcs_builder, gcs_url_stem):
-    gcs_builder.set("core__aip_execution__enabled", True)
-    # TODO: This is really a hack to make fake AIP tests work. We need
-    # to  specify a real project for input and output uri for AIP task.
-    # In future, we should change this so that the executor specifies
-    # the input and output uris instead. It could also be indicative of
-    # the fact that maybe we should use the gcs bucket for input and
-    # output uri instead of the AIP project (and use project only for
-    # AIP jobs).
-    assert gcs_url_stem.startswith("gs://")
-    project = gcs_url_stem[5:]
-    gcs_builder.set("core__aip_execution__gcp_project_name", project)
-
-    @gcs_builder
-    @bn.immediate
-    def core__aip_executor(core__aip_execution__config):
-        return FakeAipExecutor(core__aip_execution__config)
-
-    return gcs_builder
-
-
-@pytest.fixture(scope="function")
 def aip_builder(gcs_builder, gcp_project):
     gcs_builder.set("core__aip_execution__enabled", True)
     gcs_builder.set("core__aip_execution__gcp_project_name", gcp_project)
@@ -136,22 +135,41 @@ def aip_builder(gcs_builder, gcp_project):
     return gcs_builder
 
 
-@pytest.fixture(scope="session")
-def gcp_project(request):
+@pytest.fixture
+def gcp_project(request, use_fake_gcp):
+    if use_fake_gcp:
+        return "fake-project"
     project = request.config.getoption("--project")
     assert project is not None
     return project
 
 
-@pytest.fixture(scope="session")
-def gcs_url_stem(request):
+@pytest.fixture
+def gcs_url_stem(request, use_fake_gcp):
+    if use_fake_gcp:
+        return "gs://fake-bucket"
     url = request.config.getoption("--bucket")
     assert url.startswith("gs://")
     return url
 
 
-@pytest.fixture(scope="session")
-def session_tmp_gcs_url_prefix(gcs_url_stem):
+@pytest.fixture
+def gcs_wipe_path(use_fake_gcp, fake_gcs):
+    """
+    Removes all files with the specified url.
+    """
+
+    def _gcs_wipe_path(url):
+        if use_fake_gcp:
+            fake_gcs.wipe_path(url)
+        else:
+            gsutil_wipe_path(url)
+
+    return _gcs_wipe_path
+
+
+@pytest.fixture
+def session_tmp_gcs_url_prefix(gcs_url_stem, use_fake_gcp):
     """
     Sets up and tears down a temporary "directory" on GCS to be shared by all
     of our tests.
@@ -163,7 +181,8 @@ def session_tmp_gcs_url_prefix(gcs_url_stem):
     gs_url = gcs_url_stem + "/" + path_str + "/"
     # This emits a stderr warning because the URL doesn't exist.  That's
     # annoying but I wasn't able to find a straightforward way to avoid it.
-    assert not gsutil_path_exists(gs_url)
+    if not use_fake_gcp:
+        assert not gsutil_path_exists(gs_url)
 
     yield gs_url
 
@@ -171,7 +190,8 @@ def session_tmp_gcs_url_prefix(gcs_url_stem):
     # Currently every test using this fixture does write some objects under this URL,
     # *and* doesn't clean all of them up. If this changes, we may need to start
     # handling this more gracefully.
-    gsutil_wipe_path(gs_url)
+    if not use_fake_gcp:
+        gsutil_wipe_path(gs_url)
 
 
 @pytest.fixture(scope="function")

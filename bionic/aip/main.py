@@ -9,14 +9,12 @@ import sys
 from bionic.deps.optdep import import_optional_dependency
 
 
-def run():
+def _run(ipath):
     # Scope the import to this function to avoid raising for anyone not using it.
     blocks = import_optional_dependency("blocks")
     cloudpickle = import_optional_dependency("cloudpickle")
 
-    ipath = sys.argv[-1]
-    fs = blocks.filesystem.GCSNativeFileSystem()
-    with fs.open(ipath, "rb") as f:
+    with blocks.filesystem.GCSNativeFileSystem().open(ipath, "rb") as f:
         task = cloudpickle.load(f)
 
     # Now that we have the task, set up logging.
@@ -28,7 +26,15 @@ def run():
     opath = task.output_uri()
     logging.info(f"Uploading result to {opath}")
     blocks.pickle(result, opath)
-    return
+
+
+# Main entry point for AIP
+def run():
+    """
+    This method is a proxy to _run which does the actual work. The proxy exists
+    so that _run can be replaced for testing.
+    """
+    _run(sys.argv[-1])
 
 
 def _set_up_logging(job_id, project_id):

@@ -45,6 +45,8 @@ def pytest_configure(config):
     # These markers are added automatically based on parametric fixtures.
     add_mark("serial", "will run using serial execution")
     add_mark("parallel", "will run using parallel execution")
+    add_mark("real_gcp", "use real gcp")
+    add_mark("fake_gcp", "use fake gcp")
 
     # This marker is added automatically based on other markers.
     add_mark("baseline", "runs by default when no options are passed to pytest")
@@ -73,15 +75,16 @@ def pytest_collection_modifyitems(config, items):
             if not also_run_slow:
                 item.add_marker(skip_slow)
 
-        if "needs_gcs" in item.keywords:
-            item_is_baseline = False
-            if not has_gcs:
-                item.add_marker(skip_needs_gcs)
+        if "real_gcp" in item.keywords:
+            if "needs_gcs" in item.keywords:
+                item_is_baseline = False
+                if not has_gcs:
+                    item.add_marker(skip_needs_gcs)
 
-        if "needs_aip" in item.keywords:
-            item_is_baseline = False
-            if not has_aip:
-                item.add_marker(skip_needs_aip)
+            if "needs_aip" in item.keywords:
+                item_is_baseline = False
+                if not has_aip:
+                    item.add_marker(skip_needs_aip)
 
         if "parallel" in item.keywords:
             if "allows_parallel" not in item.keywords:
@@ -89,6 +92,9 @@ def pytest_collection_modifyitems(config, items):
 
                 if "no_parallel" in item.keywords or not also_run_parallel:
                     continue
+
+            if "fake_gcp" in item.keywords:
+                continue
 
         elif "needs_parallel" in item.keywords:
             continue

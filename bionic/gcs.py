@@ -101,22 +101,35 @@ class GcsTool:
         obj_prefix = self._validated_object_name_from_url(url_prefix)
         return self._bucket.list_blobs(prefix=obj_prefix)
 
-    def gsutil_cp(self, src_url, dst_url):
-        args = [
-            "gsutil",
-            "-q",  # Don't log anything but errors.
-            "-m",  # Transfer files in paralle.
-            "cp",
-            "-r",  # Recursively sync sub-directories.
-            src_url,
-            dst_url,
-        ]
-        logger.debug("Running command: %s" % " ".join(args))
-        subprocess.check_call(args)
-        logger.debug("Finished running gsutil")
+    @staticmethod
+    def gsutil_cp(src_url, dst_url):
+        gsutil_cp(src_url, dst_url)
 
     def _validated_object_name_from_url(self, url):
         bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
         assert bucket_name == self._bucket.name
         assert object_name.startswith(self._object_prefix)
         return object_name
+
+
+def gsutil_cp(src_url, dst_url):
+    """
+    This method is a proxy for _gsutil_cp which does the actual work. The proxy
+    exists so that _gsutil_cp can be replaced for testing.
+    """
+    _gsutil_cp(str(src_url), str(dst_url))
+
+
+def _gsutil_cp(src_url, dst_url):
+    args = [
+        "gsutil",
+        "-q",  # Don't log anything but errors.
+        "-m",  # Transfer files in parallel.
+        "cp",
+        "-r",  # Recursively sync sub-directories.
+        src_url,
+        dst_url,
+    ]
+    logger.debug("Running command: %s" % " ".join(args))
+    subprocess.check_call(args)
+    logger.debug("Finished running gsutil")
