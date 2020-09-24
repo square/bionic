@@ -1,6 +1,14 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def set_env_variables(monkeypatch):
+    # We don't want to set up Stackdriver logging for local tests.
+    monkeypatch.setenv("BIONIC_NO_STACKDRIVER", "True")
+    yield
+    monkeypatch.delenv("BIONIC_NO_STACKDRIVER")
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--slow", action="store_true", default=False, help="run slow tests"

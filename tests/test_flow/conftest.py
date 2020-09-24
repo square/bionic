@@ -11,6 +11,7 @@ from ..helpers import (
     ResettingCallCounter,
 )
 
+from .fakes import FakeAipExecutor
 import bionic as bn
 
 
@@ -103,6 +104,28 @@ def gcs_builder(builder, tmp_gcs_url_prefix):
     builder.set("core__persistent_cache__gcs__enabled", True)
 
     return builder
+
+
+@pytest.fixture
+def fake_aip_builder(gcs_builder, gcs_url_stem):
+    gcs_builder.set("core__aip_execution__enabled", True)
+    # TODO: This is really a hack to make fake AIP tests work. We need
+    # to  specify a real project for input and output uri for AIP task.
+    # In future, we should change this so that the executor specifies
+    # the input and output uris instead. It could also be indicative of
+    # the fact that maybe we should use the gcs bucket for input and
+    # output uri instead of the AIP project (and use project only for
+    # AIP jobs).
+    assert gcs_url_stem.startswith("gs://")
+    project = gcs_url_stem[5:]
+    gcs_builder.set("core__aip_execution__gcp_project_name", project)
+
+    @gcs_builder
+    @bn.immediate
+    def core__aip_executor(core__aip_execution__config):
+        return FakeAipExecutor(core__aip_execution__config)
+
+    return gcs_builder
 
 
 @pytest.fixture(scope="function")
