@@ -8,6 +8,7 @@ import re
 
 from bionic.descriptors import ast
 from bionic.descriptors.parsing import dnode_from_descriptor
+from bionic.exception import CodeVersioningError
 from bionic.utils.misc import single_element, single_unique_element
 import bionic as bn
 
@@ -47,23 +48,29 @@ class ModelFlowHarness:
 
     def __init__(self, builder, make_list):
         self._builder = builder
+        self._versioning_mode = "manual"
 
         self._entities_by_name = {}
 
         self._descriptors_computed_by_flow = make_list()
         self._descriptors_computed_by_model = make_list()
 
+    def set_versioning_mode(self, mode):
+        assert mode in ("manual", "assist", "auto")
+        self._versioning_mode = mode
+        self._builder.set("core__versioning_mode", mode)
+
     def get_all_entity_names(self):
         return list(self._entities_by_name.keys())
 
-    def create_entity(self, should_persist):
+    def create_entity(self, should_persist=True):
         name = f"e{len(self._entities_by_name) + 1}"
         entity = ModelEntity(name=name, should_persist=should_persist)
         assert name not in self._entities_by_name
         self._entities_by_name[name] = entity
         return name
 
-    def add_binding(self, out_descriptor, dep_entity_names, use_tuples_for_output):
+    def add_binding(self, out_descriptor, dep_entity_names, use_tuples_for_output=True):
         out_dnode = dnode_from_descriptor(out_descriptor)
         out_entities = list(
             map(self._entities_by_name.get, out_dnode.all_entity_names())
@@ -87,24 +94,79 @@ class ModelFlowHarness:
 
         self._add_binding_to_flow(binding)
 
-    def update_binding(self, entity_name):
+    def update_binding(
+        self,
+        entity_name,
+        change_func_version=True,
+        update_version_annotation=True,
+    ):
         entity = self._entities_by_name[entity_name]
-        entity.binding.update_func_version()
+        entity.binding.update(
+            change_func=change_func_version,
+            update_annotation=update_version_annotation,
+            versioning_mode=self._versioning_mode,
+        )
 
         self._add_binding_to_flow(entity.binding)
 
     def query_and_check_entity(self, entity_name):
         flow = self._builder.build()
-        flow_value = flow.get(entity_name)
 
-        model_value = self._compute_model_value(entity_name)
+        flow_exception = None
+        try:
+            flow_value = flow.get(entity_name)
+        except CodeVersioningError as e:
+            flow_exception = e
 
-        assert flow_value == model_value
+        model_exception = None
+        try:
+            model_value = self._compute_model_value(entity_name)
+        except CodeVersioningError as e:
+            model_exception = e
+
+        assert (flow_exception is None) == (model_exception is None)
+
+        if model_exception is None:
+            assert flow_value == model_value
+
+        else:
+            assert flow_exception.__class__ == model_exception.__class__
+
+            # Now we know that a CodeVersioningError has been thrown, we'll try to get
+            # the flow back into a good state by fixing the versioning error. We can
+            # pick any of the entities mentioned in the error, since they're all set
+            # by the same binding. We'll keep recursively retrying until all the errors
+            # are fixed and the query succeeds. At that point both the real flow and the
+            # model flow should have computed and persisted the same set of descriptors,
+            # so we'll be back in a known-good state.
+            # (That's why we do the fixing inside this function instead of leaving it
+            # to the caller: it's a little awkward, but it lets us guarantee that both
+            # flows will be in sync by the time we return.)
+
+            # It would be nice if we could also assert that both exceptions have the
+            # same `bad_descriptor` field, but if there are multiple bad descriptors,
+            # which one we get first is not defined. In theory we could, after fixing
+            # everything, check that the sets of bad descriptors matched, but I'm not
+            # sure it's worth the extra bookkeeping.
+            bad_entity_name = dnode_from_descriptor(
+                model_exception.bad_descriptor
+            ).all_entity_names()[0]
+            self.update_binding(
+                entity_name=bad_entity_name,
+                change_func_version=False,
+                update_version_annotation=True,
+            )
+
+            self.query_and_check_entity(entity_name)
+
         assert set(self._descriptors_computed_by_flow) == set(
             self._descriptors_computed_by_model
         )
-
         self._clear_called_descriptors()
+
+    # This is just used for debugging.
+    def save_dag(self, filename):
+        self._builder.build().render_dag().save(filename)
 
     def _add_binding_to_flow(self, binding):
         out_entity_names = [entity.name for entity in binding.out_entities]
@@ -113,31 +175,30 @@ class ModelFlowHarness:
 
         # TODO Could this logic live inside ModelBinding instead?
         if binding.use_tuples_for_output:
-            compute_func = binding.compute_value_for_returns
             output_decorator_fragment = f"""
             @bn.returns({binding.out_descriptor!r})
             """.strip()
+            output_value_fragment = binding.value_code_fragment_for_returns()
         else:
-            compute_func = binding.compute_value_for_outputs
             output_decorator_fragment = f"""
             @bn.outputs({', '.join(repr(name) for name in out_entity_names)})
             """.strip()
+            output_value_fragment = binding.value_code_fragment_for_outputs()
 
         vars_dict = {
             "bn": bn,
             "builder": self._builder,
             "record_call": self._descriptors_computed_by_flow.append,
-            "compute_value": compute_func,
         }
 
         raw_func_code = f"""
         @builder
         {output_decorator_fragment}
-        @bn.version({binding.func_version})
+        @bn.version({binding.annotated_func_version})
         @bn.persist({binding.should_persist})
         def _({joined_dep_entity_names}):
             record_call({binding.out_descriptor!r})
-            return compute_value([{joined_dep_entity_names}])
+            return {output_value_fragment}
         """
         exec(dedent(raw_func_code), vars_dict)
 
@@ -159,6 +220,10 @@ class ModelFlowHarness:
             self._descriptors_computed_by_model.append(binding.out_descriptor)
 
         else:
+            if binding.persisted_values_stale_ancestor is not None:
+                assert self._versioning_mode == "assist"
+                stale_ancestor = binding.persisted_values_stale_ancestor
+                raise CodeVersioningError("Binding is stale", stale_ancestor)
             values_by_entity_name = binding.persisted_values_by_entity_name
 
         memoized_values_by_entity_name.update(values_by_entity_name)
@@ -182,6 +247,13 @@ class ModelEntity:
     def compute_value(self, dep_values):
         return f"{self.name}.{self.binding.func_version}({','.join(dep_values)})"
 
+    def value_code_fragment(self):
+        return (
+            f"'{self.name}.{self.binding.func_version}('"
+            + " + ',' ".join(f"+ {name}" for name in self.binding.dep_entity_names)
+            + " + ')'"
+        )
+
 
 @attr.s
 class ModelBinding:
@@ -194,21 +266,77 @@ class ModelBinding:
     dep_entity_names = attr.ib()
     use_tuples_for_output = attr.ib()
     func_version = attr.ib(default=1)
+    annotated_func_version = attr.ib(default=1)
 
     has_persisted_values = attr.ib(default=False)
     persisted_values_by_entity_name = attr.ib(default=None)
-    some_descendant_might_have_persisted_values = attr.ib(default=False)
+    persisted_values_stale_ancestor = attr.ib(default=None)
 
-    def update_func_version(self):
-        self.func_version += 1
-        self.invalidate_persisted_values()
+    no_descendant_can_have_persisted_values = attr.ib(default=True)
+    no_descendant_can_have_stale_persisted_values = attr.ib(default=True)
 
-    def compute_value_for_outputs(self, dep_values):
-        return tuple(
-            out_entity.compute_value(dep_values) for out_entity in self.out_entities
+    def update(self, change_func, update_annotation, versioning_mode):
+        func_changed = False
+        annotation_changed = False
+        if change_func:
+            self.func_version += 1
+            func_changed = True
+        if update_annotation and self.annotated_func_version != self.func_version:
+            self.annotated_func_version = self.func_version
+            annotation_changed = True
+
+        if versioning_mode == "manual":
+            if annotation_changed:
+                self.clear_persisted_values()
+
+        elif versioning_mode == "assist":
+            if annotation_changed:
+                self.clear_persisted_values()
+            elif func_changed:
+                stale_ancestor = self.out_entities[0].name
+                self.mark_persisted_values_stale(stale_ancestor)
+
+        elif versioning_mode == "auto":
+            if func_changed or annotation_changed:
+                self.clear_persisted_values()
+
+        else:
+            assert False
+
+    def clear_persisted_values(self):
+        if self.no_descendant_can_have_persisted_values:
+            return
+
+        if self.has_persisted_values:
+            self.has_persisted_values = False
+            self.persisted_values_by_entity_name = None
+
+        for out_entity in self.out_entities:
+            for dependent_entity in out_entity.dependent_entities:
+                dependent_entity.binding.clear_persisted_values()
+
+        self.no_descendant_can_have_persisted_values = True
+        self.no_descendant_can_have_stale_persisted_values = True
+
+    def mark_persisted_values_stale(self, stale_ancestor):
+        if self.no_descendant_can_have_stale_persisted_values:
+            return
+
+        if self.has_persisted_values and self.persisted_values_stale_ancestor is None:
+            self.persisted_values_stale_ancestor = stale_ancestor
+
+        for out_entity in self.out_entities:
+            for dependent_entity in out_entity.dependent_entities:
+                dependent_entity.binding.mark_persisted_values_stale(stale_ancestor)
+
+        self.no_descendant_can_have_stale_persisted_values = True
+
+    def value_code_fragment_for_outputs(self):
+        return " ".join(
+            f"({entity.value_code_fragment()})," for entity in self.out_entities
         )
 
-    def compute_value_for_returns(self, dep_values, out_dnode=None):
+    def value_code_fragment_for_returns(self, out_dnode=None):
         if out_dnode is None:
             out_dnode = self.out_dnode
 
@@ -217,11 +345,11 @@ class ModelBinding:
             entity = single_element(
                 entity for entity in self.out_entities if entity.name == entity_name
             )
-            return entity.compute_value(dep_values)
+            return entity.value_code_fragment()
 
         elif isinstance(out_dnode, ast.TupleNode):
-            return tuple(
-                self.compute_value_for_returns(dep_values, out_dnode=child_dnode)
+            return " ".join(
+                f"({self.value_code_fragment_for_returns(child_dnode)}),"
                 for child_dnode in out_dnode.children
             )
 
@@ -235,19 +363,11 @@ class ModelBinding:
         }
         if self.should_persist:
             self.persisted_values_by_entity_name = values_by_entity_name
+            self.persisted_values_stale_ancestor = None
             self.has_persisted_values = True
-        self.some_descendant_might_have_persisted_values = True
+        self.no_descendant_can_have_persisted_values = False
+        self.no_descendant_can_have_stale_persisted_values = False
         return values_by_entity_name
-
-    def invalidate_persisted_values(self):
-        if not self.some_descendant_might_have_persisted_values:
-            return
-        self.has_persisted_values = False
-        self.persisted_values_by_entity_name = None
-        for out_entity in self.out_entities:
-            for dependent_entity in out_entity.dependent_entities:
-                dependent_entity.binding.invalidate_persisted_values()
-        self.some_descendant_might_have_persisted_values = False
 
     @property
     def out_descriptor(self):
@@ -279,6 +399,15 @@ class RandomFlowTestConfig:
     p_three_out_given_multi: float between 0 and 1
         The probability that any multi-output binding should output three entities
         instead of two.
+    p_update_version_annotation: float between 0 and 1
+        The probability that a binding's version annotation will be updated when its
+        definition is changed.
+    use_tuples_for_output: bool
+        If True, all definitions use ``@returns`` and may include nested tuples; if
+        False, all definitions use ``@outputs`` and nested tuples are flattened into
+        single-level tuples.
+    versioning_mode: "manual", "assist", or "auto"
+        Determines the value of ``core__versioning_mode`` in the tested flow.
     """
 
     n_bindings = attr.ib()
@@ -286,7 +415,9 @@ class RandomFlowTestConfig:
     p_persist = attr.ib(default=0.5)
     p_multi_out = attr.ib(default=0.3)
     p_three_out_given_multi = attr.ib(default=0.3)
+    p_update_version_annotation = attr.ib(default=1.0)
     use_tuples_for_output = attr.ib(default=True)
+    versioning_mode = attr.ib(default="manual")
 
 
 class RandomFlowTester:
@@ -314,6 +445,8 @@ class RandomFlowTester:
         self._child_counts_by_entity_name = {}
 
     def run(self):
+        self._harness.set_versioning_mode(self._config.versioning_mode)
+
         for _ in range(self._config.n_bindings):
             self.add_random_binding()
         for _ in range(self._config.n_iterations):
@@ -334,7 +467,11 @@ class RandomFlowTester:
 
     def update_random_entity(self):
         entity_name = self._random_existing_entity_name()
-        self._harness.update_binding(entity_name)
+        update_annotation = self._random_bool(self._config.p_update_version_annotation)
+        self._harness.update_binding(
+            entity_name=entity_name,
+            update_version_annotation=update_annotation,
+        )
 
     def query_and_check_random_entity(self):
         entity_name = self._random_existing_entity_name()
@@ -416,6 +553,26 @@ def harness(builder, make_list):
     return ModelFlowHarness(builder, make_list)
 
 
+# This test is mostly here as an example of how to use the harness in a deterministic
+# setting. It's a useful starting point for creating simple tests cases for debugging.
+def test_harness(harness):
+    harness.set_versioning_mode("assist")
+
+    e1 = harness.create_entity()
+    harness.add_binding(e1, [])
+
+    e2 = harness.create_entity()
+    harness.add_binding(e2, [e1])
+
+    e3 = harness.create_entity()
+    harness.add_binding(e3, [e2])
+
+    harness.query_and_check_entity(e3)
+
+    harness.update_binding(e1, update_version_annotation=False)
+    harness.query_and_check_entity(e3)
+
+
 def test_random_flow_small(harness):
     config = RandomFlowTestConfig(n_bindings=10, n_iterations=20)
     RandomFlowTester(harness, config).run()
@@ -431,6 +588,21 @@ def test_random_flow_varied(harness, n_bindings, n_iterations, p_persist, p_mult
         n_iterations=n_iterations,
         p_persist=p_persist,
         p_multi_out=p_multi_out,
+    )
+    RandomFlowTester(harness, config).run()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("n_bindings, n_iterations", [(10, 20), (50, 50)])
+@pytest.mark.parametrize("versioning_mode", ["manual", "assist", "auto"])
+def test_random_flow_versioning(harness, n_bindings, n_iterations, versioning_mode):
+    config = RandomFlowTestConfig(
+        n_bindings=n_bindings,
+        n_iterations=n_iterations,
+        p_persist=0.7,
+        p_update_version_annotation=0.5,
+        p_multi_out=0.3,
+        versioning_mode=versioning_mode,
     )
     RandomFlowTester(harness, config).run()
 

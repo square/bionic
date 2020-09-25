@@ -28,7 +28,9 @@ class UnsupportedSerializedValueError(Exception):
 
 
 class CodeVersioningError(Exception):
-    pass
+    def __init__(self, message, bad_descriptor):
+        super(CodeVersioningError, self).__init__(message)
+        self.bad_descriptor = bad_descriptor
 
 
 class EntitySerializationError(Exception):

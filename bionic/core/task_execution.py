@@ -729,7 +729,7 @@ class TaskState:
                         function's behavior has changed, or @version(minor=)
                         to indicate that it has *not* changed.
                         """
-                    raise CodeVersioningError(oneline(message))
+                    raise CodeVersioningError(oneline(message), new_prov.descriptor)
                 # If the provenances nominally match, they must have essentially the
                 # same structure.
                 assert len(old_prov.dep_digests) == len(new_prov.dep_digests)
