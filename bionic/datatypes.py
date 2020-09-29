@@ -264,11 +264,24 @@ class CodeVersion:
 class CodeFingerprint:
     """
     A collection of characteristics attempting to uniquely identify a function.
+
+    Attributes
+    ----------
+    version: CodeVersion
+        A version identifier provided by the user.
+    bytecode_hash: str
+        A hash of the function's Python bytecode.
+    orig_flow_name: str
+        The name of the flow in which this function was originally defined.
+    is_identity: bool
+        If True, indicates that this function is equivalent to the identity function:
+        it takes one argument and returns it unchanged.
     """
 
     version: CodeVersion = attr.ib()
     bytecode_hash: str = attr.ib()
     orig_flow_name: str = attr.ib()
+    is_identity: bool = attr.ib(default=False)
 
 
 @attr.s(frozen=True)

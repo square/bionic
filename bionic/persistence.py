@@ -1007,34 +1007,43 @@ class Provenance:
             dep_digest
             for _, dep_digest in sorted(dep_provenance_digests_by_task_key.items())
         ]
-        functional_hash = hash_simple_obj_to_hex(
-            [
-                [dep_digest.functional_hash for dep_digest in sorted_dep_digests],
-                code_fingerprint.orig_flow_name,
-                code_fingerprint.version.major,
-                CACHE_SCHEMA_VERSION,
-                (
-                    code_fingerprint.bytecode_hash
-                    if treat_bytecode_as_functional
-                    else None
-                ),
-                (flow_instance_uuid if can_functionally_change_per_run else None),
-            ]
-        )
-        nominal_hash = hash_simple_obj_to_hex(
-            [
-                functional_hash,
-                [dep_digest.nominal_hash for dep_digest in sorted_dep_digests],
-                code_fingerprint.version.minor,
-            ]
-        )
-        exact_hash = hash_simple_obj_to_hex(
-            [
-                nominal_hash,
-                [dep_digest.exact_hash for dep_digest in sorted_dep_digests],
-                code_fingerprint.bytecode_hash,
-            ]
-        )
+
+        if code_fingerprint.is_identity:
+            (dep_digest,) = sorted_dep_digests
+
+            functional_hash = dep_digest.functional_hash
+            nominal_hash = dep_digest.nominal_hash
+            exact_hash = dep_digest.exact_hash
+
+        else:
+            functional_hash = hash_simple_obj_to_hex(
+                [
+                    [dep_digest.functional_hash for dep_digest in sorted_dep_digests],
+                    code_fingerprint.orig_flow_name,
+                    code_fingerprint.version.major,
+                    CACHE_SCHEMA_VERSION,
+                    (
+                        code_fingerprint.bytecode_hash
+                        if treat_bytecode_as_functional
+                        else None
+                    ),
+                    (flow_instance_uuid if can_functionally_change_per_run else None),
+                ]
+            )
+            nominal_hash = hash_simple_obj_to_hex(
+                [
+                    functional_hash,
+                    [dep_digest.nominal_hash for dep_digest in sorted_dep_digests],
+                    code_fingerprint.version.minor,
+                ]
+            )
+            exact_hash = hash_simple_obj_to_hex(
+                [
+                    nominal_hash,
+                    [dep_digest.exact_hash for dep_digest in sorted_dep_digests],
+                    code_fingerprint.bytecode_hash,
+                ]
+            )
 
         return cls(
             descriptor=task_key.dnode.to_descriptor(),
