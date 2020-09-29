@@ -154,7 +154,7 @@ class TaskRunnerEntry:
         dep_values = [dep_result.value for dep_result in dep_results]
 
         # If we have any missing outputs, exit early with a missing result.
-        if state.output_would_be_missing():
+        if state.output_would_be_missing:
             result = Result(query=query, value=None, value_is_missing=True)
             value_hash = ""
             # TODO Should we do this even when memoization is disabled?
@@ -386,9 +386,6 @@ class EntryPriority(IntEnum):
     HIGH = auto()
 
 
-# TODO Let's reorder the methods here with this order:
-# 1. First public, then private.
-# 2. Rough chronological order.
 class TaskState:
     """
     Represents the state of a task computation.  Keeps track of its position in
@@ -446,6 +443,8 @@ class TaskState:
         # This can be set by get_cached_result() or compute().
         self._result = None
 
+    # -- Properties and magic methods.
+
     @property
     def should_cache(self):
         return self.should_memoize or self.should_persist
@@ -464,104 +463,95 @@ class TaskState:
         """
         return self._result_value_hash is not None
 
+    @property
     def output_would_be_missing(self):
         return self.task_key.case_key.has_missing_values
 
     def __repr__(self):
         return f"TaskState({self.task!r})"
 
-    def get_cached_result(self, task_key_logger):
-        "Returns the result of an already-computed task state."
+    # -- Public methods.
 
-        assert self.is_cached
-
-        if self._result is not None:
-            task_key_logger.log_accessed_from_memory(self.task_key)
-            return self._result
-
-        result = self._cache_accessor.load_result()
-        task_key_logger.log_loaded_from_disk(result.query.task_key)
-
-        # Make sure the result is saved in all caches under this exact query.
-        self._cache_accessor.save_result(result)
-
-        if self.should_memoize:
-            self._result = result
-
-        return result
-
-    def attempt_to_access_persistent_cached_value(self):
+    def set_up_caching_flags(self, bootstrap):
         """
-        Loads the hash of the persisted value for this task, if it exists.
-
-        If the persisted value is available in the cache, this object's `is_cached`
-        property will become True. Otherwise, nothing will happen.
-        """
-        assert self.is_initialized
-        assert not self.is_cached
-
-        if not self.should_persist:
-            return
-        if not self._cache_accessor.can_load():
-            return
-
-        self._load_value_hash()
-
-    def refresh_all_persistent_cache_state(self, bootstrap):
-        """
-        Refreshes all state that depends on the persistent cache.
-
-        This is useful if the external cache state might have changed since we last
-        worked with this task.
+        Configures the flags indicating what kind of caching (memoization and/or
+        persistence) should be applied to this task's output.
         """
 
-        # If this task state is not initialized or not persisted, there's nothing to
-        # refresh.
-        if not self.is_initialized or not self.should_persist:
+        # Setting up the flags is cheap, but it can result in warnings that we don't
+        # need to emit multiple times.
+        if self._are_caching_flags_set_up:
             return
 
-        self.refresh_cache_accessor(bootstrap)
-
-        # If we haven't loaded anything from the cache, we can stop here.
-        if self._result_value_hash is None:
-            return
-
-        # Otherwise, let's update our value hash from the cache.
-        if self._cache_accessor.can_load():
-            self._load_value_hash()
+        if self.entity_def.optional_should_memoize is not None:
+            should_memoize = self.entity_def.optional_should_memoize
+        elif bootstrap is not None:
+            should_memoize = bootstrap.should_memoize_default
         else:
-            self._result_value_hash = None
+            should_memoize = True
+        if self.entity_def.needs_caching and not should_memoize:
+            # TODO Here we require that all non-deterministic values be memoized, but it
+            # would probably also be okay if they were persisted instead; we could
+            # change this check to only trigger if persistence is not enabled.
+            descriptor = self.task_key.dnode.to_descriptor()
+            if bootstrap is None or bootstrap.should_memoize_default:
+                fix_message = (
+                    "removing `memoize(False)` from the corresponding function"
+                )
+            else:
+                fix_message = "applying `@memoize(True)` to the corresponding function"
+            message = f"""
+            Descriptor {descriptor!r} isn't configured to be memoized but
+            is decorated with @changes_per_run. We will memoize it anyway:
+            since @changes_per_run implies that this value can have a different
+            value each time it’s computed, we need to memoize its value to make
+            sure it’s consistent across the entire flow. To avoid this warning,
+            enable memoization for the descriptor by {fix_message!r}."""
+            warnings.warn(oneline(message))
+            should_memoize = True
+        self.should_memoize = should_memoize
 
-    def sync_after_remote_computation(self):
-        """
-        Syncs the task state by populating and reloading data in the current process
-        after completing the task state in a subprocess.
+        if self.output_would_be_missing:
+            should_persist = False
+        elif self.entity_def.optional_should_persist is not None:
+            should_persist = self.entity_def.optional_should_persist
+        elif bootstrap is not None:
+            should_persist = bootstrap.should_persist_default
+        else:
+            should_persist = False
+        if should_persist and bootstrap is None:
+            descriptor = self.task_key.dnode.to_descriptor()
+            if self.task.is_simple_lookup:
+                disable_message = """
+                applying `@persist(False)` or `@immediate` to the corresponding
+                function"""
+            else:
+                disable_message = """
+                passing `persist=False` when you `declare` / `assign` the entity
+                values"""
+            message = f"""
+            Descriptor {descriptor!r} is set to be persisted, but it can't be
+            because core bootstrap entities depend on it.
+            The corresponding value will not be serialized and deserialized,
+            which may cause that value to be subtly different.
+            To avoid this warning, disable persistence by {disable_message}."""
+            # TODO We should choose between `logger.warn` and `warnings.warn` and use
+            # one consistently.
+            logger.warn(message)
+            should_persist = False
+        self.should_persist = should_persist
 
-        This is necessary because values populated in the task state are not
-        communicated back from the subprocess.
-        """
+        if self.should_persist:
+            assert len(self.followup_states) == 0
 
-        # If this state was never initialized, it doesn't have any out-of-date
-        # information, so there's no need to update anything.
-        if not self.is_initialized:
-            return
-
-        assert self.should_persist
-
-        # First, let's flush the stored entries in our cache accessor. Since we just
-        # computed this entry in a subprocess, there should be a new cache entry that
-        # isn't reflected yet in our local accessor.
-        # (We don't just call self.refresh_cache_accessors() because we don't
-        # particularly want to do the cache versioning check -- it's a little late to
-        # do anything if it fails now.)
-        self._cache_accessor.flush_stored_entries()
-
-        # Then, populate the value hashes.
-        if self._result_value_hash is None:
-            self._load_value_hash()
+        self._are_caching_flags_set_up = True
 
     def initialize(self, bootstrap, flow_instance_uuid):
-        "Initializes the task state to get it ready for completion."
+        """
+        Initializes the task state to get it ready for completion.
+
+        Assumes that all dependency TaskStates have provenance digests available.
+        """
 
         if self.is_initialized:
             return
@@ -602,80 +592,103 @@ class TaskState:
 
         # Lastly, set up cache accessors.
         if self.should_persist:
-            self.refresh_cache_accessor(bootstrap)
+            self._refresh_cache_accessor(bootstrap)
 
         self.is_initialized = True
 
-    def set_up_caching_flags(self, bootstrap):
-        # Setting up the flags is cheap, but it can result in warnings that we don't
-        # need to emit multiple times.
-        if self._are_caching_flags_set_up:
+    def attempt_to_access_persistent_cached_value(self):
+        """
+        Loads the hash of the persisted value for this task, if it exists.
+
+        If the persisted value is available in the cache, this object's `is_cached`
+        property will become True. Otherwise, nothing will happen.
+        """
+        assert self.is_initialized
+        assert not self.is_cached
+
+        if not self.should_persist:
+            return
+        if not self._cache_accessor.can_load():
             return
 
-        if self.entity_def.optional_should_memoize is not None:
-            should_memoize = self.entity_def.optional_should_memoize
-        elif bootstrap is not None:
-            should_memoize = bootstrap.should_memoize_default
+        self._load_value_hash()
+
+    def get_cached_result(self, task_key_logger):
+        "Returns the result of an already-computed task state."
+
+        assert self.is_cached
+
+        if self._result is not None:
+            task_key_logger.log_accessed_from_memory(self.task_key)
+            return self._result
+
+        result = self._cache_accessor.load_result()
+        task_key_logger.log_loaded_from_disk(result.query.task_key)
+
+        # Make sure the result is saved in all caches under this exact query.
+        self._cache_accessor.save_result(result)
+
+        if self.should_memoize:
+            self._result = result
+
+        return result
+
+    def refresh_all_persistent_cache_state(self, bootstrap):
+        """
+        Refreshes all state that depends on the persistent cache.
+
+        This is useful if the external cache state might have changed since we last
+        worked with this task.
+        """
+
+        # If this task state is not initialized or not persisted, there's nothing to
+        # refresh.
+        if not self.is_initialized or not self.should_persist:
+            return
+
+        self._refresh_cache_accessor(bootstrap)
+
+        # If we haven't loaded anything from the cache, we can stop here.
+        if self._result_value_hash is None:
+            return
+
+        # Otherwise, let's update our value hash from the cache.
+        if self._cache_accessor.can_load():
+            self._load_value_hash()
         else:
-            should_memoize = True
-        if self.entity_def.needs_caching and not should_memoize:
-            # TODO Here we require that all non-deterministic values be memoized, but it
-            # would probably also be okay if they were persisted instead; we could
-            # change this check to only trigger if persistence is not enabled.
-            descriptor = self.task_key.dnode.to_descriptor()
-            if bootstrap is None or bootstrap.should_memoize_default:
-                fix_message = (
-                    "removing `memoize(False)` from the corresponding function"
-                )
-            else:
-                fix_message = "applying `@memoize(True)` to the corresponding function"
-            message = f"""
-            Descriptor {descriptor!r} isn't configured to be memoized but
-            is decorated with @changes_per_run. We will memoize it anyway:
-            since @changes_per_run implies that this value can have a different
-            value each time it’s computed, we need to memoize its value to make
-            sure it’s consistent across the entire flow. To avoid this warning,
-            enable memoization for the descriptor by {fix_message!r}."""
-            warnings.warn(oneline(message))
-            should_memoize = True
-        self.should_memoize = should_memoize
+            self._result_value_hash = None
 
-        if self.output_would_be_missing():
-            should_persist = False
-        elif self.entity_def.optional_should_persist is not None:
-            should_persist = self.entity_def.optional_should_persist
-        elif bootstrap is not None:
-            should_persist = bootstrap.should_persist_default
-        else:
-            should_persist = False
-        if should_persist and bootstrap is None:
-            descriptor = self.task_key.dnode.to_descriptor()
-            if self.task.is_simple_lookup:
-                disable_message = """
-                applying `@persist(False)` or `@immediate` to the corresponding
-                function"""
-            else:
-                disable_message = """
-                passing `persist=False` when you `declare` / `assign` the entity
-                values"""
-            message = f"""
-            Descriptor {descriptor!r} is set to be persisted, but it can't be
-            because core bootstrap entities depend on it.
-            The corresponding value will not be serialized and deserialized,
-            which may cause that value to be subtly different.
-            To avoid this warning, disable persistence by {disable_message}."""
-            # TODO We should choose between `logger.warn` and `warnings.warn` and use
-            # one consistently.
-            logger.warn(message)
-            should_persist = False
-        self.should_persist = should_persist
+    def sync_after_remote_computation(self):
+        """
+        Syncs the task state by populating and reloading data in the current process
+        after completing the task state in a subprocess.
 
-        if self.should_persist:
-            assert len(self.followup_states) == 0
+        This is necessary because values populated in the task state are not
+        communicated back from the subprocess.
+        """
 
-        self._are_caching_flags_set_up = True
+        # If this state was never initialized, it doesn't have any out-of-date
+        # information, so there's no need to update anything.
+        if not self.is_initialized:
+            return
 
-    def refresh_cache_accessor(self, bootstrap):
+        assert self.should_persist
+
+        # First, let's flush the stored entries in our cache accessor. Since we just
+        # computed this entry in a subprocess, there should be a new cache entry that
+        # isn't reflected yet in our local accessor.
+        # (We don't just call self._refresh_cache_accessor() because we don't
+        # particularly want to do the cache versioning check -- it's a little late to
+        # do anything if it fails now.)
+        self._cache_accessor.flush_stored_entries()
+
+        # Then, populate the value hashes.
+        if self._result_value_hash is None:
+            self._load_value_hash()
+
+    # -- Private helpers.
+
+    def _refresh_cache_accessor(self, bootstrap):
         """
         Initializes the cache acessor for this task state.
 
@@ -709,10 +722,10 @@ class TaskState:
             # user must changed a function's bytecode but not its version. To report
             # this, we first need to figure out which function changed. It could be
             # the one for this task, or it could be any immediate non-persisted
-            # ancestor of this one. Fortunately, each provenance contains links to each of
-            # its dependency digests, and a digest of non-persisted value contains that
-            # value's provenance, so we can recursively search through our ancestor
-            # provenances until we find which one caused the mismatch.
+            # ancestor of this one. Fortunately, each provenance contains links to each
+            # of its dependency digests, and a digest of non-persisted value contains
+            # that value's provenance, so we can recursively search through our
+            # ancestor provenances until we find which one caused the mismatch.
             def locate_mismatched_provenances_and_raise(old_prov, new_prov):
                 assert old_prov.nominally_matches(new_prov)
                 # If the bytecode doesn't match, we found the problematic pair.
