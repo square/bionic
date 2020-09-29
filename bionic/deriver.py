@@ -2,6 +2,8 @@
 Contains the core logic for resolving Entities by executing Tasks.
 """
 
+from collections import defaultdict
+
 import attr
 
 from .datatypes import ResultGroup, EntityDefinition, TaskKey
@@ -11,8 +13,12 @@ from .deps.optdep import import_optional_dependency
 from .exception import UndefinedEntityError
 from .core.flow_execution import TaskCompletionRunner, TaskKeyLogger
 from .core.task_execution import TaskState
-from .protocols import TupleProtocol
-from .provider import TupleConstructionProvider, TupleDeconstructionProvider
+from .protocols import TupleProtocol, NonSerializableObjectProtocol
+from .provider import (
+    TupleConstructionProvider,
+    TupleDeconstructionProvider,
+    PassthroughProvider,
+)
 from .utils.misc import oneline
 
 
@@ -39,6 +45,9 @@ class EntityDeriver:
         # For many dnodes, we can precompute the appropriate provider ahead of time.
         # This is set by _register_static_providers().
         self._static_providers_by_dnode = None
+        # For some dnodes (namely, those containing drafts), computing them should
+        # cause us to automatically compute some additional dnodes.
+        self._followup_dnode_lists_by_dnode = None
 
         # These are used to cache DescriptorInfo and TaskState objects, respectively.
         self._saved_dinfos_by_dnode = {}
@@ -72,7 +81,7 @@ class EntityDeriver:
         self.get_ready()
         return self._compute_result_group_for_dnode(dnode)
 
-    def export_dag(self, include_core=False):
+    def export_dag(self, include_core=False, _include_detail=False):
         """
         Constructs a NetworkX graph corresponding to the DAG of tasks.  There
         is one node per task key -- i.e., for each artifact that can be created
@@ -88,11 +97,31 @@ class EntityDeriver:
         """
         nx = import_optional_dependency("networkx", purpose="constructing the flow DAG")
 
-        def should_include_dnode(dnode):
-            if include_core:
-                return True
+        # We only want to include certain nodes in the visualization: generally the ones
+        # corresponding to user-defined functions and/or entities. (These are usually
+        # the same, but not when a user function returns a more complex descriptor.) For
+        # other nodes, we "collapse" them: we delete the node and connect each of its
+        # parents to each of its children.
+        def should_collapse_dnode(dnode):
+            if not include_core:
+                descriptor_includes_non_core = any(
+                    not entity_is_internal(entity_name)
+                    for entity_name in dnode.all_entity_names()
+                )
+                if not descriptor_includes_non_core:
+                    return True
+
+            if _include_detail:
+                return False
+
             if isinstance(dnode, ast.EntityNode):
-                return not entity_is_internal(dnode.to_entity_name())
+                return False
+
+            if isinstance(dnode, ast.DraftNode) and not isinstance(
+                dnode.child, ast.EntityNode
+            ):
+                return False
+
             return True
 
         self.get_ready()
@@ -101,17 +130,16 @@ class EntityDeriver:
 
         dnodes_to_add_to_graph = list(self._get_base_dnodes())
         dnodes_already_added = set()
+        graph_nodes_to_collapse = set()
         while dnodes_to_add_to_graph:
             dnode = dnodes_to_add_to_graph.pop()
             if dnode in dnodes_already_added:
                 continue
 
-            if not should_include_dnode(dnode):
-                continue
-
             tasks = self._get_or_create_dinfo_for_dnode(dnode).tasks
             descriptor = dnode.to_descriptor()
             doc = self._obtain_entity_def_for_dnode(dnode).doc
+            should_collapse = should_collapse_dnode(dnode)
 
             for task_ix, task in enumerate(
                 sorted(tasks, key=lambda task: task.key.case_key)
@@ -137,7 +165,16 @@ class EntityDeriver:
                     graph.add_edge(dep_task_key, task.key)
                     dnodes_to_add_to_graph.append(dep_task_key.dnode)
 
+                if should_collapse:
+                    graph_nodes_to_collapse.add(task.key)
+
             dnodes_already_added.add(dnode)
+
+        for node in graph_nodes_to_collapse:
+            for pred_node in graph.predecessors(node):
+                for succ_node in graph.successors(node):
+                    graph.add_edge(pred_node, succ_node)
+            graph.remove_node(node)
 
         return graph
 
@@ -147,41 +184,112 @@ class EntityDeriver:
         """
         Precomputes an appropriate provider for each the following descriptor nodes:
 
-        1. Any descriptor explicitly provided by a user-supplied function.
+        1. Any descriptor explicitly provided by a user-supplied function. (Note that
+           these are always draft descriptors: if the user provides the descriptor
+           "x, y", we will internally provide it as "<x, y>").
         2. Any descriptor which can be obtained by decomposing one of the first types of
-        descriptors. (E.g., if a user function provides the descriptor "x, (y, z)",
-        we will also precompute a provider for "x"; "y, z"; "y"; and "z".)
+           descriptors. (So if a user function provides the descriptor "<x, y>",
+           we will also precompute providers for "<x>, <y>"; "<x>"; "x"; "<y>"; and
+           "y".)
 
-        This includes every entity descriptor that can be computed. The remaining
-        descriptors are all tuples, so it's easy to generate providers for them
-        just-in-time because they're composed from other descriptors. (For example,
-        in the example above, it's easy to make a provider for "x, y" because we know
-        that "x" and "y" must be precomputed. However, finding a provider
-        just-in-time for "z" would require a backtracking search, which is why we
-        precompute it instead.)
+        These include every entity descriptor that can be computed, and every draft
+        descriptor that we might need. Later, if we need any other descriptor, we'll
+        generate the provider "just-in-time". Currently the only other providers we
+        might need are tuples, which are easy to construct because they're composed
+        of other descriptors. (For example, if we later want the descriptor "y, x",
+        it's easy to generate the provider because we know that "x" and "y" must be
+        precomputed. However, if we want an entity "z" that comes from a provided "x,
+        (y, z)", that's hard to figure out without iterating over all known
+        providers, which is why we precompute it instead.)
 
         The just-in-time computation happens in _obtain_provider_for_dnode().
+
+        Currently, all of the providers of type 2 (above) act on descriptors that are
+        or contain drafts. We mark these transformations as "followups", which means
+        that anytime their input descriptor is computed, we immediately apply the
+        transformation to compute the output descriptor as well. This chain reaction
+        ends once we've generated all the individual entities in the descriptor,
+        which are the only thing that we'll use in the future. (Draft descriptors are
+        only used as intermediate values for these automatic transformations; they
+        never get requested by any other part of the system.) The result is that
+        every entity gets persisted and/or memoized as appropriate, and the
+        intermediate draft values can be discarded.
         """
 
         if self._static_providers_by_dnode is not None:
             return
 
         static_providers_by_dnode = {}
+        followup_dnode_lists_by_dnode = defaultdict(list)
+
+        def register_followup(out_dnode, dep_dnode):
+            followup_dnode_lists_by_dnode[dep_dnode].append(out_dnode)
 
         def register_provider(provider):
             dnode = provider.attrs.out_dnode
             assert dnode not in static_providers_by_dnode
             static_providers_by_dnode[dnode] = provider
 
-            if isinstance(dnode, ast.TupleNode):
+            # If this provider generates a draft value ("<D>"), we will add another
+            # provider that converts that draft value into the official value ("D").
+            if isinstance(dnode, ast.DraftNode):
+                child_dnode = dnode.child
+                # We don't allow drafts to be nested.
+                assert not isinstance(child_dnode, ast.DraftNode)
+
+                # If we have a draft of an entity (like "<X>"), we just convert it to
+                # the plain entity ("X"). The conversion is a "passthrough", which
+                # means it doesn't actually change the value; however, if the entity is
+                # persisted, that will happen along with the conversion, so the
+                # converted value can still be different from the draft value.
+                if isinstance(child_dnode, ast.EntityNode):
+                    register_provider(PassthroughProvider(child_dnode, dnode))
+                    register_followup(child_dnode, dnode)
+
+                # If we have a draft of a tuple (like "<D1, D2>"), we "distribute" the
+                # draft-ness over the childern (producing "<D1>, <D2>"). The idea is
+                # that "<D1, D2>" is an unnormalized tuple containing unnormalized
+                # values, while "<D1>, <D2>" is a normalized tuple containing
+                # unnormalized values. (In the case of tuples, the normalization
+                # doesn't actually do anything, but in the future it might; for
+                # example, we might allow the unnormalized value to be a list, and then
+                # normalize it by converting it to an actual tuple. TODO Let's actually
+                # do this!)
+                elif isinstance(child_dnode, ast.TupleNode):
+                    out_dnode = ast.TupleNode(
+                        ast.DraftNode(grandchild_dnode)
+                        for grandchild_dnode in child_dnode.children
+                    )
+                    register_provider(PassthroughProvider(out_dnode, dnode))
+                    register_followup(out_dnode, dnode)
+
+                else:
+                    raise AssertionError(
+                        f"Unexpected dnode type {type(dnode)!r} for dnode {dnode!r}"
+                    )
+
+            # If this provider generates a tuple value ("D1, D2"), we will add
+            # providers for extracting all the components ("D1" and "D2"). Note that
+            # the components must be drafts, because the only situation where we
+            # register a tuple provider is the "distribute" step above. (Remember that
+            # if a user-provided function outputs a tuple, it will be wrapped in a
+            # draft node and get handled by the case above first.)
+            elif isinstance(dnode, ast.TupleNode):
                 for child_dnode in dnode.children:
-                    child_provider = TupleDeconstructionProvider(child_dnode, dnode)
-                    register_provider(child_provider)
+                    assert isinstance(child_dnode, ast.DraftNode)
+                    register_provider(TupleDeconstructionProvider(child_dnode, dnode))
+                    register_followup(child_dnode, dnode)
+
+            else:
+                # The only remaining node type is an entity node, and there's no
+                # additional work for us to do on those.
+                assert isinstance(dnode, ast.EntityNode)
 
         for provider in set(self._flow_state.providers_by_name.values()):
             register_provider(provider)
 
         self._static_providers_by_dnode = static_providers_by_dnode
+        self._followup_dnode_lists_by_dnode = dict(followup_dnode_lists_by_dnode)
 
     def _set_up_bootstrap(self):
         """
@@ -269,6 +377,13 @@ class EntityDeriver:
 
             raise UndefinedEntityError.for_name(entity_name)
 
+        elif isinstance(dnode, ast.DraftNode):
+            message = f"""
+            A draft descriptor {dnode.to_descriptor()} was requested but is not
+            statically provided; this should be impossible!
+            """
+            raise AssertionError(oneline(message))
+
         elif isinstance(dnode, ast.TupleNode):
             return TupleConstructionProvider(dnode)
 
@@ -281,11 +396,26 @@ class EntityDeriver:
         """
         Returns an EntityDefinition object for a given descriptor node. If the node is
         an entity, this returns the definition specified by the user; if the node is a
-        tuple, we generate a synthetic definition.
+        draft or tuple, we generate a synthetic definition.
         """
 
         if isinstance(dnode, ast.EntityNode):
             return self._flow_state.get_entity_def(dnode.to_descriptor())
+
+        elif isinstance(dnode, ast.DraftNode):
+            child_entity_def = self._obtain_entity_def_for_dnode(dnode.child)
+            doc_prefix = "(Intermediate value)"
+            if child_entity_def.doc is None:
+                doc = doc_prefix
+            else:
+                doc = doc_prefix + " " + child_entity_def.doc
+            return EntityDefinition(
+                name=dnode.to_descriptor(),
+                protocol=NonSerializableObjectProtocol(),
+                doc=doc,
+                optional_should_memoize=False,
+                optional_should_persist=False,
+            )
 
         elif isinstance(dnode, ast.TupleNode):
             # TODO Since we're using this to describe things something that's not an
@@ -407,15 +537,9 @@ class EntityDeriver:
             task_state.dep_states.append(dep_state)
 
         # Optionally, we will also add "follow-up" references:
-        # If this task's output is a tuple node, we may want to add followups for each
-        # of the tuple's children to ensure that everything in the tuple gets persisted
-        # immediately.
-        if (
-            isinstance(dnode, ast.TupleNode)
-            and provider.task_output_may_need_followups_for_persistence
-        ):
-            for child_dnode in dnode.children:
-                followup_key = TaskKey(dnode=child_dnode, case_key=case_key)
+        if dnode in self._followup_dnode_lists_by_dnode:
+            for followup_dnode in self._followup_dnode_lists_by_dnode[dnode]:
+                followup_key = TaskKey(dnode=followup_dnode, case_key=case_key)
                 followup_state = self._get_or_create_task_state_for_key(
                     followup_key, in_progress_states_by_key
                 )

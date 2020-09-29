@@ -104,18 +104,6 @@ class BaseProvider:
     def entity_names(self):
         return [name for name in self.attrs.out_dnode.all_entity_names()]
 
-    # This is used to indicate that if we're outputting an aggregate descriptor type
-    # (like a tuple), then we'll need to set some followup tasks to make sure all the
-    # aggregated descriptors get persisted immediately. This field is gross, but once we
-    # have file descriptors it can go away, because the "crude" or "not-yet-persisted"
-    # values will have their own descriptors, and it will be obvious which tasks need
-    # to have followups.
-    # TODO In the meantime, if we start moving more attributes directly onto the Task
-    # class, this would be another good candidate.
-    @property
-    def task_output_may_need_followups_for_persistence(self):
-        return True
-
     def __repr__(self):
         return f"{self.__class__.__name__}{self.attrs.out_dnode.to_descriptor()!r}"
 
@@ -128,8 +116,10 @@ class ValueProvider(BaseProvider):
             assert isinstance(provider, ValueProvider)
             assert not provider._has_any_values
 
-            assert isinstance(provider.attrs.out_dnode, ast.EntityNode)
-            names.append(provider.attrs.out_dnode.to_entity_name())
+            dnode = provider.attrs.out_dnode
+            assert isinstance(dnode, ast.DraftNode)
+            assert isinstance(dnode.child, ast.EntityNode)
+            names.append(dnode.child.to_entity_name())
 
         return ValueProvider(names)
 
@@ -138,14 +128,15 @@ class ValueProvider(BaseProvider):
         # or perhaps breaking out these cases into subclasses.
         entity_dnodes = [entity_dnode_from_descriptor(name) for name in names]
         if len(entity_dnodes) == 1:
-            (dnode,) = entity_dnodes
+            (orig_out_dnode,) = entity_dnodes
             output_is_tuple = False
         else:
-            dnode = ast.TupleNode(entity_dnodes)
+            orig_out_dnode = ast.TupleNode(entity_dnodes)
             output_is_tuple = True
+        out_dnode = ast.DraftNode(orig_out_dnode)
 
         super(ValueProvider, self).__init__(
-            attrs=ProviderAttributes(out_dnode=dnode, changes_per_run=False),
+            attrs=ProviderAttributes(out_dnode=out_dnode, changes_per_run=False),
         )
 
         self.key_space = CaseKeySpace(names)
@@ -311,7 +302,7 @@ class BaseDerivedProvider(BaseProvider):
 class FunctionProvider(BaseDerivedProvider):
     def __init__(self, func):
         name = func.__name__
-        out_dnode = entity_dnode_from_descriptor(name)
+        out_dnode = ast.DraftNode(entity_dnode_from_descriptor(name))
 
         argspec = inspect.getfullargspec(func)
         if argspec.varargs:
@@ -370,10 +361,6 @@ class WrappingProvider(BaseProvider):
     def get_source_func(self):
         return self.wrapped_provider.get_source_func()
 
-    @property
-    def task_output_may_need_followups_for_persistence(self):
-        return self.wrapped_provider.task_output_may_need_followups_for_persistence
-
     def __repr__(self):
         return f"{self.__class__.__name__}({self.wrapped_provider})"
 
@@ -403,7 +390,7 @@ class RenamingProvider(WrappingProvider):
 
         super(RenamingProvider, self).__init__(wrapped_provider)
 
-        out_dnode = entity_dnode_from_descriptor(name)
+        out_dnode = ast.DraftNode(entity_dnode_from_descriptor(name))
 
         self.attrs = copy(wrapped_provider.attrs)
         self.attrs.out_dnode = out_dnode
@@ -825,13 +812,13 @@ class NewOutputDescriptorProvider(WrappingProvider):
     Used to implement the ``@returns`` decorator.
     """
 
-    def __init__(self, wrapped_provider, out_dnode):
+    def __init__(self, wrapped_provider, nondraft_out_dnode):
         super(NewOutputDescriptorProvider, self).__init__(wrapped_provider)
 
-        self.out_dnode = out_dnode
+        self.out_dnode = ast.DraftNode(nondraft_out_dnode)
 
         self.attrs = copy(wrapped_provider.attrs)
-        self.attrs.out_dnode = out_dnode
+        self.attrs.out_dnode = self.out_dnode
 
     def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
         def wrap_task(task):
@@ -974,12 +961,6 @@ class TupleConstructionProvider(BaseDerivedProvider):
     def compute_values_from_deps(self, dep_values):
         return tuple(dep_values)
 
-    # When we're constructing a tuple, we depend on the individual child descriptors,
-    # so we don't need or want to introduce followup tasks to re-compute them.
-    @property
-    def task_output_may_need_followups_for_persistence(self):
-        return False
-
 
 class TupleDeconstructionProvider(BaseDerivedProvider):
     """
@@ -1004,6 +985,28 @@ class TupleDeconstructionProvider(BaseDerivedProvider):
     def compute_values_from_deps(self, dep_values):
         (input_tuple,) = dep_values
         return input_tuple[self._element_ix]
+
+
+class PassthroughProvider(BaseDerivedProvider):
+    """
+    A provider for tasks that just pass a single value through unchanged. This is used
+    when we want to define a descriptor whose value is identical to that of another
+    descriptor.
+    """
+
+    def __init__(self, out_dnode, dep_dnode):
+        super(PassthroughProvider, self).__init__(
+            out_dnode=out_dnode,
+            dep_dnodes=[dep_dnode],
+        )
+
+    def compute_values_from_deps(self, dep_values):
+        (value,) = dep_values
+        return value
+
+    def get_code_fingerprint(self, case_key):
+        fingerprint = super(PassthroughProvider, self).get_code_fingerprint(case_key)
+        return attr.evolve(fingerprint, is_identity=True)
 
 
 # -- Helpers for managing case keys.

@@ -27,7 +27,7 @@ class ReadCountingProtocol(bn.protocols.PicklableProtocol):
 def raises_versioning_error_for_entity(entity_name):
     return pytest.raises(
         CodeVersioningError,
-        match=f".*function that outputs '{entity_name}'.*",
+        match=f".*function that outputs <{entity_name}>.*",
     )
 
 

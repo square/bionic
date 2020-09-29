@@ -724,7 +724,7 @@ class TaskState:
                         minor={old_prov.code_version_minor!r}),
                         but created by different code.
                         It appears that the code function that outputs
-                        {new_prov.descriptor!r}
+                        {new_prov.descriptor}
                         was changed (old bytecode hash {old_prov.bytecode_hash!r};
                         new bytecode hash {new_prov.bytecode_hash!r})
                         but the function's version number was not.

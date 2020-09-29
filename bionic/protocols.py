@@ -791,3 +791,10 @@ class TupleProtocol(BaseProtocol):
             instead, got {len(items)} values: {items!r}
             """
             raise AssertionError(oneline(message))
+
+
+class NonSerializableObjectProtocol(BaseProtocol):
+    """
+    Describes values that can't be serialized or deserialized. Used mainly for
+    intermediate values in Bionic's infrastructure.
+    """
