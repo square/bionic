@@ -155,17 +155,23 @@ class TaskCompletionRunner:
             return
 
         # At this point we'll need to actually compute the entry. If possible, we
-        # prefer to compute it remotely.
+        # prefer to compute it remotely. This requires checking several prerequisites,
+        # then analyzing the entry's non-persistable dependencies to make sure they can
+        # all be transmitted outside this process. We check this in stages because the
+        # final check is a bit more expensive.
         aip_execution_enabled_for_entry = (
             self._aip_execution_enabled
             and entry.state.func_attrs.aip_task_config is not None
         )
-        can_compute_remotely = (
-            (aip_execution_enabled_for_entry or self._parallel_execution_enabled)
-            and entry.state.should_persist
-            and not entry.state.task.is_simple_lookup
-        )
-        if can_compute_remotely:
+        entry_may_be_computable_remotely = (
+            aip_execution_enabled_for_entry or self._parallel_execution_enabled
+        ) and entry.state.should_persist
+        if entry_may_be_computable_remotely:
+            remote_subgraph = RemoteSubgraph(entry.state, self._bootstrap)
+            entry_is_computable_remotely = remote_subgraph.all_states_can_be_serialized
+        else:
+            entry_is_computable_remotely = False
+        if entry_is_computable_remotely:
             # When we run an entry remotely, we also need to run all of its immediate
             # non-persistable ancestors, since their values can't be shared between
             # processes. Those ancestors may have follow-up tasks, so we'll need to
@@ -174,7 +180,6 @@ class TaskCompletionRunner:
             # track the fact that they're running. So really we're going to run a
             # collection of persistable entries (including the original entry), plus
             # their immediate non-persistable ancestors.
-            remote_subgraph = RemoteSubgraph(entry.state, self._bootstrap)
             target_entries = [
                 self._get_or_create_entry_for_state(persistable_subgraph_state)
                 for persistable_subgraph_state in remote_subgraph.persistable_but_not_persisted_states
