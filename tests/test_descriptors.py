@@ -4,13 +4,15 @@ from bionic.exception import MalformedDescriptorError
 from bionic.descriptors.parsing import (
     dnode_from_descriptor,
     entity_dnode_from_descriptor,
+    nondraft_dnode_from_descriptor,
 )
-from bionic.descriptors.ast import EntityNode, TupleNode
+from bionic.descriptors.ast import DraftNode, EntityNode, TupleNode
 
-from .helpers import assert_re_matches
+from .helpers import assert_re_matches, equal_when_sorted
 
 E = EntityNode
 T = lambda *children: TupleNode(children)  # noqa: E731
+D = DraftNode
 parse = dnode_from_descriptor
 
 
@@ -61,6 +63,38 @@ def test_parsing_and_unparsing():
     check_roundtrip(
         descs=["w, (x, (y, z))", "w,(x,(y,z,),),", "(w),(x, ( y , z , ))"],
         dnode=T(E("w"), T(E("x"), T(E("y"), E("z")))),
+    )
+    check_roundtrip(
+        descs=["<x>", "< x >", "(<x>)", "<(x)>"],
+        dnode=D(E("x")),
+    )
+    check_roundtrip(
+        descs=["<()>"],
+        dnode=D(T()),
+    )
+    check_roundtrip(
+        descs=["<x>,", "<(x)>,"],
+        dnode=T(D(E("x"))),
+    )
+    check_roundtrip(
+        descs=["<x,>", "<(x,)>"],
+        dnode=D(T(E("x"))),
+    )
+    check_roundtrip(
+        descs=["<x>, y", "(<x>), y", "(<x>, y)"],
+        dnode=T(D(E("x")), E("y")),
+    )
+    check_roundtrip(
+        descs=["x, <y>", "x, (<y>)", "(x, <y>)"],
+        dnode=T(E("x"), D(E("y"))),
+    )
+    check_roundtrip(
+        descs=["<x>, <y>", "(<x>), < y >"],
+        dnode=T(D(E("x")), D(E("y"))),
+    )
+    check_roundtrip(
+        descs=["<x, y>", "(<x, y>)", "<(x, y)>"],
+        dnode=D(T(E("x"), E("y"))),
     )
 
 
@@ -113,6 +147,42 @@ def test_malformed_descriptors():
         descs=["(", "(x, (y, z)"],
         pattern=".*'\\('.*no matching '\\)'.*",
     )
+    check_failure(
+        descs=["<", "<x"],
+        pattern=".*'<'.*no matching '>'.*",
+    )
+    check_failure(
+        descs=[">", "x>", ">x"],
+        pattern=".*'>'.*no matching '<'.*",
+    )
+    check_failure(
+        descs=["x<", "x <y>", "<x> y", "<x> <y>", "<x,> y", "<x(>)"],
+        pattern=".*unexpected.*following.*complete.*",
+    )
+    check_failure(
+        descs=["<,x>"],
+        pattern=".*unexpected ','.*no preceding.*",
+    )
+    check_failure(
+        descs=["(<)x>", "(<x)>"],
+        pattern=".*unexpected '\\)'.*expected '>'.*",
+    )
+    check_failure(
+        descs=["<(x>)"],
+        pattern=".*unexpected '>'.*expected '\\)'.*",
+    )
+    check_failure(
+        descs=["<>", "< >"],
+        pattern=".*no expression between.*'<'.*'>'.*",
+    )
+    check_failure(
+        descs=[
+            "<<x>>",
+            "<(x, <y>)>",
+            "w, <x, (y, <z>)>",
+        ],
+        pattern=".*'<'.*nested.*",
+    )
 
 
 def test_exact_error_message():
@@ -143,6 +213,79 @@ def test_entity_dnode_from_descriptor():
         entity_dnode_from_descriptor("x, y")
 
 
+def test_nondraft_dnode_from_descriptor():
+    assert nondraft_dnode_from_descriptor("x") == E("x")
+    assert nondraft_dnode_from_descriptor("x, y") == T(E("x"), E("y"))
+    with pytest.raises(MalformedDescriptorError):
+        nondraft_dnode_from_descriptor("<x>")
+    with pytest.raises(MalformedDescriptorError):
+        nondraft_dnode_from_descriptor("<x>, <y>")
+
+
+@pytest.mark.parametrize(
+    "descriptor, expected_entity_names",
+    [
+        ("()", []),
+        ("x", ["x"]),
+        ("x,", ["x"]),
+        ("x, x", ["x", "x"]),
+        ("x, y", ["x", "y"]),
+        ("x, (y, z)", ["x", "y", "z"]),
+        ("x, (y, x)", ["x", "y", "x"]),
+    ],
+)
+def test_all_entity_names(descriptor, expected_entity_names):
+    assert equal_when_sorted(
+        parse(descriptor).all_entity_names(), expected_entity_names
+    )
+
+
+@pytest.mark.parametrize(
+    "descriptor, expected_edited_descriptor",
+    [
+        ("()", "()"),
+        ("x", "X"),
+        ("x, y", "X, Y"),
+        ("<x>", "<X>"),
+        ("<x, y>", "<X, Y>"),
+        ("w, <x, (y, z)>", "W, <X, (Y, Z)>"),
+    ],
+)
+def test_edit_uppercase(descriptor, expected_edited_descriptor):
+    def to_uppercase(dnode):
+        if isinstance(dnode, EntityNode):
+            return E(dnode.name.upper())
+        else:
+            return dnode
+
+    assert (
+        parse(descriptor).edit(to_uppercase).to_descriptor()
+        == expected_edited_descriptor
+    )
+
+
+@pytest.mark.parametrize(
+    "descriptor, expected_edited_descriptor",
+    [
+        ("()", "()"),
+        ("x", "x"),
+        ("<x>", "x"),
+        ("x, y", "x, y"),
+        ("x, <y>", "x, y"),
+        ("<x, y>", "x, y"),
+        ("w, <x, (y, z)>", "w, (x, (y, z))"),
+    ],
+)
+def test_edit_undraft(descriptor, expected_edited_descriptor):
+    def undraft(dnode):
+        if isinstance(dnode, DraftNode):
+            return dnode.child
+        else:
+            return dnode
+
+    assert parse(descriptor).edit(undraft).to_descriptor() == expected_edited_descriptor
+
+
 @pytest.fixture
 def dnodes():
     return [
@@ -153,6 +296,12 @@ def dnodes():
         T(E("x"), E("x")),
         T(E("x"), E("y")),
         T(T(E("x"))),
+        D(E("x")),
+        D(E("y")),
+        D(T()),
+        D(T(E("x"))),
+        T(D(E("x"))),
+        D(T(E("x"), E("y"))),
     ]
 
 

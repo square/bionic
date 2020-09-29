@@ -618,7 +618,10 @@ class TaskState:
             should_memoize = bootstrap.should_memoize_default
         else:
             should_memoize = True
-        if self.func_attrs.changes_per_run and not should_memoize:
+        if self.entity_def.needs_caching and not should_memoize:
+            # TODO Here we require that all non-deterministic values be memoized, but it
+            # would probably also be okay if they were persisted instead; we could
+            # change this check to only trigger if persistence is not enabled.
             descriptor = self.task_key.dnode.to_descriptor()
             if bootstrap is None or bootstrap.should_memoize_default:
                 fix_message = (
