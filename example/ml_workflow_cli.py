@@ -4,9 +4,10 @@ A CLI for running an extended version of the ML example in `ml_workflow`.
 Fits and evaluates a model on a scikit-learn dataset.
 """
 
+import time
+
 import pandas as pd
 from sklearn import datasets, metrics
-import time
 
 import bionic as bn
 from .ml_workflow import flow as base_ml_flow
@@ -33,7 +34,7 @@ def auc_score(test_frame, prediction_frame):
     """The hyperparameter settings with the highest AUC score.""",
     """The best (highest) AUC score, compared over all hyperparameter settings.""",
 )
-def best_auc_score(gathered_frame):
+def best_settings(gathered_frame):
     best_row = gathered_frame.sort_values("auc_score", ascending=False).iloc[0]
     return best_row[["hyperparams_dict", "auc_score"]]
 
@@ -59,6 +60,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--big-dataset", "-B", help="Use bigger covertype dataset", action="store_true"
+    )
+    parser.add_argument(
+        "--render-dag",
+        "-D",
+        help="Render DAG visualization to file instead of running",
     )
 
     args = parser.parse_args()
@@ -91,6 +97,10 @@ if __name__ == "__main__":
         flow = builder.build()
     if args.parallel:
         flow = flow.setting("core__parallel_execution__enabled", True)
+
+    if args.render_dag:
+        flow.render_dag().save(args.render_dag)
+        exit()
 
     start = time.time()
     all_hpds = flow.get("hyperparams_dict", collection=list)
