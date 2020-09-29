@@ -819,6 +819,7 @@ class RemoteSubgraph:
 
         self._stripped_states_by_task_key = {}
         self.persistable_but_not_persisted_states = set()
+        self.all_states_can_be_serialized = True
 
         self._strip_state(target_state)
 
@@ -856,6 +857,12 @@ class RemoteSubgraph:
 
             else:
                 self.persistable_but_not_persisted_states.add(original_state)
+
+        if (
+            stripped_state.task is not None
+            and not stripped_state.task.can_be_serialized
+        ):
+            self.all_states_can_be_serialized = False
 
         stripped_state.dep_states = [
             self._strip_state(dep_state) for dep_state in stripped_state.dep_states

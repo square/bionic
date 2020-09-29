@@ -65,6 +65,10 @@ class Task:
     def compute(self, dep_values):
         return self.compute_func(dep_values)
 
+    @property
+    def can_be_serialized(self):
+        return not self.is_simple_lookup
+
     def __repr__(self):
         return f"Task({self.key!r}, {self.dep_keys!r})"
 
