@@ -21,6 +21,7 @@ class EntityDefinition:
     doc = attr.ib()
     optional_should_memoize = attr.ib()
     optional_should_persist = attr.ib()
+    needs_caching = attr.ib(default=False)
 
 
 @attr.s(frozen=True)

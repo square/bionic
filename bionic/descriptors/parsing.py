@@ -23,10 +23,11 @@ That said, I'm open to switching to a library if we can achieve the above goals.
 """
 
 import re
+from typing import Optional, List
 
 import attr
 
-from .ast import EntityNode, TupleNode
+from .ast import DescriptorNode, DraftNode, EntityNode, TupleNode
 from ..exception import MalformedDescriptorError
 from ..utils.misc import oneline
 
@@ -37,6 +38,20 @@ def dnode_from_descriptor(descriptor):
     """
 
     return DescriptorParser().parse(descriptor)
+
+
+def nondraft_dnode_from_descriptor(descriptor):
+    """
+    Given a descriptor string containing no drafts, returns the parsed descriptor node.
+
+    This is useful for parsing user-submitted descriptors, which should never contain
+    drafts. (Allowing users to submit draft descriptors would cause problems: using
+    them as inputs may fail because draft values can be garbage-collected early; and
+    using them as outputs will fail because every output is wrapped in a draft, and
+    drafts can't be nested.)
+    """
+
+    return DescriptorParser().parse(descriptor, allow_drafts=False)
 
 
 def entity_dnode_from_descriptor(descriptor):
@@ -56,6 +71,8 @@ TOKEN_PATTERN = re.compile(
     r"|(?P<lparen>\()"
     r"|(?P<rparen>\))"
     r"|(?P<comma>,)"
+    r"|(?P<langle><)"
+    r"|(?P<rangle>>)"
     r"|(?P<end>$)"
 )
 
@@ -71,7 +88,11 @@ class AugmentedToken:
     start_pos = attr.ib()
 
     def __str__(self):
-        return f"{self.token!r} (at position {self.start_pos})"
+        if self.token_type == "end":
+            token_description = "end of string"
+        else:
+            token_description = repr(self.token)
+        return f"{token_description} (at position {self.start_pos})"
 
 
 class DescriptorParser:
@@ -81,7 +102,7 @@ class DescriptorParser:
         # All initialization happens in parse().
         pass
 
-    def parse(self, descriptor):
+    def parse(self, descriptor, allow_drafts=True):
         """
         Parses a descriptor string into a descriptor node.
 
@@ -92,16 +113,18 @@ class DescriptorParser:
             descriptor: expr
 
             expr: commaless_expr | tuple
-            commaless_expr: parenthentical | ENTITY
+            commaless_expr: parenthentical | draft | ENTITY
             tuple: commaless_expr ','
                 | commaless_expr (',' commaless_expr)+ ','?
             parenthetical: '(' expr ')'
+            draft: '<' expr '>'
 
             ENTITY: /[a-zA-Z_][a-zA-Z0-9_]/
         """
 
         # Initialize parser state.
         self._descriptor = descriptor
+        self._allow_drafts = allow_drafts
         self._cur_aug_token = None
         self._prev_aug_token = None
         self._expr_stack = [ExprParseState()]
@@ -155,6 +178,13 @@ class DescriptorParser:
         elif token_type == "rparen":
             self._finish_parsing_cur_expr_if_tuple()
             self._close_paren()
+
+        elif token_type == "langle":
+            self._open_angle()
+
+        elif token_type == "rangle":
+            self._finish_parsing_cur_expr_if_tuple()
+            self._close_angle()
 
         elif token_type == "end":
             self._finish_parsing_cur_expr_if_tuple()
@@ -219,6 +249,14 @@ class DescriptorParser:
 
     def _close_paren(self):
         if self._cur_expr.start_lparen_aug_token is None:
+            if self._cur_expr.start_langle_aug_token is not None:
+                self._fail(
+                    f"""
+                    found unexpected {self._cur_aug_token};
+                    expected '>' instead to match
+                    {self._cur_expr.start_langle_aug_token}
+                    """
+                )
             self._fail(
                 f"""
                 found unexpected {self._cur_aug_token}
@@ -232,12 +270,77 @@ class DescriptorParser:
         expr = self._expr_stack.pop()
         self._cur_expr.parsed_dnode = expr.parsed_dnode
 
+    def _open_angle(self):
+        if not self._allow_drafts:
+            self._fail(
+                f"""
+                found illegal {self._cur_aug_token};
+                draft expressions are not allowed in user-provided descriptors
+                """
+            )
+        # This requires a linear search through the stack, but I don't anticipate the
+        # stack ever being deep enough for this to be a performance issue.
+        for expr in self._expr_stack:
+            if expr.start_langle_aug_token is not None:
+                self._fail(
+                    f"""
+                    found illegal {self._cur_aug_token}
+                    nested within another {expr.start_langle_aug_token}
+                    """
+                )
+        if self._cur_expr.parsed_dnode is not None:
+            self._fail(
+                f"""
+                found unexpected {self._cur_aug_token}
+                following an already-complete expression
+                {self._cur_expr.parsed_dnode.to_descriptor()!r}
+                """
+            )
+        self._expr_stack.append(
+            ExprParseState(start_langle_aug_token=self._cur_aug_token)
+        )
+
+    def _close_angle(self):
+        if self._cur_expr.start_langle_aug_token is None:
+            if self._cur_expr.start_lparen_aug_token is not None:
+                self._fail(
+                    f"""
+                    found unexpected {self._cur_aug_token};
+                    expected ')' instead to match
+                    {self._cur_expr.start_lparen_aug_token}
+                    """
+                )
+            self._fail(
+                f"""
+                found unexpected {self._cur_aug_token}
+                with no matching '<'
+                """
+            )
+        if self._cur_expr.parsed_dnode is None:
+            self._fail(
+                f"""
+                found no expression between {self._cur_expr.start_langle_aug_token}
+                and {self._cur_aug_token}
+                """
+            )
+
+        expr = self._expr_stack.pop()
+        self._cur_expr.parsed_dnode = DraftNode(expr.parsed_dnode)
+
     def _finish_parsing(self):
         if self._cur_expr.start_lparen_aug_token is not None:
             lparen_aug_token = self._cur_expr.start_lparen_aug_token
             self._fail(
                 f"""
                 {lparen_aug_token} has no matching ')'
+                """
+            )
+
+        if self._cur_expr.start_langle_aug_token is not None:
+            langle_aug_token = self._cur_expr.start_langle_aug_token
+            self._fail(
+                f"""
+                {langle_aug_token} has no matching '>'
                 """
             )
 
@@ -253,12 +356,14 @@ class DescriptorParser:
         )
 
 
+@attr.s
 class ExprParseState:
     """
     The state of a parser as it processes a particular expression.
     """
 
-    def __init__(self, start_lparen_aug_token=None):
-        self.start_lparen_aug_token = start_lparen_aug_token
-        self.active_tuple_dnodes = None
-        self.parsed_dnode = None
+    start_lparen_aug_token: Optional[AugmentedToken] = attr.ib(default=None)
+    start_langle_aug_token: Optional[AugmentedToken] = attr.ib(default=None)
+
+    active_tuple_dnodes: Optional[List[DescriptorNode]] = None
+    parsed_dnode: Optional[DescriptorNode] = None

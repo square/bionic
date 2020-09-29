@@ -983,6 +983,9 @@ class FlowBuilder:
                 doc=doc,
                 optional_should_persist=acc.should_persist,
                 optional_should_memoize=acc.should_memoize,
+                # If this entity is derived in a non-deterministic way, this flag will
+                # remind us to check and make sure it actually gets cached somehow.
+                needs_caching=provider.attrs.changes_per_run,
             )
             state = state.define_entity(entity_def)
         state = state.install_provider(provider)
