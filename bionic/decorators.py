@@ -13,7 +13,10 @@ These are the decorators we expose to Bionic users.  They are used as follows:
 from .aip.task import TaskConfig as AipTaskConfig
 from .datatypes import CodeVersion
 from .decoration import decorator_updating_accumulator
-from .descriptors.parsing import dnode_from_descriptor, entity_dnode_from_descriptor
+from .descriptors.parsing import (
+    nondraft_dnode_from_descriptor,
+    entity_dnode_from_descriptor,
+)
 from .provider import (
     GatherProvider,
     AttrUpdateProvider,
@@ -412,7 +415,9 @@ def accepts(**descriptors_by_arg_name):
     """
 
     outer_dnodes_by_inner = {
-        entity_dnode_from_descriptor(arg_name): dnode_from_descriptor(descriptor)
+        entity_dnode_from_descriptor(arg_name): nondraft_dnode_from_descriptor(
+            descriptor
+        )
         for arg_name, descriptor in descriptors_by_arg_name.items()
     }
 
@@ -432,9 +437,9 @@ def returns(out_descriptor):
     user-facing documentation. It may change in non-backwards-compatible ways.
     """
 
-    out_dnode = dnode_from_descriptor(out_descriptor)
+    nondraft_out_dnode = nondraft_dnode_from_descriptor(out_descriptor)
     return decorator_updating_accumulator(
-        lambda acc: acc.wrap_provider(NewOutputDescriptorProvider, out_dnode)
+        lambda acc: acc.wrap_provider(NewOutputDescriptorProvider, nondraft_out_dnode)
     )
 
 

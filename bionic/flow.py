@@ -1434,7 +1434,13 @@ class Flow:
 
         return self.get("core__flow_name")
 
-    def render_dag(self, include_core=False, vertical=False, curvy_lines=False):
+    def render_dag(
+        self,
+        include_core=False,
+        vertical=False,
+        curvy_lines=False,
+        _include_detail=False,
+    ):
         """
         Returns a ``FlowImage`` with a visualization of this flow's DAG. This
         object behaves similarly to a Pillow ``Image`` object.
@@ -1444,7 +1450,10 @@ class Flow:
 
         from . import dagviz
 
-        graph = self._deriver.export_dag(include_core)
+        graph = self._deriver.export_dag(
+            include_core=include_core,
+            _include_detail=_include_detail,
+        )
         dot = dagviz.dot_from_graph(
             graph=graph,
             vertical=vertical,

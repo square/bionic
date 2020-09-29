@@ -69,13 +69,13 @@ def test_dot_properties(flow_dot):
         '"first_name[0]"',
         '"first_name[1]"',
         '"last_name"',
-        '"(full_name, initials)[0]"',
-        '"(full_name, initials)[1]"',
+        '"<full_name, initials>[0]"',
+        '"<full_name, initials>[1]"',
         '"full_name[0]"',
         '"full_name[1]"',
         '"initials[0]"',
         '"initials[1]"',
-        '"all_names,"',
+        '"<all_names,>"',
         '"all_names"',
     }
 
@@ -84,8 +84,8 @@ def test_dot_properties(flow_dot):
     assert nodes['"initials[0]"'].get_tooltip() == "Just the initials."
     assert nodes['"initials[1]"'].get_tooltip() == "Just the initials."
     assert (
-        nodes['"(full_name, initials)[0]"'].get_tooltip()
-        == "A Python tuple with 2 values."
+        nodes['"<full_name, initials>[0]"'].get_tooltip()
+        == "(Intermediate value) A Python tuple with 2 values."
     )
 
     assert nodes['"last_name"'].get_fillcolor() != nodes['"all_names"'].get_fillcolor()
