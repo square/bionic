@@ -62,9 +62,7 @@ class TaskCompletionRunner:
         # These are used for caching and tracking.
         self._entries_by_task_key = {}
         self._pending_entries_kps = KeyedPriorityStack()
-        self._in_progress_entries_by_task_key = {}
-        # TODO This is a set but _in_progress_entries_by_task_key is a dict. Could they
-        # both be sets?
+        self._in_progress_entries = set()
         self._blocked_entries = set()
 
     @property
@@ -93,7 +91,7 @@ class TaskCompletionRunner:
                 assert entry.stage != EntryStage.ACTIVE, entry
 
             assert len(self._pending_entries_kps) == 0
-            assert len(self._in_progress_entries_by_task_key) == 0
+            assert len(self._in_progress_entries) == 0
             assert len(self._blocked_entries) == 0
 
             results = []
@@ -269,12 +267,10 @@ class TaskCompletionRunner:
         if entry.dep_entries is not None:
             return
 
-        # TODO Can we make this a simple list comprehension now?
-        dep_entries = []
-        for dep_state in entry.state.dep_states:
-            dep_entry = self._get_or_create_entry_for_state(dep_state)
-            dep_entries.append(dep_entry)
-        entry.dep_entries = dep_entries
+        entry.dep_entries = [
+            self._get_or_create_entry_for_state(dep_state)
+            for dep_state in entry.state.dep_states
+        ]
 
     def _add_requirement(self, src_entry, dst_entry, level):
         req = EntryRequirement(src_entry=src_entry, dst_entry=dst_entry, level=level)
@@ -320,8 +316,7 @@ class TaskCompletionRunner:
         # let's wait for in-progress entries to finish till we find an entry to process or
         # exhaust all in-progress entries.
         while (
-            len(self._pending_entries_kps) == 0
-            and len(self._in_progress_entries_by_task_key) != 0
+            len(self._pending_entries_kps) == 0 and len(self._in_progress_entries) != 0
         ):
             self._wait_on_in_progress_entries()
         return len(self._pending_entries_kps) != 0
@@ -344,9 +339,7 @@ class TaskCompletionRunner:
 
     def _wait_on_in_progress_entries(self):
         "Waits on any in-progress entry to finish."
-        futures = set(
-            entry.future for entry in self._in_progress_entries_by_task_key.values()
-        )
+        futures = set(entry.future for entry in self._in_progress_entries)
         if self._parallel_execution_enabled:
             finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
         else:
@@ -389,7 +382,7 @@ class TaskCompletionRunner:
 
         if entry.stage == EntryStage.IN_PROGRESS:
             entry.future = None
-            del self._in_progress_entries_by_task_key[entry.state.task_key]
+            self._in_progress_entries.remove(entry)
 
         if entry.level >= EntryLevel.CACHED:
             # If we have any followup tasks, we want to run them immediately.
@@ -454,15 +447,11 @@ class TaskCompletionRunner:
     def _mark_entry_in_progress(self, in_progress_entry, future):
         assert in_progress_entry.stage == EntryStage.ACTIVE
         assert in_progress_entry.future is None
-        # TODO This assert is pointless because _in_progress_entries_by_task_key is a
-        # dict keyed by task key.
-        assert in_progress_entry not in self._in_progress_entries_by_task_key
+        assert in_progress_entry not in self._in_progress_entries
 
         in_progress_entry.stage = EntryStage.IN_PROGRESS
         in_progress_entry.future = future
-        self._in_progress_entries_by_task_key[
-            in_progress_entry.state.task_key
-        ] = in_progress_entry
+        self._in_progress_entries.add(in_progress_entry)
 
 
 class TaskKeyLogger:
