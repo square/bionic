@@ -18,39 +18,22 @@ need to be serialized or presented to a human.
 """
 
 from abc import ABC, abstractmethod
+from enum import Enum
 from functools import total_ordering
 
 import attr
 
-# TODO We have a lot of code that uses isinstance() to check for different types of
-# descriptor node. I think we could avoid this by introducing a few new types of helper:
-#
-# 1. Some way to pattern-match on tuple type, like maybe:
-#
-#        value = dnode.match(
-#            entity=lambda entity_node: ...,
-#            tuple=lambda tuple_node: ...,
-#            draft=lambda draft_node: ...,
-#        )
-#
-#    I'm not sure if the above is the best way, but this would help guarantee that we
-#    handle every case. It could also look like:
-#
-#        class MyMatcher(NodeMatcher):
-#            def match_entity(self, entity_node):
-#                return ...
-#            def match_tuple(self, tuple_node):
-#                return ...
-#            ...
-#        value = MyMatcher().match(dnode)
-#
-# 2. Methods to determine if a node has a particular type:
-#
-#    dnode.is_entity()
+from ..utils.misc import oneline
 
-# 3. Methods to assert that a node has a particular type:
-#
-#    name = dnode.as_entity().name
+
+class NodeTypeEnum(Enum):
+    """
+    Distinguishes between different subclasses of DescriptorNode.
+    """
+
+    ENTITY = "entity"
+    TUPLE = "tuple"
+    DRAFT = "draft"
 
 
 @total_ordering
@@ -58,6 +41,12 @@ class DescriptorNode(ABC):
     """
     Abstract base class representing a parsed descriptor.
     """
+
+    @property
+    @abstractmethod
+    def type_enum(self):
+        """An enum indicating what subclass of DescriptorNode this is."""
+        pass
 
     @abstractmethod
     def to_descriptor(self, near_commas=False):
@@ -73,13 +62,6 @@ class DescriptorNode(ABC):
             add extra enclosing parentheses to separate it from the surrounding context.
         """
         pass
-
-    def to_entity_name(self):
-        """
-        If this descriptor is a simple entity name, returns that name; otherwise
-        throws a TypeError.
-        """
-        raise TypeError(f"Descriptor {self.to_descriptor()!r} is not an entity name")
 
     @abstractmethod
     def all_entity_names(self):
@@ -105,6 +87,86 @@ class DescriptorNode(ABC):
         3. Apply ``func`` to this modified node and return the result.
         """
         pass
+
+    def is_entity(self):
+        """Indicates whether this node is an EntityNode."""
+        return self.type_enum == NodeTypeEnum.ENTITY
+
+    def is_tuple(self):
+        """Indicates whether this node is a TupleNode."""
+        return self.type_enum == NodeTypeEnum.TUPLE
+
+    def is_draft(self):
+        """Indicates whether this node is a DraftNode."""
+        return self.type_enum == NodeTypeEnum.DRAFT
+
+    # I considered adding some way to pattern-match on node type, like
+    #
+    #        value = dnode.match(
+    #            entity=lambda entity_node: ...,
+    #            tuple=lambda tuple_node: ...,
+    #            draft=lambda draft_node: ...,
+    #        )
+    #
+    # or
+    #
+    #        class MyMatcher(NodeMatcher):
+    #            def match_entity(self, entity_node):
+    #                return ...
+    #            def match_tuple(self, tuple_node):
+    #                return ...
+    #            ...
+    #
+    # But after trying these out, neither seemed to actually improve the code; I think
+    # things are clearest when we use a series of if/else statements and end with
+    # `fail_match`. We now also have a Flake8 plugin whihch verifies that `fail_match`
+    # is used safely.
+    def fail_match(self):
+        """
+        Raises an AssertionError in an impossible-to-reach matching branch.
+
+        Call this when you've exhaustively tested this node for every type and it
+        hasn't matched any of them (which should be impossible). For example:
+
+            if dnode.is_entity():
+                ...
+
+            elif dnode.is_tuple():
+                ...
+
+            ...
+
+            else:
+                dnode.fail_match()
+        """
+
+        message = f"""
+        Encountered a descriptor {self.to_descriptor()!r} of type
+        {self.__class__.__name__};
+        this should be impossible and is probably a bug in Bionic
+        """
+        raise AssertionError(oneline(message))
+
+    def assume_entity(self):
+        """Returns this node if it is an EntityNode; otherwise throws TypeError."""
+        return self._assume_type_enum(NodeTypeEnum.ENTITY)
+
+    def assume_tuple(self):
+        """Returns this node if it is a TupleNode; otherwise throws TypeError."""
+        return self._assume_type_enum(NodeTypeEnum.TUPLE)
+
+    def assume_draft(self):
+        """Returns this node if it is a DraftNode; otherwise throws TypeError."""
+        return self._assume_type_enum(NodeTypeEnum.DRAFT)
+
+    def _assume_type_enum(self, type_enum):
+        if self.type_enum != type_enum:
+            message = f"""
+            Descriptor node for {self.to_descriptor()!r} is assumed to have type_enum
+            {type_enum.value!r}, but actually has type_enum {self.type_enum.value!r}
+            """
+            raise TypeError(oneline(message))
+        return self
 
     # In order to allow different node types to be compared, we define equality and
     # ordering based on the string value of the descriptor. (It should always be the
@@ -134,8 +196,7 @@ class EntityNode(DescriptorNode):
 
     name = attr.ib()
 
-    def to_entity_name(self):
-        return self.name
+    type_enum = NodeTypeEnum.ENTITY
 
     def to_descriptor(self, near_commas=False):
         return self.name
@@ -154,6 +215,8 @@ class TupleNode(DescriptorNode):
     """
 
     children = attr.ib(converter=tuple)
+
+    type_enum = NodeTypeEnum.TUPLE
 
     def to_descriptor(self, near_commas=False):
         if len(self.children) == 0:
@@ -224,6 +287,8 @@ class DraftNode(DescriptorNode):
     """
 
     child = attr.ib()
+
+    type_enum = NodeTypeEnum.DRAFT
 
     def to_descriptor(self, near_commas=False):
         return f"<{self.child.to_descriptor()}>"

@@ -15,7 +15,6 @@ from .task_execution import (
     RemoteSubgraph,
     TaskRunnerEntry,
 )
-from ..descriptors import ast
 from ..utils.keyed_priority_stack import KeyedPriorityStack
 from ..utils.misc import SynchronizedSet
 
@@ -534,4 +533,4 @@ class TaskKeyLogger:
 
 
 def dnode_without_drafts(dnode):
-    return dnode.edit(lambda d: d.child if isinstance(d, ast.DraftNode) else d)
+    return dnode.edit(lambda d: d.child if d.is_draft() else d)

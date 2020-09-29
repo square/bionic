@@ -121,12 +121,10 @@ class EntityDeriver:
             if _include_detail:
                 return False
 
-            if isinstance(dnode, ast.EntityNode):
+            if dnode.is_entity():
                 return False
 
-            if isinstance(dnode, ast.DraftNode) and not isinstance(
-                dnode.child, ast.EntityNode
-            ):
+            if dnode.is_draft() and not dnode.child.is_entity():
                 return False
 
             return True
@@ -239,17 +237,19 @@ class EntityDeriver:
 
             # If this provider generates a draft value ("<D>"), we will add another
             # provider that converts that draft value into the official value ("D").
-            if isinstance(dnode, ast.DraftNode):
+            if dnode.is_draft():
                 child_dnode = dnode.child
+
                 # We don't allow drafts to be nested.
-                assert not isinstance(child_dnode, ast.DraftNode)
+                if child_dnode.is_draft():
+                    assert False
 
                 # If we have a draft of an entity (like "<X>"), we just convert it to
                 # the plain entity ("X"). The conversion is a "passthrough", which
                 # means it doesn't actually change the value; however, if the entity is
                 # persisted, that will happen along with the conversion, so the
                 # converted value can still be different from the draft value.
-                if isinstance(child_dnode, ast.EntityNode):
+                elif child_dnode.is_entity():
                     register_provider(PassthroughProvider(child_dnode, dnode))
                     register_followup(child_dnode, dnode)
 
@@ -262,7 +262,7 @@ class EntityDeriver:
                 # example, we might allow the unnormalized value to be a list, and then
                 # normalize it by converting it to an actual tuple. TODO Let's actually
                 # do this!)
-                elif isinstance(child_dnode, ast.TupleNode):
+                elif child_dnode.is_tuple():
                     out_dnode = ast.TupleNode(
                         ast.DraftNode(grandchild_dnode)
                         for grandchild_dnode in child_dnode.children
@@ -271,9 +271,7 @@ class EntityDeriver:
                     register_followup(out_dnode, dnode)
 
                 else:
-                    raise AssertionError(
-                        f"Unexpected dnode type {type(dnode)!r} for dnode {dnode!r}"
-                    )
+                    dnode.fail_match()
 
             # If this provider generates a tuple value ("D1, D2"), we will add
             # providers for extracting all the components ("D1" and "D2"). Note that
@@ -281,16 +279,19 @@ class EntityDeriver:
             # register a tuple provider is the "distribute" step above. (Remember that
             # if a user-provided function outputs a tuple, it will be wrapped in a
             # draft node and get handled by the case above first.)
-            elif isinstance(dnode, ast.TupleNode):
+            elif dnode.is_tuple():
                 for child_dnode in dnode.children:
-                    assert isinstance(child_dnode, ast.DraftNode)
+                    assert child_dnode.is_draft()
                     register_provider(TupleDeconstructionProvider(child_dnode, dnode))
                     register_followup(child_dnode, dnode)
 
+            # The only remaining node type is an entity node, and there's no
+            # additional work for us to do on those.
+            elif dnode.is_entity():
+                pass
+
             else:
-                # The only remaining node type is an entity node, and there's no
-                # additional work for us to do on those.
-                assert isinstance(dnode, ast.EntityNode)
+                dnode.fail_match()
 
         for provider in set(self._flow_state.providers_by_name.values()):
             register_provider(provider)
@@ -374,8 +375,8 @@ class EntityDeriver:
         if dnode in self._static_providers_by_dnode:
             return self._static_providers_by_dnode[dnode]
 
-        if isinstance(dnode, ast.EntityNode):
-            entity_name = dnode.to_entity_name()
+        if dnode.is_entity():
+            entity_name = dnode.assume_entity().name
             if entity_name in self._flow_state.entity_defs_by_name:
                 message = f"""
                 Unexpected failed to find a static provider for defined entity
@@ -386,27 +387,25 @@ class EntityDeriver:
 
             raise UndefinedEntityError.for_name(entity_name)
 
-        elif isinstance(dnode, ast.DraftNode):
+        elif dnode.is_draft():
             message = f"""
             A draft descriptor {dnode.to_descriptor()} was requested but is not
             statically provided; this should be impossible!
             """
             raise AssertionError(oneline(message))
 
-        elif isinstance(dnode, ast.TupleNode):
+        elif dnode.is_tuple():
             return TupleConstructionProvider(dnode)
 
         else:
-            raise AssertionError(
-                f"Unexpected dnode type {type(dnode)!r} for dnode {dnode!r}"
-            )
+            dnode.fail_match()
 
     def _obtain_metadata_for_dnode(self, dnode):
         """
         Returns metadata for the specified descriptor node.
         """
 
-        if isinstance(dnode, ast.EntityNode):
+        if dnode.is_entity():
             entity_def = self._flow_state.get_entity_def(dnode.to_descriptor())
 
             # TODO It's a little gross that our metadata object depends on whether
@@ -478,7 +477,7 @@ class EntityDeriver:
                 should_persist=should_persist,
             )
 
-        elif isinstance(dnode, ast.DraftNode):
+        elif dnode.is_draft():
             child_entity_def = self._obtain_metadata_for_dnode(dnode.child)
             doc_prefix = "(Intermediate value)"
             if child_entity_def.doc is None:
@@ -490,16 +489,14 @@ class EntityDeriver:
                 doc=doc,
             )
 
-        elif isinstance(dnode, ast.TupleNode):
+        elif dnode.is_tuple():
             return DescriptorMetadata(
                 protocol=TupleProtocol(len(dnode.children)),
                 doc=f"A Python tuple with {len(dnode.children)} values.",
             )
 
         else:
-            raise AssertionError(
-                f"Unexpected dnode type {type(dnode)!r} for dnode {dnode!r}"
-            )
+            dnode.fail_match()
 
     def _get_or_create_dinfo_for_dnode(self, dnode):
         "Computes (and memoizes) a DescriptorInfo object for a descriptor node."

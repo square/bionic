@@ -1,12 +1,14 @@
 import pytest
 
+import attr
+
 from bionic.exception import MalformedDescriptorError
 from bionic.descriptors.parsing import (
     dnode_from_descriptor,
     entity_dnode_from_descriptor,
     nondraft_dnode_from_descriptor,
 )
-from bionic.descriptors.ast import DraftNode, EntityNode, TupleNode
+from bionic.descriptors.ast import DescriptorNode, DraftNode, EntityNode, TupleNode
 
 from .helpers import assert_re_matches, equal_when_sorted
 
@@ -200,11 +202,31 @@ def test_exact_error_message():
     )
 
 
-def test_descriptor_to_entity_name():
-    assert E("x").to_entity_name() == "x"
+def test_entity_type_checks():
+    @attr.s
+    class TypeExample:
+        descriptor = attr.ib()
+        call_is_type = attr.ib()
+        call_assume_type = attr.ib()
 
-    with pytest.raises(TypeError):
-        T(E("x")).to_entity_name()
+    DN = DescriptorNode
+    examples = [
+        TypeExample("x", DN.is_entity, DN.assume_entity),
+        TypeExample("x, y", DN.is_tuple, DN.assume_tuple),
+        TypeExample("<x>", DN.is_draft, DN.assume_draft),
+    ]
+
+    for example in examples:
+        dnode = dnode_from_descriptor(example.descriptor)
+        assert example.call_is_type(dnode)
+        assert example.call_assume_type(dnode) is dnode
+
+        for other_example in examples:
+            if other_example is example:
+                continue
+            assert not other_example.call_is_type(dnode)
+            with pytest.raises(TypeError):
+                other_example.call_assume_type(dnode)
 
 
 def test_entity_dnode_from_descriptor():
@@ -253,7 +275,7 @@ def test_all_entity_names(descriptor, expected_entity_names):
 )
 def test_edit_uppercase(descriptor, expected_edited_descriptor):
     def to_uppercase(dnode):
-        if isinstance(dnode, EntityNode):
+        if dnode.is_entity():
             return E(dnode.name.upper())
         else:
             return dnode
@@ -278,7 +300,7 @@ def test_edit_uppercase(descriptor, expected_edited_descriptor):
 )
 def test_edit_undraft(descriptor, expected_edited_descriptor):
     def undraft(dnode):
-        if isinstance(dnode, DraftNode):
+        if dnode.is_draft():
             return dnode.child
         else:
             return dnode
