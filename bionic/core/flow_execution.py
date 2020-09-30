@@ -3,7 +3,6 @@ This module contains the logic to execute tasks and their dependencies
 to completion.
 """
 
-import attr
 from concurrent.futures import wait, FIRST_COMPLETED
 import logging
 import time
@@ -516,9 +515,7 @@ class TaskKeyLogger:
         # To make the log output look more consistent, we'll un-draft the descriptor
         # before logging it. (Otherwise a given entity X will sometimes be logged as
         # "X" and sometimes as "<X>", which will look weird to users.)
-        clean_task_key = attr.evolve(
-            task_key, dnode=dnode_without_drafts(task_key.dnode)
-        )
+        clean_task_key = task_key.evolve(dnode=dnode_without_drafts(task_key.dnode))
         logger.log(self._level, template, clean_task_key)
 
     def log_accessed_from_memory(self, task_key):
