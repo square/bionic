@@ -1,7 +1,7 @@
 import logging
 import pickle
 import time
-from concurrent.futures import Future as _Future, TimeoutError, CancelledError
+from concurrent.futures import Future as ConcurrentFuture, TimeoutError, CancelledError
 from enum import Enum, auto
 
 from bionic.aip.client import get_aip_client
@@ -42,7 +42,7 @@ class State(Enum):
         }
 
 
-class Future(_Future):
+class Future(ConcurrentFuture):
     """This future represents a job running on AI platform
 
     The result of the running job will be pickled, and this future can load that pickle.
@@ -56,6 +56,12 @@ class Future(_Future):
         self.job_id = job_id
         self.output = output
         self.aip = get_aip_client()
+        self.done_callbacks = []
+
+        # These are used for caching of the results when the remote job is
+        # finished.
+        self.state = None
+        self.error = None
 
     @property
     def name(self):
@@ -67,9 +73,22 @@ class Future(_Future):
         return True
 
     def _get_state_and_error(self):
+        if self.state is not None:
+            assert self.state.is_finished()
+            return self.state, self.error
+
         request = self.aip.projects().jobs().get(name=self.name)
         response = request.execute()
-        return State[response["state"]], response.get("errorMessage", "")
+        state, error = State[response["state"]], response.get("errorMessage", "")
+
+        if state.is_finished():
+            self.state = state
+            self.error = error
+            for fn in self.done_callbacks:
+                fn(self)
+            self.done_callbacks.clear()
+
+        return state, error
 
     def cancelled(self):
         # We may want to distinguish between canceling and cancelled on GCP.
@@ -118,3 +137,9 @@ class Future(_Future):
             raise CancelledError(f"{self.job_id}: " + error)
         if state is State.FAILED:
             return AipError(f"{self.job_id}: " + error)
+
+    def add_done_callback(self, fn):
+        if self.done():
+            fn(self)
+        else:
+            self.done_callbacks.append(fn)

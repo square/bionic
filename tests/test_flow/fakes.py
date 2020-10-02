@@ -1,7 +1,7 @@
-from contextlib import contextmanager
-from functools import partial
 import io
 import logging
+from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 from unittest.mock import Mock
 from uuid import uuid4
@@ -167,13 +167,18 @@ class FakeGcsFs:
 
 
 @contextmanager
-def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs):
+def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs, caplog):
     """
     Use fake GCP by mocking out GCS and AIP.
     """
 
     def create_aip_job(body, parent):
-        run_aip(body["trainingInput"]["args"][3])
+        # AIP executions do not transmit logs to local instance of bionic.
+        # Emulate this behavior by setting the log level; this should filter out
+        # all (or almost all) the logs. Tests that check the log output will
+        # only test against logs which are printed locally.
+        with caplog.at_level(logging.CRITICAL):
+            run_aip(body["trainingInput"]["args"][3])
         return Mock()
 
     mock_aip_client = Mock()
