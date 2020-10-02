@@ -27,7 +27,14 @@ from typing import Optional, List
 
 import attr
 
-from .ast import DescriptorNode, DraftNode, EntityNode, TupleNode
+from .ast import (
+    DescriptorNode,
+    DraftNode,
+    EntityNode,
+    GenericNode,
+    TupleNode,
+    VALID_GENERIC_NAMES,
+)
 from ..exception import MalformedDescriptorError
 from ..utils.misc import oneline
 
@@ -73,6 +80,7 @@ TOKEN_PATTERN = re.compile(
     r"|(?P<comma>,)"
     r"|(?P<langle><)"
     r"|(?P<rangle>>)"
+    r"|(?P<slash>/)"
     r"|(?P<end>$)"
 )
 
@@ -113,13 +121,15 @@ class DescriptorParser:
             descriptor: expr
 
             expr: commaless_expr | tuple
-            commaless_expr: parenthentical | draft | ENTITY
+            commaless_expr: parenthentical | draft | generic | ENTITY
             tuple: commaless_expr ','
                 | commaless_expr (',' commaless_expr)+ ','?
             parenthetical: '(' expr ')'
             draft: '<' expr '>'
+            generic: commaless_expr '/' GENERIC_NAME
 
             ENTITY: /[a-zA-Z_][a-zA-Z0-9_]/
+            GENERIC_NAME: 'path'
         """
 
         # Initialize parser state.
@@ -167,31 +177,42 @@ class DescriptorParser:
         token_type = self._cur_aug_token.token_type
 
         if token_type == "name":
-            self._parse_entity_name()
+            self._parse_name()
 
         elif token_type == "comma":
+            self._finish_parsing_cur_expr_if_generic()
             self._open_or_extend_tuple_expr()
 
         elif token_type == "lparen":
+            self._finish_parsing_cur_expr_if_generic()
             self._open_paren()
 
         elif token_type == "rparen":
+            self._finish_parsing_cur_expr_if_generic()
             self._finish_parsing_cur_expr_if_tuple()
             self._close_paren()
 
         elif token_type == "langle":
+            self._finish_parsing_cur_expr_if_generic()
             self._open_angle()
 
         elif token_type == "rangle":
+            self._finish_parsing_cur_expr_if_generic()
             self._finish_parsing_cur_expr_if_tuple()
             self._close_angle()
 
+        elif token_type == "slash":
+            self._finish_parsing_cur_expr_if_generic()
+            self._start_generic_expr()
+
         elif token_type == "end":
+            self._finish_parsing_cur_expr_if_generic()
             self._finish_parsing_cur_expr_if_tuple()
             self._finish_parsing()
 
-    def _parse_entity_name(self):
+    def _parse_name(self):
         name = self._cur_aug_token.token
+
         if self._cur_expr.parsed_dnode is not None:
             self._fail(
                 f"""
@@ -200,7 +221,23 @@ class DescriptorParser:
                 {self._cur_expr.parsed_dnode.to_descriptor()!r}
                 """
             )
-        self._cur_expr.parsed_dnode = EntityNode(name)
+
+        if self._cur_expr.active_generic_left_dnode is not None:
+            if name not in VALID_GENERIC_NAMES:
+                self._fail(
+                    f"""
+                    {self._cur_aug_token} is not a valid generic name
+                    """
+                )
+
+            self._cur_expr.parsed_dnode = GenericNode(
+                child=self._cur_expr.active_generic_left_dnode,
+                name=name,
+            )
+            self._cur_expr.active_generic_left_dnode = None
+
+        else:
+            self._cur_expr.parsed_dnode = EntityNode(name)
 
     def _open_or_extend_tuple_expr(self):
         if self._cur_expr.parsed_dnode is None:
@@ -327,6 +364,32 @@ class DescriptorParser:
         expr = self._expr_stack.pop()
         self._cur_expr.parsed_dnode = DraftNode(expr.parsed_dnode)
 
+    def _start_generic_expr(self):
+        if self._cur_expr.parsed_dnode is None:
+            self._fail(
+                f"""
+                found unexpected {self._cur_aug_token}
+                with no preceding expression
+                """
+            )
+
+        self._cur_expr.active_generic_left_dnode = self._cur_expr.parsed_dnode
+        self._cur_expr.parsed_dnode = None
+
+    def _finish_parsing_cur_expr_if_generic(self):
+        if self._cur_expr.active_generic_left_dnode is None:
+            return
+
+        # We should never have both a parsed dnode and an active generic expression.
+        assert self._cur_expr.parsed_dnode is None
+
+        self._fail(
+            f"""
+            found unexpected {self._cur_aug_token};
+            expected a valid generic name after {self._prev_aug_token}
+            """
+        )
+
     def _finish_parsing(self):
         if self._cur_expr.start_lparen_aug_token is not None:
             lparen_aug_token = self._cur_expr.start_lparen_aug_token
@@ -366,4 +429,6 @@ class ExprParseState:
     start_langle_aug_token: Optional[AugmentedToken] = attr.ib(default=None)
 
     active_tuple_dnodes: Optional[List[DescriptorNode]] = None
+    active_generic_left_dnode: Optional[DescriptorNode] = None
+
     parsed_dnode: Optional[DescriptorNode] = None

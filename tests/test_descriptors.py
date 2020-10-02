@@ -8,13 +8,20 @@ from bionic.descriptors.parsing import (
     entity_dnode_from_descriptor,
     nondraft_dnode_from_descriptor,
 )
-from bionic.descriptors.ast import DescriptorNode, DraftNode, EntityNode, TupleNode
+from bionic.descriptors.ast import (
+    DescriptorNode,
+    DraftNode,
+    EntityNode,
+    GenericNode,
+    TupleNode,
+)
 
 from .helpers import assert_re_matches, equal_when_sorted
 
 E = EntityNode
 T = lambda *children: TupleNode(children)  # noqa: E731
 D = DraftNode
+G = GenericNode
 parse = dnode_from_descriptor
 
 
@@ -98,6 +105,42 @@ def test_parsing_and_unparsing():
         descs=["<x, y>", "(<x, y>)", "<(x, y)>"],
         dnode=D(T(E("x"), E("y"))),
     )
+    check_roundtrip(
+        descs=["x/artifact", "(x) / artifact"],
+        dnode=G(E("x"), "artifact"),
+    )
+    check_roundtrip(
+        descs=["(x, y)/artifact"],
+        dnode=G(T(E("x"), E("y")), "artifact"),
+    )
+    check_roundtrip(
+        descs=["x, y/artifact"],
+        dnode=T(E("x"), G(E("y"), "artifact")),
+    )
+    check_roundtrip(
+        descs=["x/artifact, y/artifact"],
+        dnode=T(G(E("x"), "artifact"), G(E("y"), "artifact")),
+    )
+    check_roundtrip(
+        descs=["x/artifact, y"],
+        dnode=T(G(E("x"), "artifact"), E("y")),
+    )
+    check_roundtrip(
+        descs=["(x, y/artifact)/artifact"],
+        dnode=G(T(E("x"), G(E("y"), "artifact")), "artifact"),
+    )
+    check_roundtrip(
+        descs=["<x/artifact>"],
+        dnode=D(G(E("x"), "artifact")),
+    )
+    check_roundtrip(
+        descs=["<x>/artifact"],
+        dnode=G(D(E("x")), "artifact"),
+    )
+    check_roundtrip(
+        descs=["x/artifact/artifact", "(x/artifact)/artifact"],
+        dnode=G(G(E("x"), "artifact"), "artifact"),
+    )
 
 
 @pytest.mark.parametrize("descriptor", ["data", "data2", "data_data", "__1"])
@@ -122,7 +165,7 @@ def test_malformed_descriptors():
         pattern=".*empty.*",
     )
     check_failure(
-        descs=["9", "-", "(/)", "x + y", "x, y, 7"],
+        descs=["9", "-", "(^)", "x + y", "x, y, 7"],
         pattern=".*illegal character.*",
     )
     check_failure(
@@ -138,7 +181,7 @@ def test_malformed_descriptors():
         pattern=".*unexpected ','.*immediately following another.*",
     )
     check_failure(
-        descs=["x()", "(x, y) (z)"],
+        descs=["x()", "(x, y) (z)", "x(/)artifact", "x(/artifact)"],
         pattern=".*unexpected '\\('.*following.*complete.*",
     )
     check_failure(
@@ -185,6 +228,50 @@ def test_malformed_descriptors():
         ],
         pattern=".*'<'.*nested.*",
     )
+    check_failure(
+        descs=[
+            "/",
+            "/x",
+            "/artifact",
+        ],
+        pattern=".*unexpected '/'.*no preceding expression.*",
+    )
+    check_failure(
+        descs=[
+            "x/",
+        ],
+        pattern=".*unexpected end of string.*expected a valid generic name.*",
+    )
+    check_failure(
+        descs=[
+            "x//artifact",
+        ],
+        pattern=".*unexpected '/'.*expected a valid generic name.*",
+    )
+    check_failure(
+        descs=[
+            "x/(artifact)",
+        ],
+        pattern=".*unexpected '\\('.*expected a valid generic name.*",
+    )
+    check_failure(
+        descs=[
+            "(x/)artifact",
+        ],
+        pattern=".*unexpected '\\)'.*expected a valid generic name.*",
+    )
+    check_failure(
+        descs=[
+            "x/y",
+            "x/artifact/y",
+            "x/y/artifact",
+        ],
+        pattern=".*'y'.*is not a valid generic name.*",
+    )
+    check_failure(
+        descs=[],
+        pattern=".*'y'.*is not a valid generic name.*",
+    )
 
 
 def test_exact_error_message():
@@ -214,6 +301,7 @@ def test_entity_type_checks():
         TypeExample("x", DN.is_entity, DN.assume_entity),
         TypeExample("x, y", DN.is_tuple, DN.assume_tuple),
         TypeExample("<x>", DN.is_draft, DN.assume_draft),
+        TypeExample("x/artifact", DN.is_generic, DN.assume_generic),
     ]
 
     for example in examples:
@@ -254,6 +342,10 @@ def test_nondraft_dnode_from_descriptor():
         ("x, y", ["x", "y"]),
         ("x, (y, z)", ["x", "y", "z"]),
         ("x, (y, x)", ["x", "y", "x"]),
+        ("x/artifact", ["x"]),
+        ("x/artifact/artifact", ["x"]),
+        ("(x, y)/artifact", ["x", "y"]),
+        ("x/artifact, y", ["x", "y"]),
     ],
 )
 def test_all_entity_names(descriptor, expected_entity_names):
@@ -271,6 +363,7 @@ def test_all_entity_names(descriptor, expected_entity_names):
         ("<x>", "<X>"),
         ("<x, y>", "<X, Y>"),
         ("w, <x, (y, z)>", "W, <X, (Y, Z)>"),
+        ("x/artifact", "X/artifact"),
     ],
 )
 def test_edit_uppercase(descriptor, expected_edited_descriptor):
@@ -295,7 +388,7 @@ def test_edit_uppercase(descriptor, expected_edited_descriptor):
         ("x, y", "x, y"),
         ("x, <y>", "x, y"),
         ("<x, y>", "x, y"),
-        ("w, <x, (y, z)>", "w, (x, (y, z))"),
+        ("<x>/artifact", "x/artifact"),
     ],
 )
 def test_edit_undraft(descriptor, expected_edited_descriptor):
@@ -324,6 +417,10 @@ def dnodes():
         D(T(E("x"))),
         T(D(E("x"))),
         D(T(E("x"), E("y"))),
+        G(E("x"), "artifact"),
+        G(G(E("x"), "artifact"), "artifact"),
+        G(D(E("x")), "artifact"),
+        T(G(E("x"), "artifact"), E("y")),
     ]
 
 
