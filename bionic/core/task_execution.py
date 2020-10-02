@@ -21,7 +21,6 @@ task's relationship to other tasks.
 import attr
 import copy
 import logging
-import warnings
 
 from enum import auto, Enum, IntEnum
 
@@ -115,8 +114,6 @@ class TaskRunnerEntry:
 
     @property
     def _is_primed(self):
-        if self.state.should_persist is None:
-            return False
         if self.state.should_persist:
             return self.state.is_cached
         else:
@@ -406,8 +403,8 @@ class TaskState:
     func_attrs: FunctionAttributes
         Additional details about the task's `compute_func` function.
         TODO This should probably be on the Task object itself.
-    entity_def: EntityDefinition
-        Definitions of the entity (or other descriptor) produced by this task.
+    desc_metadata: DescriptorMetadata
+        Extra info about the descriptor whose value is produced by this task.
     """
 
     def __init__(
@@ -416,21 +413,16 @@ class TaskState:
         dep_states,
         followup_states,
         func_attrs,
-        entity_def,
+        desc_metadata,
     ):
         self.task = task
         self.dep_states = dep_states
         self.followup_states = followup_states
         self.func_attrs = func_attrs
-        self.entity_def = entity_def
+        self.desc_metadata = desc_metadata
 
         # Cached values.
         self.task_key = task.key
-
-        # These are set by set_up_caching_flags()
-        self._are_caching_flags_set_up = False
-        self.should_memoize = None
-        self.should_persist = None
 
         # These are set by initialize().
         self.is_initialized = False
@@ -445,6 +437,14 @@ class TaskState:
 
         # This can be set by get_cached_result() or compute().
         self._result = None
+
+    @property
+    def should_memoize(self):
+        return self.desc_metadata.should_memoize
+
+    @property
+    def should_persist(self):
+        return self.desc_metadata.should_persist and not self.output_would_be_missing()
 
     @property
     def should_cache(self):
@@ -566,10 +566,7 @@ class TaskState:
         if self.is_initialized:
             return
 
-        # First, set up caching flags.
-        self.set_up_caching_flags(bootstrap)
-
-        # Then set up provenance.
+        # First,  set up the provenance.
         if bootstrap is None:
             # If we're still in the bootstrap resolution phase, we don't have
             # any versioning policy, so we don't attempt anything fancy.
@@ -596,7 +593,7 @@ class TaskState:
         # Then set up queries.
         self._query = Query(
             task_key=self.task_key,
-            protocol=self.entity_def.protocol,
+            protocol=self.desc_metadata.protocol,
             provenance=self._provenance,
         )
 
@@ -605,75 +602,6 @@ class TaskState:
             self.refresh_cache_accessor(bootstrap)
 
         self.is_initialized = True
-
-    def set_up_caching_flags(self, bootstrap):
-        # Setting up the flags is cheap, but it can result in warnings that we don't
-        # need to emit multiple times.
-        if self._are_caching_flags_set_up:
-            return
-
-        if self.entity_def.optional_should_memoize is not None:
-            should_memoize = self.entity_def.optional_should_memoize
-        elif bootstrap is not None:
-            should_memoize = bootstrap.should_memoize_default
-        else:
-            should_memoize = True
-        if self.entity_def.needs_caching and not should_memoize:
-            # TODO Here we require that all non-deterministic values be memoized, but it
-            # would probably also be okay if they were persisted instead; we could
-            # change this check to only trigger if persistence is not enabled.
-            descriptor = self.task_key.dnode.to_descriptor()
-            if bootstrap is None or bootstrap.should_memoize_default:
-                fix_message = (
-                    "removing `memoize(False)` from the corresponding function"
-                )
-            else:
-                fix_message = "applying `@memoize(True)` to the corresponding function"
-            message = f"""
-            Descriptor {descriptor!r} isn't configured to be memoized but
-            is decorated with @changes_per_run. We will memoize it anyway:
-            since @changes_per_run implies that this value can have a different
-            value each time it’s computed, we need to memoize its value to make
-            sure it’s consistent across the entire flow. To avoid this warning,
-            enable memoization for the descriptor by {fix_message!r}."""
-            warnings.warn(oneline(message))
-            should_memoize = True
-        self.should_memoize = should_memoize
-
-        if self.output_would_be_missing():
-            should_persist = False
-        elif self.entity_def.optional_should_persist is not None:
-            should_persist = self.entity_def.optional_should_persist
-        elif bootstrap is not None:
-            should_persist = bootstrap.should_persist_default
-        else:
-            should_persist = False
-        if should_persist and bootstrap is None:
-            descriptor = self.task_key.dnode.to_descriptor()
-            if self.task.is_simple_lookup:
-                disable_message = """
-                applying `@persist(False)` or `@immediate` to the corresponding
-                function"""
-            else:
-                disable_message = """
-                passing `persist=False` when you `declare` / `assign` the entity
-                values"""
-            message = f"""
-            Descriptor {descriptor!r} is set to be persisted, but it can't be
-            because core bootstrap entities depend on it.
-            The corresponding value will not be serialized and deserialized,
-            which may cause that value to be subtly different.
-            To avoid this warning, disable persistence by {disable_message}."""
-            # TODO We should choose between `logger.warn` and `warnings.warn` and use
-            # one consistently.
-            logger.warn(message)
-            should_persist = False
-        self.should_persist = should_persist
-
-        if self.should_persist:
-            assert len(self.followup_states) == 0
-
-        self._are_caching_flags_set_up = True
 
     def refresh_cache_accessor(self, bootstrap):
         """
@@ -827,7 +755,6 @@ class RemoteSubgraph:
         task_key = original_state.task_key
         if task_key in self._stripped_states_by_task_key:
             return self._stripped_states_by_task_key[task_key]
-        original_state.set_up_caching_flags(self._bootstrap)
 
         # Make a copy of the TaskState, which we'll strip down to make it easier to
         # serialize.
@@ -845,7 +772,6 @@ class RemoteSubgraph:
         # initialization.
         if stripped_state.is_initialized:
             stripped_state.func_attrs = None
-            stripped_state.entity_def = None
             stripped_state.case_key = None
 
         if stripped_state.should_persist:
