@@ -57,24 +57,23 @@ except AttributeError:
 
 class PersistentCache:
     """
-    Provides a persistent mapping between Queries (things we could compute) and
-    saved Results (computed Queries).  You use it by getting a CacheAccessor
-    for your specific query, and then performing load/save operations on the
+    Provides a persistent mapping between Provenances (things we could compute) and
+    saved Results (computed Provenances).  You use it by getting a CacheAccessor
+    for your specific Provenance, and then performing load/save operations on the
     accessor.
 
-    When looking up a Query, the cache searches for a saved artifact with a
-    matching Query.  The Query may not match exactly: each Query contains a
-    Provenance, which represents all the code and data used to compute a value,
-    and two Provenances can match at different levels of precision, from a
-    "functional" match to an "exact" one.  A functional match is sufficient to
-    treat two artifacts as interchangeable; the finer levels of matching are
-    only used by the "assisted versioning" system, which tries to detect
-    situations where a function's bytecode has changed but its version hasn't.
+    When looking up a Provenance, the cache searches for a saved artifact with a
+    matching Provenance. The match may not be exact: two Provenances can match at
+    different levels of precision, from a "functional" match to an "exact" one. A
+    functional match is sufficient to treat two artifacts as interchangeable; the
+    finer levels of matching are only used by the "assisted versioning" system, which
+    tries to detect situations where a function's bytecode has changed but its
+    version hasn't.
 
     The cache has two tiers: a "local" tier on disk, which is cheap to access,
     and an optional "cloud" tier backed by GCS, which is more expensive to
     access (but globally accessible).  For load operations, the cache returns
-    the cheapest artifact that functionally matches the Query.  For save
+    the cheapest artifact that functionally matches the Provenance.  For save
     operations, the cache records an exact entry in both tiers.
 
     The cache actually has two distinct responsibilities: (a) translating
@@ -92,20 +91,22 @@ class PersistentCache:
         self._local_store = local_store
         self._cloud_store = cloud_store
 
-    def get_accessor(self, query):
-        return CacheAccessor(self, query)
+    def get_accessor(self, task_key, provenance, protocol):
+        return CacheAccessor(self, task_key, provenance, protocol)
 
 
 class CacheAccessor:
     """
-    Provides a reference to the cache entries for a specific query.  This
+    Provides a reference to the cache entries for a specific provenance.  This
     interface is convenient, and it also allows us to maintain some memoized
-    state for each query, saving redundant lookups.
+    state for each provenance, saving redundant lookups.
     """
 
-    def __init__(self, parent_cache, query):
-        self.query = query
-        self.value_filename_stem = valid_filename_from_query(self.query) + "."
+    def __init__(self, parent_cache, task_key, provenance, protocol):
+        self.task_key = task_key
+        self.provenance = provenance
+        self.protocol = protocol
+        self.value_filename_stem = valid_filename_from_provenance(self.provenance) + "."
 
         self._local = parent_cache._local_store
         self._cloud = parent_cache._cloud_store
@@ -123,7 +124,7 @@ class CacheAccessor:
 
     def can_load(self):
         """
-        Indicates whether there are any cached artifacts for this query.
+        Indicates whether there are any cached artifacts for this provenance.
         """
 
         try:
@@ -133,7 +134,7 @@ class CacheAccessor:
 
     def load_provenance(self):
         """
-        Returns the provenance of the nearest cached artifact for this query,
+        Returns the provenance of the nearest cached artifact for this provenance,
         if one exists.
         """
 
@@ -147,7 +148,7 @@ class CacheAccessor:
 
     def load_result(self):
         """
-        Returns a Result for the nearest cached artifact for this query, if one
+        Returns a Result for the nearest cached artifact for this provenance, if one
         exists.
         """
 
@@ -168,10 +169,11 @@ class CacheAccessor:
                 raise AssertionError("Unrecognized tier: " + entry.tier)
 
             value = self._value_from_file(file_path)
-            value_hash = self.query.protocol.tokenize_file(file_path)
+            value_hash = self.protocol.tokenize_file(file_path)
 
             return Result(
-                query=self.query,
+                task_key=self.task_key,
+                provenance=self.provenance,
                 value=value,
                 file_path=file_path,
                 value_hash=value_hash,
@@ -182,7 +184,7 @@ class CacheAccessor:
     def load_result_value_hash(self):
         """
         Returns only the value hash for the nearest cached artifact for
-        this query, if one exists.
+        this provenance, if one exists.
         """
 
         try:
@@ -209,7 +211,7 @@ class CacheAccessor:
     def update_provenance(self):
         """
         Adds an entry to each cache layer that doesn't already have an exact
-        match for this query.  There must be already be at least one cached
+        match for this provenance.  There must be already be at least one cached
         functional match -- i.e., ``can_load()`` must already return True.
         """
 
@@ -240,7 +242,7 @@ class CacheAccessor:
                 value_hash = local_entry.value_hash
             elif value_wrapper is not None:
                 file_path = self._file_from_value(value_wrapper.value)
-                value_hash = self.query.protocol.tokenize_file(file_path)
+                value_hash = self.protocol.tokenize_file(file_path)
             else:
                 if cloud_entry is None or not cloud_entry.has_artifact:
                     raise AssertionError(
@@ -257,10 +259,10 @@ class CacheAccessor:
                 file_path = self._file_from_blob(blob_url)
                 value_hash = cloud_entry.value_hash
 
-        if not local_entry.exactly_matches_query:
+        if not local_entry.exactly_matches_provenance:
             file_url = url_from_path(file_path)
             local_entry = self._local.inventory.register_url(
-                self.query,
+                self.provenance,
                 file_url,
                 value_hash,
             )
@@ -268,14 +270,14 @@ class CacheAccessor:
 
         if self._cloud:
             assert cloud_entry is not None
-            if not cloud_entry.exactly_matches_query:
+            if not cloud_entry.exactly_matches_provenance:
                 if blob_url is None:
                     if cloud_entry.has_artifact:
                         blob_url = cloud_entry.artifact_url
                     else:
                         blob_url = self._blob_from_file(file_path)
                 cloud_entry = self._cloud.inventory.register_url(
-                    self.query,
+                    self.provenance,
                     blob_url,
                     value_hash,
                 )
@@ -284,7 +286,7 @@ class CacheAccessor:
     def _get_nearest_entry_with_artifact(self):
         """
         Returns the "nearest" -- i.e., most local -- cache entry for this
-        query.
+        provenance.
         """
 
         local_entry = self._get_local_entry()
@@ -299,24 +301,24 @@ class CacheAccessor:
 
     def _get_local_entry(self):
         if self._stored_local_entry is None:
-            self._stored_local_entry = self._local.inventory.find_entry(self.query)
+            self._stored_local_entry = self._local.inventory.find_entry(self.provenance)
         return self._stored_local_entry
 
     def _get_cloud_entry(self):
         if self._stored_cloud_entry is None:
             if self._cloud is None:
                 return None
-            self._stored_cloud_entry = self._cloud.inventory.find_entry(self.query)
+            self._stored_cloud_entry = self._cloud.inventory.find_entry(self.provenance)
         return self._stored_cloud_entry
 
     def _file_from_blob(self, blob_url):
-        dir_path = self._local.generate_unique_dir_path(self.query)
+        dir_path = self._local.generate_unique_dir_path(self.provenance)
         filename = path_from_url(blob_url).name
         file_path = dir_path / filename
 
         ensure_parent_dir_exists(file_path)
 
-        logger.info("Downloading %s from GCS ...", self.query.task_key)
+        logger.info("Downloading %s from GCS ...", self.task_key)
         try:
             self._cloud.download(file_path, blob_url)
         except Exception as e:
@@ -325,10 +327,10 @@ class CacheAccessor:
         return file_path
 
     def _blob_from_file(self, file_path):
-        url_prefix = self._cloud.generate_unique_url_prefix(self.query)
+        url_prefix = self._cloud.generate_unique_url_prefix(self.provenance)
         blob_url = url_prefix + "/" + file_path.name
 
-        logger.info("Uploading %s to GCS ...", self.query.task_key)
+        logger.info("Uploading %s to GCS ...", self.task_key)
         try:
             self._cloud.upload(file_path, blob_url)
         except Exception as e:
@@ -337,21 +339,21 @@ class CacheAccessor:
         return blob_url
 
     def _file_from_value(self, value):
-        dir_path = self._local.generate_unique_dir_path(self.query)
+        dir_path = self._local.generate_unique_dir_path(self.provenance)
 
-        extension = self.query.protocol.file_extension_for_value(value)
+        extension = self.protocol.file_extension_for_value(value)
         value_filename = self.value_filename_stem + extension
         value_path = dir_path / value_filename
 
         ensure_parent_dir_exists(value_path)
         try:
-            self.query.protocol.write(value, value_path)
+            self.protocol.write(value, value_path)
         except Exception as e:
             # TODO Should we rename this to just SerializationError?
             raise EntitySerializationError(
                 oneline(
                     f"""
-                Value of descriptor {self.query.dnode.to_descriptor()!r}
+                Value of descriptor {self.task_key.dnode.to_descriptor()!r}
                 could not be serialized to disk
                 """
                 )
@@ -363,7 +365,7 @@ class CacheAccessor:
         value_filename = file_path.name
         extension = value_filename[len(self.value_filename_stem) :]
         try:
-            return self.query.protocol.read_with_extension(file_path, extension)
+            return self.protocol.read_with_extension(file_path, extension)
 
         except UnsupportedSerializedValueError:
             raise
@@ -410,14 +412,14 @@ class InventoryEntry:
     has_artifact = attr.ib()
     artifact_url = attr.ib()
     provenance = attr.ib()
-    exactly_matches_query = attr.ib()
+    exactly_matches_provenance = attr.ib()
     value_hash = attr.ib()
 
 
 @attr.s(frozen=True)
 class MetadataMatch:
     """
-    Represents a match between a query and a saved artifact.  `level` is a string
+    Represents a match between a provenance and a saved artifact.  `level` is a string
     describing the match level, ranging from "functional" to "exact".
     """
 
@@ -444,7 +446,7 @@ class Inventory:
     Maintains a persistent mapping from Queries to artifact URLs.  An Inventory
     is backed by a "file system", which could correspond to either a local disk
     or a cloud storage service.  This file system is used to store
-    metadata records, each of which describes a Query and an artifact URL that
+    metadata records, each of which describes a provenance and an artifact URL that
     satisfies it. Metadata records are stored using a hierarchical naming
     scheme whose levels correspond to the different levels of Provenance
     matching.
@@ -456,20 +458,20 @@ class Inventory:
         self._fs = filesystem
         self.root_url = filesystem.root_url
 
-    def register_url(self, query, url, value_hash):
+    def register_url(self, provenance, url, value_hash):
         """
-        Records metadata indicating that the provided Query is satisfied
+        Records metadata indicating that the provided Provenance is satisfied
         by the provided URL, and returns a corresponding InventoryEntry.
         """
 
         logger.debug(
             "In     %s inventory for %r, saving artifact URL %s ...",
             self.tier,
-            query,
+            provenance,
             url,
         )
 
-        expected_metadata_url = self._exact_metadata_url_for_query(query)
+        expected_metadata_url = self._exact_metadata_url_for_provenance(provenance)
         metadata_record = None
         if self._fs.exists(expected_metadata_url):
             # This shouldn't happen, because the CacheAccessor shouldn't write
@@ -477,7 +479,7 @@ class Inventory:
             logger.warn(
                 "In %s cache, attempted to create duplicate entry mapping %r " "to %s",
                 self.tier,
-                query,
+                provenance,
                 url,
             )
             metadata_record = self._load_metadata_if_valid_else_delete(
@@ -486,7 +488,7 @@ class Inventory:
 
         if metadata_record is None:
             metadata_url, metadata_record = self._create_and_write_metadata(
-                query,
+                provenance,
                 url,
                 value_hash,
             )
@@ -495,7 +497,7 @@ class Inventory:
             logger.debug(
                 "... in %s inventory for %r, created metadata record at %s",
                 self.tier,
-                query,
+                provenance,
                 metadata_url,
             )
 
@@ -504,24 +506,24 @@ class Inventory:
             has_artifact=True,
             artifact_url=url,
             provenance=metadata_record.provenance,
-            exactly_matches_query=True,
+            exactly_matches_provenance=True,
             value_hash=metadata_record.value_hash,
         )
 
-    def find_entry(self, query):
+    def find_entry(self, provenance):
         """
         Returns an InventoryEntry describing the closest match to the provided
-        Query.
+        Provenance.
         """
 
-        logger.debug("In     %s inventory for %r, searching ...", self.tier, query)
+        logger.debug("In     %s inventory for %r, searching ...", self.tier, provenance)
 
         n_prior_attempts = 0
         while True:
             if n_prior_attempts in (10, 100, 1000, 10000, 100000, 1000000):
                 message = f"""
                 While searching in the {self.tier} cache for an entry matching
-                {query!r}, found {n_prior_attempts} invalid metadata files;
+                {provenance!r}, found {n_prior_attempts} invalid metadata files;
                 either a lot of artifact files were manually deleted,
                 or there's a bug in the cache code
                 """
@@ -531,10 +533,10 @@ class Inventory:
                     logger.warn(oneline(message))
             n_prior_attempts += 1
 
-            match = self._find_best_match(query)
+            match = self._find_best_match(provenance)
             if not match:
                 logger.debug(
-                    "... in %s inventory for %r, found no match", self.tier, query
+                    "... in %s inventory for %r, found no match", self.tier, provenance
                 )
 
                 return InventoryEntry(
@@ -542,7 +544,7 @@ class Inventory:
                     has_artifact=False,
                     artifact_url=None,
                     provenance=None,
-                    exactly_matches_query=False,
+                    exactly_matches_provenance=False,
                     value_hash=None,
                 )
 
@@ -555,7 +557,7 @@ class Inventory:
             logger.debug(
                 "... in %s inventory for %r, found %s match at %s",
                 self.tier,
-                query,
+                provenance,
                 match.level,
                 match.metadata_url,
             )
@@ -565,7 +567,7 @@ class Inventory:
                 has_artifact=True,
                 artifact_url=metadata_record.artifact_url,
                 provenance=metadata_record.provenance,
-                exactly_matches_query=(match.level == "exact"),
+                exactly_matches_provenance=(match.level == "exact"),
                 value_hash=metadata_record.value_hash,
             )
 
@@ -589,21 +591,25 @@ class Inventory:
     def delete_url(self, url):
         return self._fs.delete(url)
 
-    def _find_best_match(self, query):
-        equivalent_url_prefix = self._equivalent_metadata_url_prefix_for_query(query)
+    def _find_best_match(self, provenance):
+        equivalent_url_prefix = self._equivalent_metadata_url_prefix_for_provenance(
+            provenance
+        )
         possible_urls = self._fs.search(equivalent_url_prefix)
         equivalent_urls = [url for url in possible_urls if url.endswith(".yaml")]
         if len(equivalent_urls) == 0:
             return None
 
-        exact_url = self._exact_metadata_url_for_query(query)
+        exact_url = self._exact_metadata_url_for_provenance(provenance)
         if exact_url in equivalent_urls:
             return MetadataMatch(
                 metadata_url=exact_url,
                 level="exact",
             )
 
-        nominal_url_prefix = self._nominal_metadata_url_prefix_for_query(query)
+        nominal_url_prefix = self._nominal_metadata_url_prefix_for_provenance(
+            provenance
+        )
         nominal_urls = [
             url for url in equivalent_urls if url.startswith(nominal_url_prefix)
         ]
@@ -618,25 +624,29 @@ class Inventory:
             level="equivalent",
         )
 
-    def _equivalent_metadata_url_prefix_for_query(self, query):
+    def _equivalent_metadata_url_prefix_for_provenance(self, provenance):
         return (
             self._fs.root_url
             + "/"
-            + valid_filename_from_query(query)
+            + valid_filename_from_provenance(provenance)
             + "/"
-            + query.provenance.functional_hash
+            + provenance.functional_hash
         )
 
-    def _nominal_metadata_url_prefix_for_query(self, query):
+    def _nominal_metadata_url_prefix_for_provenance(self, provenance):
         return (
-            self._equivalent_metadata_url_prefix_for_query(query)
+            self._equivalent_metadata_url_prefix_for_provenance(provenance)
             + "/"
-            + query.provenance.nominal_hash
+            + provenance.nominal_hash
         )
 
-    def _exact_metadata_url_for_query(self, query):
-        filename = f"metadata_{query.provenance.exact_hash}.yaml"
-        return self._nominal_metadata_url_prefix_for_query(query) + "/" + filename
+    def _exact_metadata_url_for_provenance(self, provenance):
+        filename = f"metadata_{provenance.exact_hash}.yaml"
+        return (
+            self._nominal_metadata_url_prefix_for_provenance(provenance)
+            + "/"
+            + filename
+        )
 
     def _load_metadata_if_valid_else_delete(self, url):
         try:
@@ -662,13 +672,13 @@ class Inventory:
         else:
             return metadata_record
 
-    def _create_and_write_metadata(self, query, artifact_url, value_hash):
-        metadata_url = self._exact_metadata_url_for_query(query)
+    def _create_and_write_metadata(self, provenance, artifact_url, value_hash):
+        metadata_url = self._exact_metadata_url_for_provenance(provenance)
 
         metadata_record = ArtifactMetadataRecord(
-            descriptor=query.dnode.to_descriptor(),
+            descriptor=provenance.descriptor,
             artifact_url=artifact_url,
-            provenance=query.provenance,
+            provenance=provenance,
             value_hash=value_hash,
         )
         metadata_yaml = metadata_record.to_relativized_yaml(metadata_url)
@@ -694,14 +704,14 @@ class LocalStore:
             "local disk", "local", LocalFilesystem(inventory_root_path, tmp_root_path)
         )
 
-    def generate_unique_dir_path(self, query):
+    def generate_unique_dir_path(self, provenance):
         n_attempts = 0
         while True:
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
             path = (
                 self._artifact_root_path
-                / valid_filename_from_query(query)
+                / valid_filename_from_provenance(provenance)
                 / str(uuid4())
             )
 
@@ -734,7 +744,7 @@ class GcsCloudStore:
         )
         self._artifact_root_url_prefix = url + "/artifacts"
 
-    def generate_unique_url_prefix(self, query):
+    def generate_unique_url_prefix(self, provenance):
         n_attempts = 0
         while True:
             # TODO This path can be anything as long as it's unique, so we
@@ -742,7 +752,7 @@ class GcsCloudStore:
             url_prefix = "/".join(
                 [
                     str(self._artifact_root_url_prefix),
-                    valid_filename_from_query(query),
+                    valid_filename_from_provenance(provenance),
                     str(uuid4()),
                 ]
             )
@@ -793,8 +803,8 @@ class FakeCloudStore(LocalStore):
     def __init__(self, root_path_str):
         super(FakeCloudStore, self).__init__(root_path_str)
 
-    def generate_unique_url_prefix(self, query):
-        return url_from_path(self.generate_unique_dir_path(query))
+    def generate_unique_url_prefix(self, provenance):
+        return url_from_path(self.generate_unique_dir_path(provenance))
 
     def upload(self, path, url):
         src_path = path
@@ -914,15 +924,16 @@ class InvalidCacheStateError(Exception):
     """
 
 
-def valid_filename_from_query(query):
+# TODO Do we ever use this for descriptors that are not just entity names? If so, should
+# we worry about other special characters in descriptors?
+def valid_filename_from_provenance(provenance):
     """
-    Generates a filename from a query.
+    Generates a filename from a provenance.
 
-    This just gets the descriptor string from the query and replaces any
-    spaces with hyphens. (At the time of writing, descriptors can't contain
-    spaces, but in the future they will be able to.)
+    This just converts the node to a descriptor string and replaces any spaces with
+    hyphens.
     """
-    return query.dnode.to_descriptor().replace(" ", "-")
+    return provenance.descriptor.replace(" ", "-")
 
 
 CACHE_SCHEMA_VERSION = 10
