@@ -33,6 +33,9 @@ class TaskKey:
     dnode = attr.ib()
     case_key = attr.ib()
 
+    def evolve(self, **kwargs):
+        return attr.evolve(self, **kwargs)
+
     def __str__(self):
         args_str = ", ".join(f"{name}={value}" for name, value in self.case_key.items())
         return f"{self.dnode.to_descriptor(near_commas=True)}({args_str})"
@@ -68,6 +71,9 @@ class Task:
     @property
     def can_be_serialized(self):
         return not self.is_simple_lookup
+
+    def evolve(self, **kwargs):
+        return attr.evolve(self, **kwargs)
 
     def __repr__(self):
         return f"Task({self.key!r}, {self.dep_keys!r})"
