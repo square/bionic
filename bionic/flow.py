@@ -983,6 +983,9 @@ class FlowBuilder:
                 doc=doc,
                 optional_should_persist=acc.should_persist,
                 optional_should_memoize=acc.should_memoize,
+                # If this entity is derived in a non-deterministic way, this flag will
+                # remind us to check and make sure it actually gets cached somehow.
+                needs_caching=provider.attrs.changes_per_run,
             )
             state = state.define_entity(entity_def)
         state = state.install_provider(provider)
@@ -1431,7 +1434,13 @@ class Flow:
 
         return self.get("core__flow_name")
 
-    def render_dag(self, include_core=False, vertical=False, curvy_lines=False):
+    def render_dag(
+        self,
+        include_core=False,
+        vertical=False,
+        curvy_lines=False,
+        _include_detail=False,
+    ):
         """
         Returns a ``FlowImage`` with a visualization of this flow's DAG. This
         object behaves similarly to a Pillow ``Image`` object.
@@ -1441,7 +1450,10 @@ class Flow:
 
         from . import dagviz
 
-        graph = self._deriver.export_dag(include_core)
+        graph = self._deriver.export_dag(
+            include_core=include_core,
+            _include_detail=_include_detail,
+        )
         dot = dagviz.dot_from_graph(
             graph=graph,
             vertical=vertical,

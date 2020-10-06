@@ -618,7 +618,10 @@ class TaskState:
             should_memoize = bootstrap.should_memoize_default
         else:
             should_memoize = True
-        if self.func_attrs.changes_per_run and not should_memoize:
+        if self.entity_def.needs_caching and not should_memoize:
+            # TODO Here we require that all non-deterministic values be memoized, but it
+            # would probably also be okay if they were persisted instead; we could
+            # change this check to only trigger if persistence is not enabled.
             descriptor = self.task_key.dnode.to_descriptor()
             if bootstrap is None or bootstrap.should_memoize_default:
                 fix_message = (
@@ -721,7 +724,7 @@ class TaskState:
                         minor={old_prov.code_version_minor!r}),
                         but created by different code.
                         It appears that the code function that outputs
-                        {new_prov.descriptor!r}
+                        {new_prov.descriptor}
                         was changed (old bytecode hash {old_prov.bytecode_hash!r};
                         new bytecode hash {new_prov.bytecode_hash!r})
                         but the function's version number was not.
@@ -816,6 +819,7 @@ class RemoteSubgraph:
 
         self._stripped_states_by_task_key = {}
         self.persistable_but_not_persisted_states = set()
+        self.all_states_can_be_serialized = True
 
         self._strip_state(target_state)
 
@@ -853,6 +857,12 @@ class RemoteSubgraph:
 
             else:
                 self.persistable_but_not_persisted_states.add(original_state)
+
+        if (
+            stripped_state.task is not None
+            and not stripped_state.task.can_be_serialized
+        ):
+            self.all_states_can_be_serialized = False
 
         stripped_state.dep_states = [
             self._strip_state(dep_state) for dep_state in stripped_state.dep_states

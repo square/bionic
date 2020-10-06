@@ -3,6 +3,7 @@ This module contains the logic to execute tasks and their dependencies
 to completion.
 """
 
+import attr
 from concurrent.futures import wait, FIRST_COMPLETED
 import logging
 import time
@@ -15,6 +16,7 @@ from .task_execution import (
     RemoteSubgraph,
     TaskRunnerEntry,
 )
+from ..descriptors import ast
 from ..utils.keyed_priority_stack import KeyedPriorityStack
 from ..utils.misc import SynchronizedSet
 
@@ -155,17 +157,23 @@ class TaskCompletionRunner:
             return
 
         # At this point we'll need to actually compute the entry. If possible, we
-        # prefer to compute it remotely.
+        # prefer to compute it remotely. This requires checking several prerequisites,
+        # then analyzing the entry's non-persistable dependencies to make sure they can
+        # all be transmitted outside this process. We check this in stages because the
+        # final check is a bit more expensive.
         aip_execution_enabled_for_entry = (
             self._aip_execution_enabled
             and entry.state.func_attrs.aip_task_config is not None
         )
-        can_compute_remotely = (
-            (aip_execution_enabled_for_entry or self._parallel_execution_enabled)
-            and entry.state.should_persist
-            and not entry.state.task.is_simple_lookup
-        )
-        if can_compute_remotely:
+        entry_may_be_computable_remotely = (
+            aip_execution_enabled_for_entry or self._parallel_execution_enabled
+        ) and entry.state.should_persist
+        if entry_may_be_computable_remotely:
+            remote_subgraph = RemoteSubgraph(entry.state, self._bootstrap)
+            entry_is_computable_remotely = remote_subgraph.all_states_can_be_serialized
+        else:
+            entry_is_computable_remotely = False
+        if entry_is_computable_remotely:
             # When we run an entry remotely, we also need to run all of its immediate
             # non-persistable ancestors, since their values can't be shared between
             # processes. Those ancestors may have follow-up tasks, so we'll need to
@@ -174,7 +182,6 @@ class TaskCompletionRunner:
             # track the fact that they're running. So really we're going to run a
             # collection of persistable entries (including the original entry), plus
             # their immediate non-persistable ancestors.
-            remote_subgraph = RemoteSubgraph(entry.state, self._bootstrap)
             target_entries = [
                 self._get_or_create_entry_for_state(persistable_subgraph_state)
                 for persistable_subgraph_state in remote_subgraph.persistable_but_not_persisted_states
@@ -467,7 +474,9 @@ class TaskKeyLogger:
 
         executor = bootstrap.process_executor if bootstrap is not None else None
         if executor is not None:
-            self._already_logged_task_key_set = executor.create_synchronized_set()
+            self._already_logged_entity_case_key_pairs = (
+                executor.create_synchronized_set()
+            )
         else:
             # TODO: When AIP execution is enabled, we will send this
             # SynchronizedSet to AIP jobs for logging task keys. AIP
@@ -479,16 +488,38 @@ class TaskKeyLogger:
             # main process as a result. We should fix AIP progress
             # reporting by either logging the keys in the main process
             # or rethinking how we do progress reporting.
-            self._already_logged_task_key_set = SynchronizedSet()
+            self._already_logged_entity_case_key_pairs = SynchronizedSet()
 
     def _log(self, template, task_key, is_resolved=True):
-        if not is_resolved:
-            should_log = not self._already_logged_task_key_set.contains(task_key)
+        # We only want resolved log each (entity, case key) pair once.
+        entity_names = task_key.dnode.all_entity_names()
+        case_key = task_key.case_key
+        pairs = [(entity_name, case_key) for entity_name in entity_names]
+        if is_resolved:
+            # The pairs here are fully resolved (there's no more work to do on them) so
+            # we'll add them to the logged set. If any of them were not already present,
+            # we should log them now.
+            should_log = any(
+                self._already_logged_entity_case_key_pairs.add(pair) for pair in pairs
+            )
         else:
-            should_log = self._already_logged_task_key_set.add(task_key)
+            # This pair isn't resolved, so we'll check if it's already logged, but
+            # without adding it to the set.
+            should_log = not all(
+                self._already_logged_entity_case_key_pairs.contains(pair)
+                for pair in pairs
+            )
 
-        if should_log:
-            logger.log(self._level, template, task_key)
+        if not should_log:
+            return
+
+        # To make the log output look more consistent, we'll un-draft the descriptor
+        # before logging it. (Otherwise a given entity X will sometimes be logged as
+        # "X" and sometimes as "<X>", which will look weird to users.)
+        clean_task_key = attr.evolve(
+            task_key, dnode=dnode_without_drafts(task_key.dnode)
+        )
+        logger.log(self._level, template, clean_task_key)
 
     def log_accessed_from_memory(self, task_key):
         self._log("Accessed   %s from in-memory cache", task_key)
@@ -504,3 +535,7 @@ class TaskKeyLogger:
 
     def log_computed(self, task_key):
         self._log("Computed   %s", task_key)
+
+
+def dnode_without_drafts(dnode):
+    return dnode.edit(lambda d: d.child if isinstance(d, ast.DraftNode) else d)
