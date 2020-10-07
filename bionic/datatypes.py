@@ -130,41 +130,20 @@ class Task:
 
 
 @attr.s(frozen=True)
-class Query:
-    """
-    Represents a request for a specific entity value.
-    """
-
-    task_key = attr.ib()
-    protocol = attr.ib()
-    provenance = attr.ib()
-
-    @property
-    def dnode(self):
-        return self.task_key.dnode
-
-    @property
-    def case_key(self):
-        return self.task_key.case_key
-
-    def __repr__(self):
-        return f"Query({self.task_key}, {self.provenance!r})"
-
-
-@attr.s(frozen=True)
 class Result:
     """
     Represents one value for one entity.
     """
 
-    query = attr.ib()
+    task_key = attr.ib()
+    provenance = attr.ib()
     value = attr.ib()
     file_path = attr.ib(default=None)
     value_hash = attr.ib(default=None)
     value_is_missing = attr.ib(default=False)
 
     def __repr__(self):
-        return f"Result({self.query!r}, {self.value!r})"
+        return f"Result({self.task_key!r}, {self.value!r})"
 
 
 class CaseKeySpace(ImmutableSequence):

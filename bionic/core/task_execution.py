@@ -24,7 +24,7 @@ import logging
 
 from enum import auto, Enum, IntEnum
 
-from ..datatypes import Query, Result
+from ..datatypes import Result
 from ..exception import CodeVersioningError
 from ..persistence import Provenance, ProvenanceDigest
 from ..utils.misc import oneline
@@ -133,8 +133,9 @@ class TaskRunnerEntry:
         # self.state; should we clean this up?
 
         state = self.state
-        task = self.state.task
-        query = self.state._query
+        task = state.task
+        provenance = state._provenance
+        protocol = state.desc_metadata.protocol
 
         assert state.is_initialized
         assert not state.is_cached
@@ -152,7 +153,12 @@ class TaskRunnerEntry:
 
         # If we have any missing outputs, exit early with a missing result.
         if state.output_would_be_missing():
-            result = Result(query=query, value=None, value_is_missing=True)
+            result = Result(
+                task_key=task.key,
+                provenance=provenance,
+                value=None,
+                value_is_missing=True,
+            )
             value_hash = ""
             # TODO Should we do this even when memoization is disabled?
             state._result = result
@@ -174,8 +180,12 @@ class TaskRunnerEntry:
         else:
             task_key_logger.log_computed(state.task_key)
 
-        query.protocol.validate_for_dnode(query.dnode, value)
-        result = Result(query=query, value=value)
+        protocol.validate_for_dnode(task.key.dnode, value)
+        result = Result(
+            task_key=task.key,
+            provenance=provenance,
+            value=value,
+        )
 
         if state.should_persist:
             accessor = self.state._cache_accessor
@@ -427,7 +437,6 @@ class TaskState:
         # These are set by initialize().
         self.is_initialized = False
         self._provenance = None
-        self._query = None
         self._cache_accessor = None
 
         # This can be set by compute(), _load_value_hash(), or
@@ -480,9 +489,9 @@ class TaskState:
             return self._result
 
         result = self._cache_accessor.load_result()
-        task_key_logger.log_loaded_from_disk(result.query.task_key)
+        task_key_logger.log_loaded_from_disk(result.task_key)
 
-        # Make sure the result is saved in all caches under this exact query.
+        # Make sure the result is saved in all caches under this exact provenance.
         self._cache_accessor.save_result(result)
 
         if self.should_memoize:
@@ -590,13 +599,6 @@ class TaskState:
             flow_instance_uuid=flow_instance_uuid,
         )
 
-        # Then set up queries.
-        self._query = Query(
-            task_key=self.task_key,
-            protocol=self.desc_metadata.protocol,
-            provenance=self._provenance,
-        )
-
         # Lastly, set up cache accessors.
         if self.should_persist:
             self.refresh_cache_accessor(bootstrap)
@@ -613,8 +615,11 @@ class TaskState:
         in order to wipe this state and allow it get back in sync with the real world.
         """
 
-        self._cache_accessor = bootstrap.persistent_cache.get_accessor(self._query)
-
+        self._cache_accessor = bootstrap.persistent_cache.get_accessor(
+            task_key=self.task_key,
+            provenance=self._provenance,
+            protocol=self.desc_metadata.protocol,
+        )
         if bootstrap.versioning_policy.check_for_bytecode_errors:
             self._check_accessor_for_version_problems()
 
@@ -628,7 +633,7 @@ class TaskState:
         if old_prov is None:
             return
 
-        new_prov = self._cache_accessor.query.provenance
+        new_prov = self._cache_accessor.provenance
         if old_prov.exactly_matches(new_prov):
             return
 
@@ -647,7 +652,7 @@ class TaskState:
                 if old_prov.bytecode_hash != new_prov.bytecode_hash:
                     message = f"""
                         Found a cached artifact with the same descriptor
-                        ({self._cache_accessor.query.dnode.to_descriptor()!r})
+                        ({self._cache_accessor.provenance.descriptor!r})
                         and version (major={old_prov.code_version_major!r},
                         minor={old_prov.code_version_minor!r}),
                         but created by different code.
@@ -691,7 +696,7 @@ class TaskState:
                 check. This should be impossible and is probably a bug in Bionic; please
                 report this stace track to the developers. However, it's also likely
                 that you need to update the ``@version`` annotation on the function
-                that outputs {self._cache_accessor.query.provenance.descriptor}.
+                that outputs {self._cache_accessor.provenance.descriptor}.
                 If that doesn't fix the warning, you can try filtering the warning with
                 ``warnings.filterwarnings``; deleting the disk cache; or disabling
                 assisted versioning.
@@ -711,7 +716,7 @@ class TaskState:
                 oneline(
                     f"""
                 Failed to load cached value (hash) for descriptor
-                {self._cache_accessor.query.dnode.to_descriptor()!r}.
+                {self._cache_accessor.provenance.descriptor!r}.
                 This suggests we did not successfully compute the task
                 in a subprocess, or the entity wasn't cached;
                 this should be impossible!"""

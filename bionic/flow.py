@@ -1245,7 +1245,7 @@ class Flow:
                 # missing values.
                 assert len(orig_result_group) > 0
                 missing_result = orig_result_group[0]
-                missing_names = missing_result.query.case_key.missing_names
+                missing_names = missing_result.task_key.case_key.missing_names
                 message = f"""
                 Entity {name} could not be computed because the following entities are
                 declared but have no values set:
@@ -1272,12 +1272,12 @@ class Flow:
                         ancestor_name
                     ] = ancestor_result_group.key_space
                     for ancestor_result in ancestor_result_group:
-                        ancestor_case_key = ancestor_result.query.case_key
+                        ancestor_case_key = ancestor_result.task_key.case_key
                         ancestor_values_by_case_key_by_name[ancestor_name][
                             ancestor_case_key
                         ] = ancestor_result.value
 
-                orig_case_keys = [result.query.case_key for result in result_group]
+                orig_case_keys = [result.task_key.case_key for result in result_group]
                 index = pd.MultiIndex.from_tuples(
                     tuples=[
                         tuple(

@@ -654,7 +654,7 @@ class EntityDeriver:
                     f"""
                 Bootstrap entity {entity_name!r} could not be computed because
                 the following entities are declared but not set:
-                {", ".join(result.query.case_key.missing_names)}
+                {", ".join(result.task_key.case_key.missing_names)}
                 """
                 )
             )
