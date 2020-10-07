@@ -46,6 +46,9 @@ def pytest_configure(config):
     add_mark("serial", "will run using serial execution")
     add_mark("parallel", "will run using parallel execution")
 
+    # This marker is added automatically based on other markers.
+    add_mark("baseline", "runs by default when no options are passed to pytest")
+
 
 def pytest_collection_modifyitems(config, items):
     also_run_slow = config.getoption("--slow")
@@ -63,22 +66,35 @@ def pytest_collection_modifyitems(config, items):
 
     items_to_keep = []
     for item in items:
-        if "slow" in item.keywords and not also_run_slow:
-            item.add_marker(skip_slow)
+        item_is_baseline = True
 
-        if "needs_gcs" in item.keywords and not has_gcs:
-            item.add_marker(skip_needs_gcs)
+        if "slow" in item.keywords:
+            item_is_baseline = False
+            if not also_run_slow:
+                item.add_marker(skip_slow)
 
-        if "needs_aip" in item.keywords and not has_aip:
-            item.add_marker(skip_needs_aip)
+        if "needs_gcs" in item.keywords:
+            item_is_baseline = False
+            if not has_gcs:
+                item.add_marker(skip_needs_gcs)
+
+        if "needs_aip" in item.keywords:
+            item_is_baseline = False
+            if not has_aip:
+                item.add_marker(skip_needs_aip)
 
         if "parallel" in item.keywords:
-            if "no_parallel" in item.keywords or not (
-                also_run_parallel or "allows_parallel" in item.keywords
-            ):
-                continue
+            if "allows_parallel" not in item.keywords:
+                item_is_baseline = False
+
+                if "no_parallel" in item.keywords or not also_run_parallel:
+                    continue
+
         elif "needs_parallel" in item.keywords:
             continue
+
+        if item_is_baseline:
+            item.add_marker(pytest.mark.baseline)
 
         items_to_keep.append(item)
 
