@@ -127,6 +127,9 @@ Development Changes
 
 - The ``pytest`` flag for activating parallel execution tests has been renamed from
   ``--all-execution-modes`` to ``--parallel``.
+- Our CI no longer runs each test on each Python version. Tests are now split into two
+  groups: fast "baseline" tests, which are run once for each version; and slower
+  "non-baseline" tests, which are randomly sharded among the three tested versions.
 
 0.8.3 (Jul 23, 2020)
 --------------------
