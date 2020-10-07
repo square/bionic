@@ -3,10 +3,12 @@ Contains the core logic for resolving Entities by executing Tasks.
 """
 
 from collections import defaultdict
+import logging
+import warnings
 
 import attr
 
-from .datatypes import ResultGroup, EntityDefinition, TaskKey
+from .datatypes import ResultGroup, DescriptorMetadata, TaskKey
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .deps.optdep import import_optional_dependency
@@ -20,6 +22,8 @@ from .provider import (
     PassthroughProvider,
 )
 from .utils.misc import oneline
+
+logger = logging.getLogger(__name__)
 
 
 NON_SERIALIZABLE_OBJECT_PROTOCOL = NonSerializableObjectProtocol()
@@ -73,8 +77,8 @@ class EntityDeriver:
         necessary but allows errors to surface earlier.
         """
         self._register_static_providers()
-        self._prevalidate_base_dnodes()
         self._set_up_bootstrap()
+        self._prevalidate_base_dnodes()
 
     def derive(self, dnode):
         """
@@ -141,7 +145,7 @@ class EntityDeriver:
 
             tasks = self._get_or_create_dinfo_for_dnode(dnode).tasks
             descriptor = dnode.to_descriptor()
-            doc = self._obtain_entity_def_for_dnode(dnode).doc
+            doc = self._obtain_metadata_for_dnode(dnode).doc
             should_collapse = should_collapse_dnode(dnode)
 
             for task_ix, task in enumerate(
@@ -397,40 +401,99 @@ class EntityDeriver:
                 f"Unexpected dnode type {type(dnode)!r} for dnode {dnode!r}"
             )
 
-    def _obtain_entity_def_for_dnode(self, dnode):
+    def _obtain_metadata_for_dnode(self, dnode):
         """
-        Returns an EntityDefinition object for a given descriptor node. If the node is
-        an entity, this returns the definition specified by the user; if the node is a
-        draft or tuple, we generate a synthetic definition.
+        Returns metadata for the specified descriptor node.
         """
 
         if isinstance(dnode, ast.EntityNode):
-            return self._flow_state.get_entity_def(dnode.to_descriptor())
+            entity_def = self._flow_state.get_entity_def(dnode.to_descriptor())
+
+            # TODO It's a little gross that our metadata object depends on whether
+            # it's requested before or after we construct the bootstrap. It might be
+            # nice if we could explicitly mark each entity with whether it's supposed
+            # to be configured before or after the bootstrap. However, that's
+            # somewhat complicated by the fact that defining an entity with @builder
+            # resets its entity configuration (which was probably a bad design choice
+            # that we should change at some point).
+            if self._bootstrap is not None:
+                should_memoize_default = self._bootstrap.should_memoize_default
+                should_persist_default = self._bootstrap.should_persist_default
+            else:
+                should_memoize_default = True
+                should_persist_default = False
+
+            if entity_def.optional_should_memoize is not None:
+                should_memoize = entity_def.optional_should_memoize
+            else:
+                should_memoize = should_memoize_default
+            if entity_def.needs_caching and not should_memoize:
+                # TODO Here we require that all non-deterministic values be memoized,
+                # but it would probably also be okay if they were persisted instead; we
+                # could change this check to only trigger if persistence is not
+                # enabled.
+                descriptor = dnode.to_descriptor()
+                if should_memoize_default:
+                    fix_message = (
+                        "removing `memoize(False)` from the corresponding function"
+                    )
+                else:
+                    fix_message = (
+                        "applying `@memoize(True)` to the corresponding function"
+                    )
+                message = f"""
+                Descriptor {descriptor!r} isn't configured to be memoized but
+                is decorated with @changes_per_run. We will memoize it anyway:
+                since @changes_per_run implies that this value can have a different
+                value each time it’s computed, we need to memoize its value to make
+                sure it’s consistent across the entire flow. To avoid this warning,
+                enable memoization for the descriptor by {fix_message!r}."""
+                warnings.warn(oneline(message))
+                should_memoize = True
+
+            if entity_def.optional_should_persist is not None:
+                should_persist = entity_def.optional_should_persist
+            else:
+                should_persist = should_persist_default
+            if should_persist and self._bootstrap is None:
+                descriptor = dnode.to_descriptor()
+                message = f"""
+                Descriptor {descriptor!r} is set to be persisted, but it can't be
+                because core bootstrap entities depend on it.
+                The corresponding value will not be serialized and deserialized,
+                which may cause that value to be subtly different. To avoid this
+                warning, disable persistence by applying `@persist(False)` or
+                `@immediate` to the corresponding function, or passing
+                `persist=False` when you `declare` or `assign` the entity values.
+                """
+                # TODO We should choose between `logger.warn` and `warnings.warn` and
+                # use one consistently.
+                logger.warn(oneline(message))
+                should_persist = False
+
+            return DescriptorMetadata(
+                protocol=entity_def.protocol,
+                doc=entity_def.doc,
+                should_memoize=should_memoize,
+                should_persist=should_persist,
+            )
 
         elif isinstance(dnode, ast.DraftNode):
-            child_entity_def = self._obtain_entity_def_for_dnode(dnode.child)
+            child_entity_def = self._obtain_metadata_for_dnode(dnode.child)
             doc_prefix = "(Intermediate value)"
             if child_entity_def.doc is None:
                 doc = doc_prefix
             else:
                 doc = doc_prefix + " " + child_entity_def.doc
-            return EntityDefinition(
-                name=dnode.to_descriptor(),
+            return DescriptorMetadata(
                 protocol=NON_SERIALIZABLE_OBJECT_PROTOCOL,
                 doc=doc,
-                optional_should_memoize=False,
-                optional_should_persist=False,
             )
 
         elif isinstance(dnode, ast.TupleNode):
-            # TODO Since we're using this to describe things something that's not an
-            # entity, we should rename `EntityDefinition` to something more general.
-            return EntityDefinition(
-                name=dnode.to_descriptor(),
+            return DescriptorMetadata(
                 protocol=TupleProtocol(len(dnode.children)),
                 doc=f"A Python tuple with {len(dnode.children)} values.",
-                optional_should_memoize=False,
-                optional_should_persist=False,
             )
 
         else:
@@ -514,7 +577,7 @@ class EntityDeriver:
         provider = self._obtain_provider_for_dnode(dnode)
         func_attrs = provider.get_func_attrs(case_key)
 
-        entity_def = self._obtain_entity_def_for_dnode(task.key.dnode)
+        metadata = self._obtain_metadata_for_dnode(task.key.dnode)
 
         # With the precursors out of the way, we're ready to create the TaskState.
         # However, we're leaving the references to its neighboring task states empty
@@ -526,7 +589,7 @@ class EntityDeriver:
             dep_states=[],
             followup_states=[],
             func_attrs=func_attrs,
-            entity_def=entity_def,
+            desc_metadata=metadata,
         )
         # We immediately put this TaskState in the "in-progress" cache so it will be
         # available as we recursively construct its neighbors.
@@ -549,6 +612,11 @@ class EntityDeriver:
                     followup_key, in_progress_states_by_key
                 )
                 task_state.followup_states.append(followup_state)
+
+        # We should not have followup tasks for any persistable value; we only have
+        # followups for draft values and those are never persistable.
+        if metadata.should_persist:
+            assert len(task_state.followup_states) == 0
 
         # Now the TaskState is fully initialized, so we can put it in the real cache
         # and return it.

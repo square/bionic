@@ -80,7 +80,6 @@ class TaskCompletionRunner:
                 self._bootstrap.process_executor.start_logging()
 
             for state in states:
-                state.set_up_caching_flags(self._bootstrap)
                 entry = self._get_or_create_entry_for_state(state)
                 self._add_requirement(
                     src_entry=None, dst_entry=entry, level=EntryLevel.CACHED

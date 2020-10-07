@@ -14,6 +14,24 @@ class EntityDefinition:
     to do with the entity's "contract": the assumptions other parts of the system can
     make about its value. However, this does *not* include the way the entity's value
     is determined; this is configured separately and can be changed more easily.
+
+    Attributes
+    ----------
+    name: string
+        The name of the entity.
+    protocol: Protocol
+        The protocol to use when serializing and deserializing entity values on disk.
+    doc: string
+        A human-readable description of the entity.
+    optional_should_memoize: boolean or None
+        Whether the entity should be memoized, or None if the global default should be
+        used.
+    optional_should_persist: boolean or None
+        Whether the entity should be persisted, or None if the global default should be
+        used
+    needs_caching: boolean
+        Indicates that some kind of caching needs to be enabled for this entity (either
+        persistence or memoization).
     """
 
     name = attr.ib()
@@ -22,6 +40,38 @@ class EntityDefinition:
     optional_should_memoize = attr.ib()
     optional_should_persist = attr.ib()
     needs_caching = attr.ib(default=False)
+
+
+@attr.s(frozen=True)
+class DescriptorMetadata:
+    """
+    Holds extra data we might need when working with a descriptor.
+
+    Similar to an EntityDefinition, but can apply to non-entity descriptors, and also
+    incorporates information from the global configuration. (For example,
+    EntityDefinition has an `optional_should_memoize` field which describes the
+    user's memoization preferences, if any; this class has a `should_memoize` field
+    which describes what we'll actually do, based on both user preferences and the
+    global configuration.)
+
+    Attributes
+    ----------
+    protocol: Protocol
+        The protocol to use when serializing and deserializing descriptor values on
+        disk.
+    doc: string
+        A human-readable description of the descriptor.
+    should_memoize: boolean
+        Whether the entity should be memoized.
+    should_persist: boolean
+        Whether the entity should be persisted.
+        used
+    """
+
+    protocol = attr.ib()
+    doc = attr.ib()
+    should_memoize = attr.ib(default=False)
+    should_persist = attr.ib(default=False)
 
 
 @attr.s(frozen=True)
