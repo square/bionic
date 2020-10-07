@@ -45,6 +45,7 @@ extras["full"] = combine(*extras.values())
 extras["dev"] = combine(
     [
         "pytest",
+        "pytest-shard",
         "black",
         "flake8",
         "flake8-print",

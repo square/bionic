@@ -18,6 +18,14 @@ jobs:
       fail-fast: false
       matrix:
         python-version: [3.6, 3.7, 3.8]
+        include:
+          - python-version: 3.6
+            shard-id: 0
+          - python-version: 3.7
+            shard-id: 1
+          - python-version: 3.8
+            shard-id: 2
+
 
     steps:
     - uses: actions/checkout@v2
@@ -37,6 +45,13 @@ jobs:
       run: |
         flake8
         black --check .
-    - name: Test with pytest
+    - name: Run baseline tests
       run: |
-        pytest --parallel --slow
+        pytest
+    - name: Run extra tests (sharded)
+      # Running each test on each Python version is expensive, so we compromise: we run
+      # the baseline tests above on each version, since they're fast and hopefully
+      # comprehensive enough to shake out any version-specific bugs; and we run each of
+      # the other tests on just one Python version, reducing the total build time.
+      run: |
+        pytest --parallel --slow -m 'not baseline' --num-shards 3 --shard-id ${{matrix.shard-id}}
