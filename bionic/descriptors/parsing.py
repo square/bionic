@@ -60,7 +60,7 @@ def entity_dnode_from_descriptor(descriptor):
     """
 
     dnode = dnode_from_descriptor(descriptor)
-    if not isinstance(dnode, EntityNode):
+    if not dnode.is_entity():
         raise ValueError(f"Expected a valid entity name, but got {descriptor!r}")
     return dnode
 

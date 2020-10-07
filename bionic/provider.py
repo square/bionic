@@ -125,9 +125,9 @@ class ValueProvider(BaseProvider):
             assert not provider._has_any_values
 
             dnode = provider.attrs.out_dnode
-            assert isinstance(dnode, ast.DraftNode)
-            assert isinstance(dnode.child, ast.EntityNode)
-            names.append(dnode.child.to_entity_name())
+            assert dnode.is_draft()
+            assert dnode.child.is_entity()
+            names.append(dnode.child.assume_entity().name)
 
         return ValueProvider(names)
 
@@ -942,7 +942,7 @@ class TupleConstructionProvider(BaseDerivedProvider):
     """
 
     def __init__(self, out_dnode):
-        assert isinstance(out_dnode, ast.TupleNode)
+        assert out_dnode.is_tuple()
 
         super(TupleConstructionProvider, self).__init__(
             out_dnode=out_dnode,
@@ -963,7 +963,7 @@ class TupleDeconstructionProvider(BaseDerivedProvider):
     """
 
     def __init__(self, out_dnode, dep_dnode):
-        assert isinstance(dep_dnode, ast.TupleNode)
+        assert dep_dnode.is_tuple()
         assert out_dnode in dep_dnode.children
 
         super(TupleDeconstructionProvider, self).__init__(

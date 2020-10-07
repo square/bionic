@@ -6,7 +6,6 @@ import attr
 import numpy as np
 import re
 
-from bionic.descriptors import ast
 from bionic.descriptors.parsing import dnode_from_descriptor
 from bionic.exception import CodeVersioningError
 from bionic.utils.misc import single_element, single_unique_element
@@ -340,14 +339,14 @@ class ModelBinding:
         if out_dnode is None:
             out_dnode = self.out_dnode
 
-        if isinstance(out_dnode, ast.EntityNode):
-            entity_name = out_dnode.to_entity_name()
+        if out_dnode.is_entity():
+            entity_name = out_dnode.assume_entity().name
             entity = single_element(
                 entity for entity in self.out_entities if entity.name == entity_name
             )
             return entity.value_code_fragment()
 
-        elif isinstance(out_dnode, ast.TupleNode):
+        elif out_dnode.is_tuple():
             return " ".join(
                 f"({self.value_code_fragment_for_returns(child_dnode)}),"
                 for child_dnode in out_dnode.children

@@ -102,7 +102,7 @@ class CacheEntry:
     @property
     def entity(self):
         try:
-            return entity_dnode_from_descriptor(self._descriptor).to_entity_name()
+            return entity_dnode_from_descriptor(self._descriptor).assume_entity().name
         except ValueError:
             return None
 
