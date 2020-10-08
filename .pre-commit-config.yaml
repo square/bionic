@@ -3,6 +3,15 @@ repos:
     rev: 3.8.3
     hooks:
     -   id: flake8
+        # Pre-commit does some static analysis by caching packages (can
+        # be found in ~/.cache/pre-commit/). When used in a virtualenv
+        # (like pyenv), flake8 does not work correctly withthe default
+        # language and the custom dnode match linter breaks.
+        # To get around this, pre-commit devs recommend to use it as a
+        # "system" hook (default is "local"). See
+        # https://github.com/pre-commit/pre-commit-hooks/issues/157
+        # for more information on this issue.
+        language: system
 
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v3.2.0
