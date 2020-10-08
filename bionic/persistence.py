@@ -169,14 +169,13 @@ class CacheAccessor:
                 raise AssertionError("Unrecognized tier: " + entry.tier)
 
             value = self._value_from_file(file_path)
-            value_hash = self.protocol.tokenize_file(file_path)
 
             return Result(
                 task_key=self.task_key,
                 provenance=self.provenance,
                 value=value,
                 file_path=file_path,
-                value_hash=value_hash,
+                value_hash=entry.value_hash,
             )
         except InternalCacheStateError as e:
             self._raise_state_error_with_explanation(e)

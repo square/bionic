@@ -1,4 +1,4 @@
-artifact_url: ../../../../artifacts/x/883b7a36-e2de-4f32-8c36-5ae26b71b022/x.json
+artifact_url: ../../../../artifacts/x/66eac548-9aa0-4093-9d0c-39d669c377d3/x.json
 descriptor: x
 provenance:
   case_key_elements:
@@ -6,12 +6,33 @@ provenance:
     - x
     - '2'
   code_fingerprint:
-    bytecode_hash: null
+    bytecode_hash: cbcbcf96dd73da42eecdae5eb18fff0a
+    is_identity: true
     orig_flow_name: null
     version:
-      major: '2'
+      major: '0'
       minor: '0'
-  dep_digests: []
+  dep_digests:
+  - exact_hash: 2ab930f1a6965b3412dc9bae9e1dd8c9c94d42d539bf7f7ea8d94644d597966c
+    functional_hash: d40f54b1383a003ce510ffecab77f8343eb2c2b49c882d63872fc24ab4b9ed16
+    nominal_hash: 6bdb319dba8d731c880556dc10eec116155e30190b95ef3514353ab53cdf990e
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - x
+        - '2'
+      code_fingerprint:
+        bytecode_hash: null
+        is_identity: false
+        orig_flow_name: null
+        version:
+          major: '2'
+          minor: '0'
+      dep_digests: []
+      descriptor: <x>
+      exact_hash: 2ab930f1a6965b3412dc9bae9e1dd8c9c94d42d539bf7f7ea8d94644d597966c
+      functional_hash: d40f54b1383a003ce510ffecab77f8343eb2c2b49c882d63872fc24ab4b9ed16
+      nominal_hash: 6bdb319dba8d731c880556dc10eec116155e30190b95ef3514353ab53cdf990e
   descriptor: x
   exact_hash: 2ab930f1a6965b3412dc9bae9e1dd8c9c94d42d539bf7f7ea8d94644d597966c
   functional_hash: d40f54b1383a003ce510ffecab77f8343eb2c2b49c882d63872fc24ab4b9ed16

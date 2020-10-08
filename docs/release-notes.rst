@@ -102,6 +102,8 @@ Improvements
 - When a function returns multiple entities (using the :func:`@outputs
   <bionic.outputs>` decorator), it now appears in Bionic's DAG visualization as a
   separate node, with the individual entity nodes depending on it.
+- Bionic now reuses some artifact hash information instead of recomputing it, allowing
+  persisted files to be loaded slightly more quickly.
 
 Bug Fixes
 .........

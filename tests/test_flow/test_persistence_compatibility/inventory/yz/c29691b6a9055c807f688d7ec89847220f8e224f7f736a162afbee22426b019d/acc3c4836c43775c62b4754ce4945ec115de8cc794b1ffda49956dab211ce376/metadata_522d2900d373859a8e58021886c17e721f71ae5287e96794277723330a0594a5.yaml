@@ -1,4 +1,4 @@
-artifact_url: ../../../../artifacts/yz/7639bfd0-c8c5-4282-b96d-ffd28701ff5b/yz.json
+artifact_url: ../../../../artifacts/yz/697f8008-c7a6-4f3a-9630-8165e5d0261e/yz.json
 descriptor: yz
 provenance:
   case_key_elements:
@@ -9,20 +9,44 @@ provenance:
     - z
     - '4'
   code_fingerprint:
-    bytecode_hash: 8fea46bda6a2004a832d2bec7cf2ddb0
+    bytecode_hash: cbcbcf96dd73da42eecdae5eb18fff0a
+    is_identity: true
     orig_flow_name: null
     version:
       major: '0'
       minor: '0'
   dep_digests:
-  - exact_hash: 0a16e6f027
-    functional_hash: 0a16e6f027
-    nominal_hash: 0a16e6f027
-    provenance: null
-  - exact_hash: f683a42168
-    functional_hash: f683a42168
-    nominal_hash: f683a42168
-    provenance: null
+  - exact_hash: 522d2900d373859a8e58021886c17e721f71ae5287e96794277723330a0594a5
+    functional_hash: c29691b6a9055c807f688d7ec89847220f8e224f7f736a162afbee22426b019d
+    nominal_hash: acc3c4836c43775c62b4754ce4945ec115de8cc794b1ffda49956dab211ce376
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - y
+        - '3'
+      - !!python/tuple
+        - z
+        - '4'
+      code_fingerprint:
+        bytecode_hash: 8fea46bda6a2004a832d2bec7cf2ddb0
+        is_identity: false
+        orig_flow_name: null
+        version:
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: 0a16e6f027
+        functional_hash: 0a16e6f027
+        nominal_hash: 0a16e6f027
+        provenance: null
+      - exact_hash: f683a42168
+        functional_hash: f683a42168
+        nominal_hash: f683a42168
+        provenance: null
+      descriptor: <yz>
+      exact_hash: 522d2900d373859a8e58021886c17e721f71ae5287e96794277723330a0594a5
+      functional_hash: c29691b6a9055c807f688d7ec89847220f8e224f7f736a162afbee22426b019d
+      nominal_hash: acc3c4836c43775c62b4754ce4945ec115de8cc794b1ffda49956dab211ce376
   descriptor: yz
   exact_hash: 522d2900d373859a8e58021886c17e721f71ae5287e96794277723330a0594a5
   functional_hash: c29691b6a9055c807f688d7ec89847220f8e224f7f736a162afbee22426b019d
