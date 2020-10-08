@@ -5,6 +5,7 @@ import logging
 import attr
 from typing import Callable, Optional
 
+from bionic.aip.client import get_aip_client
 from bionic.deps.optdep import import_optional_dependency
 from bionic.aip.future import Future
 
@@ -109,17 +110,15 @@ class Task:
             cloudpickle.dump(self, f)
 
     def submit(self) -> Future:
-        # Scope the import to this function to avoid raising for anyone not using it.
-        discovery = import_optional_dependency("googleapiclient.discovery")
+        aip_client = get_aip_client()
 
         self._stage()
         spec = self._ai_platform_job_spec()
 
-        aip = discovery.build("ml", "v1", cache_discovery=False)
         logging.info(f"Submitting {self.config.project_name}: {self}")
 
         request = (
-            aip.projects()
+            aip_client.projects()
             .jobs()
             .create(body=spec, parent=f"projects/{self.config.project_name}")
         )

@@ -5,6 +5,8 @@ Contains the ``FileCopier`` class, which is essentially a file path with a usefu
 
 import subprocess
 
+from bionic.gcs import gsutil_cp
+
 
 class FileCopier:
     """
@@ -37,9 +39,7 @@ class FileCopier:
 
         #  handle gcs
         if str(destination).startswith("gs://"):
-            subprocess.check_call(
-                ["gsutil", "-mq", "cp", "-R", str(self.src_file_path), str(destination)]
-            )
+            gsutil_cp(str(self.src_file_path), str(destination))
         else:
             subprocess.check_call(
                 ["cp", "-R", str(self.src_file_path), str(destination)]

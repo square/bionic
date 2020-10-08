@@ -17,7 +17,6 @@ import dask.dataframe as dd
 from ..helpers import (
     df_from_csv_str,
     equal_frame_and_index_content,
-    gsutil_wipe_path,
     local_wipe_path,
 )
 from bionic.exception import CodeVersioningError
@@ -41,7 +40,7 @@ def preset_gcs_builder(gcs_builder):
     return builder
 
 
-def test_gcs_caching(preset_gcs_builder, make_counter):
+def test_gcs_caching(preset_gcs_builder, make_counter, gcs_wipe_path):
     call_counter = make_counter()
     builder = preset_gcs_builder
 
@@ -64,7 +63,7 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 0
 
-    gsutil_wipe_path(gcs_cache_url)
+    gcs_wipe_path(gcs_cache_url)
     flow = builder.build()
 
     assert flow.get("xy") == 6
@@ -78,7 +77,7 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 0
 
-    gsutil_wipe_path(gcs_cache_url)
+    gcs_wipe_path(gcs_cache_url)
     local_wipe_path(local_cache_path_str)
     flow = builder.build()
 
