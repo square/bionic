@@ -16,7 +16,7 @@ from pathlib import Path
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import CodeFingerprint, Artifact, Result
-from .gcs import GcsTool, get_gcs_fs_without_warnings
+from .gcs import get_gcs_fs_without_warnings
 from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
@@ -740,9 +740,9 @@ class GcsCloudStore:
     """
 
     def __init__(self, url):
-        self._tool = GcsTool(url)
+        self._fs = GcsFilesystem(url, "/inventory")
 
-        self.inventory = Inventory("GCS", "cloud", GcsFilesystem(url, "/inventory"))
+        self.inventory = Inventory("GCS", "cloud", self._fs)
         self._artifact_root_url_prefix = url + "/artifacts"
 
     def generate_unique_url_prefix(self, provenance):
@@ -758,8 +758,7 @@ class GcsCloudStore:
                 ]
             )
 
-            matching_blobs = self._tool.blobs_matching_url_prefix(url_prefix)
-            if len(list(matching_blobs)) == 0:
+            if not self._fs.exists(url_prefix):
                 return url_prefix
             else:
                 n_attempts += 1
@@ -774,24 +773,17 @@ class GcsCloudStore:
                     )
 
     def upload(self, path, url):
-        # TODO For large individual files, we may still want to use gsutil.
         if path.is_dir():
-            self._tool.gsutil_cp(str(path), url)
+            self._fs.put_dir(path, url)
         else:
             assert path.is_file()
-            self._tool.blob_from_url(url).upload_from_filename(str(path))
+            self._fs.put_file(path, url)
 
     def download(self, path, url):
-        blob = self._tool.blob_from_url(url)
-        # TODO For large individual files, we may still want to use gsutil.
-        if not blob.exists():
-            # `gsutil cp -r gs://A/B X/Y` doesn't work when B contains
-            # multiple files and Y doesn't exist yet.  However, if B == Y, we
-            # can run `gsutil cp -r gs://A/B X`, which will create Y for us.
-            assert path.name == blob.name.rsplit("/", 1)[1]
-            self._tool.gsutil_cp(url, str(path.parent))
+        if self._fs.isdir(url):
+            self._fs.get_dir(url, path)
         else:
-            blob.download_to_filename(str(path))
+            self._fs.get_file(url, path)
 
 
 class FakeCloudStore(LocalStore):
@@ -926,6 +918,26 @@ class GcsFilesystem:
     def read_bytes(self, url):
         self._validate_object_name_from_url(url)
         return self._fs.cat_file(url)
+
+    def get_dir(self, url, path):
+        self._validate_object_name_from_url(url)
+        return self._fs.get(url, str(path), recursive=True)
+
+    def get_file(self, url, path):
+        self._validate_object_name_from_url(url)
+        return self._fs.get_file(url, str(path))
+
+    def put_dir(self, path, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.put(str(path), url, recursive=True)
+
+    def put_file(self, path, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.put_file(str(path), url)
+
+    def isdir(self, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.isdir(url)
 
     def _validate_object_name_from_url(self, url):
         bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
