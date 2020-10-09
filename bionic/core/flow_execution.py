@@ -15,8 +15,9 @@ from .task_execution import (
     RemoteSubgraph,
     TaskRunnerEntry,
 )
+from ..exception import AttributeValidationError
 from ..utils.keyed_priority_stack import KeyedPriorityStack
-from ..utils.misc import SynchronizedSet
+from ..utils.misc import oneline, SynchronizedSet
 
 
 # TODO At some point it might be good to have the option of Bionic handling its
@@ -67,11 +68,15 @@ class TaskCompletionRunner:
 
     @property
     def _parallel_execution_enabled(self):
-        return self._bootstrap.process_executor if self._bootstrap is not None else None
+        if self._bootstrap is None:
+            return False
+        return self._bootstrap.process_executor is not None
 
     @property
     def _aip_execution_enabled(self):
-        return self._bootstrap.aip_executor if self._bootstrap is not None else None
+        if self._bootstrap is None:
+            return False
+        return self._bootstrap.aip_executor is not None
 
     def run(self, states):
         try:
@@ -155,21 +160,67 @@ class TaskCompletionRunner:
 
         # At this point we'll need to actually compute the entry. If possible, we
         # prefer to compute it remotely. This requires checking several prerequisites,
-        # then analyzing the entry's non-persistable dependencies to make sure they can
-        # all be transmitted outside this process. We check this in stages because the
-        # final check is a bit more expensive.
-        aip_execution_enabled_for_entry = (
-            self._aip_execution_enabled
-            and entry.state.func_attrs.aip_task_config is not None
-        )
+        # then analyzing the entry's non-persistable dependencies to see if they can
+        # run outside the this process and/or need to be run on AIP.
         entry_may_be_computable_remotely = (
-            aip_execution_enabled_for_entry or self._parallel_execution_enabled
+            self._aip_execution_enabled or self._parallel_execution_enabled
         ) and entry.state.should_persist
         if entry_may_be_computable_remotely:
             remote_subgraph = RemoteSubgraph(entry.state, self._bootstrap)
-            entry_is_computable_remotely = remote_subgraph.all_states_can_be_serialized
+            if self._aip_execution_enabled:
+                aip_task_configs = remote_subgraph.distinct_aip_task_configs
+            else:
+                aip_task_configs = []
+
+            # TODO We should add more tests to handle these edge cases, or add validation
+            # to make sure they can't happen.
+            if len(aip_task_configs) > 1:
+                descriptions_str = "; ".join(
+                    f"function outputting {state.task_key.dnode.to_descriptor()!r} "
+                    f"requires {state.func_attrs.aip_task_config}"
+                    for state in remote_subgraph.stripped_states_with_aip_task_configs
+                )
+                message = f"""
+                Multiple functions need to be run together (since some are not
+                persistable) but have conflicting AIP configs:
+                {descriptions_str}
+                """
+                raise AttributeValidationError(oneline(message))
+
+            elif len(aip_task_configs) == 1:
+                if not remote_subgraph.all_states_can_be_serialized:
+                    # This should never happen: only fixed-value nodes should be
+                    # non-persistable, and they should never appear in the same subgraph
+                    # as an AIP-decorated derived node.
+                    non_serializable_descriptors = [
+                        state.task_key.dnode.to_descriptor()
+                        for state in remote_subgraph.non_serializable_stripped_states
+                    ]
+                    aip_descriptors = [
+                        state.task_key.dnode.to_descriptor()
+                        for state in remote_subgraph.stripped_states_with_aip_task_configs
+                    ]
+                    message = f"""
+                    Found impossible configuration:
+                    functions outputting {non_serializable_descriptors!r} are not
+                    serializable,
+                    but functions outputting {aip_descriptors!r} require AIP
+                    """
+                    postscript = "\nThis is probably a bug in Bionic."
+                    raise AttributeValidationError(oneline(message) + postscript)
+                (aip_task_config,) = aip_task_configs
+                entry_is_computable_remotely = True
+
+            else:
+                aip_task_config = None
+                entry_is_computable_remotely = (
+                    self._parallel_execution_enabled
+                    and remote_subgraph.all_states_can_be_serialized
+                )
+
         else:
             entry_is_computable_remotely = False
+
         if entry_is_computable_remotely:
             # When we run an entry remotely, we also need to run all of its immediate
             # non-persistable ancestors, since their values can't be shared between
@@ -239,9 +290,9 @@ class TaskCompletionRunner:
                 flow_instance_uuid=self._flow_instance_uuid,
                 task_key_logger=self.task_key_logger,
             )
-            if aip_execution_enabled_for_entry:
+            if aip_task_config is not None:
                 future = self._bootstrap.aip_executor.submit(
-                    entry.state.func_attrs.aip_task_config,
+                    aip_task_config,
                     run_in_subprocess,
                     new_task_completion_runner,
                     stripped_target_states,
