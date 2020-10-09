@@ -42,44 +42,10 @@ def get_gcs_fs_without_warnings(cache_value=True):
         return fsspec.filesystem("gcs")
 
 
-_cached_gcs_client = None
-
-
-def get_gcs_client_without_warnings(cache_value=True):
-    # TODO This caching saves a lot of time, especially in tests.  But it would
-    # be better if Bionic were able to re-use its in-memory cache when creating
-    # new flows, instead of resetting the cache each time.
-    if cache_value:
-        global _cached_gcs_client
-        if _cached_gcs_client is None:
-            _cached_gcs_client = get_gcs_client_without_warnings(cache_value=False)
-        return _cached_gcs_client
-
-    gcs = import_optional_dependency("google.cloud.storage", purpose="caching to GCS")
-
-    with warnings.catch_warnings():
-        # Google's SDK warns if you use end user credentials instead of a
-        # service account.  I think this warning is intended for production
-        # server code, where you don't want GCP access to be tied to a
-        # particular user.  However, this code is intended to be run by
-        # individuals, so using end user credentials seems appropriate.
-        # Hence, we'll suppress this warning.
-        warnings.filterwarnings(
-            "ignore", "Your application has authenticated using end user credentials"
-        )
-        logger.info("Initializing GCS client ...")
-        return gcs.Client()
-
-
 def copy_to_gcs(src, dst):
     """Copy a local file at src to GCS at dst"""
-    bucket = dst.replace("gs://", "").split("/")[0]
-    prefix = f"gs://{bucket}"
-    path = dst[len(prefix) + 1 :]
-
-    client = get_gcs_client_without_warnings()
-    blob = client.get_bucket(bucket).blob(path)
-    blob.upload_from_filename(src)
+    fs = get_gcs_fs_without_warnings()
+    fs.put_file(str(src), dst)
 
 
 def gsutil_cp(src_url, dst_url):

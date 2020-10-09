@@ -4,12 +4,11 @@ import json
 
 import bionic as bn
 from bionic import interpret
-from bionic.gcs import get_gcs_client_without_warnings
+from bionic.gcs import get_gcs_fs_without_warnings
 from bionic.utils.urls import (
     path_from_url,
     is_file_url,
     is_gcs_url,
-    bucket_and_object_names_from_gs_url,
 )
 
 
@@ -89,11 +88,8 @@ def read_bytes_from_url(url):
         path = path_from_url(url)
         return path.read_bytes()
     elif is_gcs_url(url):
-        gcs_client = get_gcs_client_without_warnings()
-        bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
-        bucket = gcs_client.get_bucket(bucket_name)
-        blob = bucket.get_blob(object_name)
-        return blob.download_as_string()
+        gcs_fs = get_gcs_fs_without_warnings()
+        return gcs_fs.cat_file(url)
     else:
         raise AssertionError(f"Unexpected scheme in URL: {url}")
 
