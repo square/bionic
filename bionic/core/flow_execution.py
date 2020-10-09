@@ -67,11 +67,15 @@ class TaskCompletionRunner:
 
     @property
     def _parallel_execution_enabled(self):
-        return self._bootstrap.process_executor if self._bootstrap is not None else None
+        if self._bootstrap is None:
+            return False
+        return self._bootstrap.process_executor is not None
 
     @property
     def _aip_execution_enabled(self):
-        return self._bootstrap.aip_executor if self._bootstrap is not None else None
+        if self._bootstrap is None:
+            return False
+        return self._bootstrap.aip_executor is not None
 
     def run(self, states):
         try:
