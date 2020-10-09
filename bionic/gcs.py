@@ -2,12 +2,10 @@
 Utilities for working with Google Cloud Storage.
 """
 
-import subprocess
+import logging
 import warnings
 
 from .deps.optdep import import_optional_dependency
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -42,30 +40,32 @@ def get_gcs_fs_without_warnings(cache_value=True):
         return fsspec.filesystem("gcs")
 
 
-def copy_to_gcs(src, dst):
-    """Copy a local file at src to GCS at dst"""
+# TODO: Consider using persistence.GcsFilesystem instead of exposing this function.
+def upload_to_gcs(path, url):
+    """
+    Copy a local path to GCS URL.
+
+    This method is a proxy for _upload_to_gcs which does the actual work.
+    The proxy exists so that _upload_to_gcs can be replaced for testing.
+    """
+    _upload_to_gcs(path, url)
+
+
+def _upload_to_gcs(path, url):
     fs = get_gcs_fs_without_warnings()
-    fs.put_file(str(src), dst)
-
-
-def gsutil_cp(src_url, dst_url):
-    """
-    This method is a proxy for _gsutil_cp which does the actual work. The proxy
-    exists so that _gsutil_cp can be replaced for testing.
-    """
-    _gsutil_cp(str(src_url), str(dst_url))
-
-
-def _gsutil_cp(src_url, dst_url):
-    args = [
-        "gsutil",
-        "-q",  # Don't log anything but errors.
-        "-m",  # Transfer files in parallel.
-        "cp",
-        "-r",  # Recursively sync sub-directories.
-        src_url,
-        dst_url,
-    ]
-    logger.debug("Running command: %s" % " ".join(args))
-    subprocess.check_call(args)
-    logger.debug("Finished running gsutil")
+    if path.is_dir():
+        fs.put(str(path), url, recursive=True)
+    else:
+        # If the GCS URL is a folder, we want to write the file in the folder.
+        # There seems to be a bug in fsspec due to which, the file is uploaded
+        # as the url, instead of inside the folder. What this means is, writing
+        # a file c.json to gs://a/b/ would result in file gs://a/b instead of
+        # gs://a/b/c.json.
+        #
+        # The `put` API is supposed to write the file inside the folder but it
+        # strips the ending "/" at the end in fsspec's `_strip_protocol` method.
+        # See https://github.com/intake/filesystem_spec/issues/448 for more
+        # details and tracking this issue.
+        if url.endswith("/"):
+            url = url + path.name
+        fs.put_file(str(path), url)

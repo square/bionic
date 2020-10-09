@@ -42,7 +42,7 @@ from .deriver import EntityDeriver, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .filecopier import FileCopier
-from .gcs import copy_to_gcs
+from .gcs import upload_to_gcs
 from .utils.misc import (
     group_pairs,
     check_exactly_one_present,
@@ -1374,7 +1374,7 @@ class Flow:
 
         if dst_file_path_str.startswith("gs:/"):
             # The path object combines // into /, so we revert it here
-            copy_to_gcs(str(src_file_path), dst_file_path_str.replace("gs:/", "gs://"))
+            upload_to_gcs(src_file_path, dst_file_path_str.replace("gs:/", "gs://"))
         else:
             shutil.copyfile(str(src_file_path), dst_file_path_str)
 

@@ -592,7 +592,10 @@ class Inventory:
             )
 
     def delete_url(self, url):
-        return self._fs.delete(url)
+        if not self._fs.exists(url):
+            return False
+        self._fs.rm(url)
+        return True
 
     def _find_best_match(self, provenance):
         equivalent_url_prefix = self._equivalent_metadata_url_prefix_for_provenance(
@@ -835,12 +838,9 @@ class LocalFilesystem:
             for sub_path in path_prefix.glob("**/*")
         ]
 
-    def delete(self, url):
+    def rm(self, url):
         path = path_from_url(url)
-        if not path.exists():
-            return False
         path.unlink()
-        return True
 
     def write_bytes(self, content_bytes, url):
         path = path_from_url(url)
@@ -862,8 +862,10 @@ class LocalFilesystem:
 
 class GcsFilesystem:
     """
-    Implements a generic "FileSystem" interface for reading/writing small files
-    to GCS.
+    Wrapper around fsspec's GCS "FileSystem" that validates the bucket
+    and object_prefix. It also exposes extra APIs, namely, search,
+    write_bytes, and read_bytes for conveniece and consistency with
+    LocalFilesystem.
     """
 
     def __init__(self, url, object_prefix_extension):
@@ -903,12 +905,9 @@ class GcsFilesystem:
         glob_url = url_prefix + "**/*"
         return ["gs://" + url for url in self._fs.glob(glob_url)]
 
-    def delete(self, url):
+    def rm(self, url):
         self._validate_object_name_from_url(url)
-        if not self._fs.exists(url):
-            return False
         self._fs.rm(url)
-        return True
 
     def write_bytes(self, content_bytes, url):
         self._validate_object_name_from_url(url)
@@ -933,6 +932,16 @@ class GcsFilesystem:
 
     def put_file(self, path, url):
         self._validate_object_name_from_url(url)
+        # If gcs url is a folder, we want to write the file in the folder.
+        # There seems to be a bug in fsspec due to which, the file is uploaded
+        # as the url, instead of inside the folder. What this means is, writing
+        # a file c.json to gs://a/b/ would result in file gs://a/b instead of
+        # gs://a/b/c.json.
+        #
+        # `put` API is supposed to write the file inside the folder but it strips
+        # the ending "/" at the end in fsspec's `_strip_protocol` method.
+        if url.endswith("/"):
+            url = url + path.name
         return self._fs.put_file(str(path), url)
 
     def isdir(self, url):

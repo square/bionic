@@ -202,5 +202,6 @@ def tmp_gcs_url_prefix(session_tmp_gcs_url_prefix, request):
     # This is an open issue with gsutil but till it's fixed, we are going
     # to change the node name to not have any wildcard characters.
     # https://github.com/GoogleCloudPlatform/gsutil/issues/290
+    # gcsfs seems to have the same problem.
     node_name = request.node.name.replace("[", "_").replace("]", "")
     return session_tmp_gcs_url_prefix + node_name + "/"
