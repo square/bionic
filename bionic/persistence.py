@@ -16,7 +16,7 @@ from pathlib import Path
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import CodeFingerprint, Artifact, Result
-from .gcs import GcsTool
+from .gcs import GcsTool, get_gcs_fs_without_warnings
 from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
@@ -878,6 +878,25 @@ class GcsFilesystem:
     def __init__(self, gcs_tool, object_prefix_extension):
         self._tool = gcs_tool
         self.root_url = self._tool.url + object_prefix_extension
+        self._init_gcs_fs()
+
+    def __getstate__(self):
+        # Copy the object's state from self.__dict__ which contains
+        # all our instance attributes. Always use the dict.copy()
+        # method to avoid modifying the original state.
+        state = self.__dict__.copy()
+        # Remove the unpicklable entries.
+        del state["_gcs_fs"]
+        return state
+
+    def __setstate__(self, state):
+        # Restore instance attributes.
+        self.__dict__.update(state)
+        # Restore the fs.
+        self._init_gcs_fs()
+
+    def _init_gcs_fs(self):
+        self._gcs_fs = get_gcs_fs_without_warnings()
 
     def exists(self, url):
         # Checking for "existence" on GCS is slightly complicated. If the URL in

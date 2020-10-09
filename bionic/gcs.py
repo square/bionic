@@ -12,6 +12,37 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+_cached_gcs_fs = None
+
+
+def get_gcs_fs_without_warnings(cache_value=True):
+    # TODO It's not expensive to create gcs filesystem, but caching this enables
+    # us to mock the cached gcs_fs with a mock implementation in tests. We should
+    # change the tests to inject the filesystem in a different way and get rid of
+    # this caching.
+    if cache_value:
+        global _cached_gcs_fs
+        if _cached_gcs_fs is None:
+            _cached_gcs_fs = get_gcs_fs_without_warnings(cache_value=False)
+        return _cached_gcs_fs
+
+    fsspec = import_optional_dependency("fsspec", purpose="caching to GCS")
+
+    with warnings.catch_warnings():
+        # Google's SDK warns if you use end user credentials instead of a
+        # service account.  I think this warning is intended for production
+        # server code, where you don't want GCP access to be tied to a
+        # particular user.  However, this code is intended to be run by
+        # individuals, so using end user credentials seems appropriate.
+        # Hence, we'll suppress this warning.
+        warnings.filterwarnings(
+            "ignore", "Your application has authenticated using end user credentials"
+        )
+        logger.info("Initializing GCS filesystem ...")
+        return fsspec.filesystem("gcs")
+
+
 _cached_gcs_client = None
 
 

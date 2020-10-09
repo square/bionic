@@ -29,7 +29,7 @@ extras["standard"] = combine(extras["matplotlib"], extras["viz"])
 
 extras["dill"] = ["dill"]
 extras["dask"] = ["dask[dataframe]"]
-extras["gcp"] = ["google-cloud-storage"]
+extras["gcp"] = ["google-cloud-storage", "fsspec", "gcsfs"]
 extras["parallel"] = ["cloudpickle", "loky"]
 extras["geopandas"] = ["geopandas"]
 extras["aip"] = [
