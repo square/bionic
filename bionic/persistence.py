@@ -24,6 +24,7 @@ from .utils.files import (
 )
 from .utils.misc import hash_simple_obj_to_hex, oneline
 from .utils.urls import (
+    bucket_and_object_names_from_gs_url,
     derelativize_url,
     path_from_url,
     relativize_url,
@@ -741,9 +742,7 @@ class GcsCloudStore:
     def __init__(self, url):
         self._tool = GcsTool(url)
 
-        self.inventory = Inventory(
-            "GCS", "cloud", GcsFilesystem(self._tool, "/inventory")
-        )
+        self.inventory = Inventory("GCS", "cloud", GcsFilesystem(url, "/inventory"))
         self._artifact_root_url_prefix = url + "/artifacts"
 
     def generate_unique_url_prefix(self, provenance):
@@ -875,10 +874,15 @@ class GcsFilesystem:
     to GCS.
     """
 
-    def __init__(self, gcs_tool, object_prefix_extension):
-        self._tool = gcs_tool
-        self.root_url = self._tool.url + object_prefix_extension
-        self._init_gcs_fs()
+    def __init__(self, url, object_prefix_extension):
+        if url.endswith("/"):
+            url = url[:-1]
+        self.root_url = url + object_prefix_extension
+
+        bucket_name, object_prefix = bucket_and_object_names_from_gs_url(url)
+        self._bucket_name = bucket_name
+        self._object_prefix = object_prefix
+        self._init_fs()
 
     def __getstate__(self):
         # Copy the object's state from self.__dict__ which contains
@@ -886,46 +890,47 @@ class GcsFilesystem:
         # method to avoid modifying the original state.
         state = self.__dict__.copy()
         # Remove the unpicklable entries.
-        del state["_gcs_fs"]
+        del state["_fs"]
         return state
 
     def __setstate__(self, state):
         # Restore instance attributes.
         self.__dict__.update(state)
         # Restore the fs.
-        self._init_gcs_fs()
+        self._init_fs()
 
-    def _init_gcs_fs(self):
-        self._gcs_fs = get_gcs_fs_without_warnings()
+    def _init_fs(self):
+        self._fs = get_gcs_fs_without_warnings()
 
     def exists(self, url):
-        # Checking for "existence" on GCS is slightly complicated. If the URL in
-        # question corresponds to a single file, we should find an object with a
-        # matching name. If it corresponds to directory of files, we should find one or
-        # more objects with a matching prefix (the expected name followed by a slash).
-        return any(
-            found_url == url or found_url.startswith(url + "/")
-            for found_url in self.search(url)
-        )
+        self._validate_object_name_from_url(url)
+        return self._fs.exists(url)
 
     def search(self, url_prefix):
-        return [
-            self._tool.url_from_object_name(blob.name)
-            for blob in self._tool.blobs_matching_url_prefix(url_prefix)
-        ]
+        # This endpoint is a glob **/* search.
+        glob_url = url_prefix + "**/*"
+        return ["gs://" + url for url in self._fs.glob(glob_url)]
 
     def delete(self, url):
-        blob = self._tool.blob_from_url(url)
-        if blob is None:
+        self._validate_object_name_from_url(url)
+        if not self._fs.exists(url):
             return False
-        blob.delete()
+        self._fs.rm(url)
         return True
 
     def write_bytes(self, content_bytes, url):
-        self._tool.blob_from_url(url).upload_from_string(content_bytes)
+        self._validate_object_name_from_url(url)
+        with self._fs.open(url, "wb") as f:
+            f.write(content_bytes)
 
     def read_bytes(self, url):
-        return self._tool.blob_from_url(url).download_as_string()
+        self._validate_object_name_from_url(url)
+        return self._fs.cat_file(url)
+
+    def _validate_object_name_from_url(self, url):
+        bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
+        assert bucket_name == self._bucket_name
+        assert object_name.startswith(self._object_prefix)
 
 
 class InternalCacheStateError(Exception):
