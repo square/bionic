@@ -10,7 +10,7 @@ from bionic.deps.optdep import import_optional_dependency
 from bionic.aip.future import Future
 
 
-@attr.s(auto_attribs=True)
+@attr.s(auto_attribs=True, frozen=True)
 class TaskConfig:
     """
     Contains configuration that can differ per task, which can be a
@@ -24,7 +24,7 @@ class TaskConfig:
     worker_machine: Optional[str] = None
 
 
-@attr.s(auto_attribs=True)
+@attr.s(auto_attribs=True, frozen=True)
 class Config:
     """
     Contains configuration that remains the same across all tasks.
@@ -46,7 +46,7 @@ class Config:
     network: Optional[str] = None
 
 
-@attr.s(auto_attribs=True)
+@attr.s(auto_attribs=True, frozen=True)
 class Task:
     name: str
     function: Callable
