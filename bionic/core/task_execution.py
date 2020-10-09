@@ -752,7 +752,8 @@ class RemoteSubgraph:
 
         self._stripped_states_by_task_key = {}
         self.persistable_but_not_persisted_states = set()
-        self.all_states_can_be_serialized = True
+        self.non_serializable_stripped_states = set()
+        self.stripped_states_with_aip_task_configs = set()
 
         self._strip_state(target_state)
 
@@ -776,7 +777,6 @@ class RemoteSubgraph:
         # These fields are picklable, but only needed for cache setup and
         # initialization.
         if stripped_state.is_initialized:
-            stripped_state.func_attrs = None
             stripped_state.case_key = None
 
         if stripped_state.should_persist:
@@ -784,16 +784,17 @@ class RemoteSubgraph:
 
             if stripped_state.is_cached_persistently:
                 stripped_state.task = None
+                stripped_state.func_attrs = None
                 stripped_state.dep_states = []
 
             else:
                 self.persistable_but_not_persisted_states.add(original_state)
 
-        if (
-            stripped_state.task is not None
-            and not stripped_state.task.can_be_serialized
-        ):
-            self.all_states_can_be_serialized = False
+        if stripped_state.task is not None:
+            if not stripped_state.task.can_be_serialized:
+                self.non_serializable_stripped_states.add(stripped_state)
+            if stripped_state.func_attrs.aip_task_config is not None:
+                self.stripped_states_with_aip_task_configs.add(stripped_state)
 
         stripped_state.dep_states = [
             self._strip_state(dep_state) for dep_state in stripped_state.dep_states
@@ -808,3 +809,14 @@ class RemoteSubgraph:
     def get_stripped_state(self, original_state):
         assert original_state in self.persistable_but_not_persisted_states
         return self._stripped_states_by_task_key[original_state.task_key]
+
+    @property
+    def all_states_can_be_serialized(self):
+        return len(self.non_serializable_stripped_states) == 0
+
+    @property
+    def distinct_aip_task_configs(self):
+        return set(
+            state.func_attrs.aip_task_config
+            for state in self.stripped_states_with_aip_task_configs
+        )
