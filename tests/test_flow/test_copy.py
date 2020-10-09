@@ -5,8 +5,7 @@ from pathlib import Path
 
 import dask.dataframe as dd
 
-from bionic.gcs import gsutil_cp
-from ..helpers import df_from_csv_str, equal_frame_and_index_content
+from ..helpers import df_from_csv_str, equal_frame_and_index_content, gcs_fs_download
 
 import bionic as bn
 
@@ -79,7 +78,7 @@ def test_copy_file_to_gcs_dir(flow, tmp_path, tmp_gcs_url_prefix):
     flow.get("f", mode="FileCopier").copy(destination=tmp_gcs_url_prefix)
     cloud_url = tmp_gcs_url_prefix + "f.json"
     local_path = tmp_path / "f.json"
-    gsutil_cp(cloud_url, local_path)
+    gcs_fs_download(cloud_url, local_path)
     assert json.loads(local_path.read_bytes()) == 5
 
 
@@ -88,7 +87,7 @@ def test_copy_file_to_gcs_file(flow, tmp_path, tmp_gcs_url_prefix):
     cloud_url = tmp_gcs_url_prefix + "f.json"
     flow.get("f", mode="FileCopier").copy(destination=cloud_url)
     local_path = tmp_path / "f.json"
-    gsutil_cp(cloud_url, local_path)
+    gcs_fs_download(cloud_url, local_path)
     assert json.loads(local_path.read_bytes()) == 5
 
 
@@ -108,11 +107,12 @@ def test_copy_dask_to_gcs_dir(
     tmp_path, tmp_gcs_url_prefix, expected_dask_df, dask_flow
 ):
     cloud_url = tmp_gcs_url_prefix + "output"
+    local_path = tmp_path / "output"
 
     dask_flow.get("dask_df", mode="FileCopier").copy(destination=cloud_url)
 
-    gsutil_cp(cloud_url, tmp_path)
-    actual = dd.read_parquet(tmp_path / "output")
+    gcs_fs_download(cloud_url, local_path)
+    actual = dd.read_parquet(local_path)
     assert equal_frame_and_index_content(actual.compute(), expected_dask_df.compute())
 
 

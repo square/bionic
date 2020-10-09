@@ -9,8 +9,8 @@ from .fakes import run_in_fake_gcp, FakeGCS
 from ..helpers import (
     SimpleCounter,
     ResettingCallCounter,
-    gsutil_wipe_path,
-    gsutil_path_exists,
+    gcs_fs_wipe_path,
+    gcs_fs_path_exists,
 )
 
 
@@ -163,7 +163,7 @@ def gcs_wipe_path(use_fake_gcp, fake_gcs):
         if use_fake_gcp:
             fake_gcs.wipe_path(url)
         else:
-            gsutil_wipe_path(url)
+            gcs_fs_wipe_path(url)
 
     return _gcs_wipe_path
 
@@ -182,7 +182,7 @@ def session_tmp_gcs_url_prefix(gcs_url_stem, use_fake_gcp):
     # This emits a stderr warning because the URL doesn't exist.  That's
     # annoying but I wasn't able to find a straightforward way to avoid it.
     if not use_fake_gcp:
-        assert not gsutil_path_exists(gs_url)
+        assert not gcs_fs_path_exists(gs_url)
 
     yield gs_url
 
@@ -191,7 +191,7 @@ def session_tmp_gcs_url_prefix(gcs_url_stem, use_fake_gcp):
     # *and* doesn't clean all of them up. If this changes, we may need to start
     # handling this more gracefully.
     if not use_fake_gcp:
-        gsutil_wipe_path(gs_url)
+        gcs_fs_wipe_path(gs_url)
 
 
 @pytest.fixture(scope="function")

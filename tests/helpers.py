@@ -1,7 +1,6 @@
 from io import BytesIO
 from textwrap import dedent
 import re
-import subprocess
 import shutil
 
 from decorator import decorate
@@ -9,6 +8,7 @@ import pandas as pd
 from pandas import testing as pdt
 
 import bionic as bn
+from bionic.gcs import get_gcs_fs_without_warnings
 
 
 # TODO This name is cumbersome; maybe one of these shorter names?
@@ -232,13 +232,23 @@ def longest_regex_prefix_match(regex, string, flags=0):
     return match
 
 
-def gsutil_wipe_path(url):
+def gcs_fs_wipe_path(url):
     assert "BNTESTDATA" in url
-    subprocess.check_call(["gsutil", "-q", "-m", "rm", "-rf", url])
+    fs = get_gcs_fs_without_warnings()
+    fs.rm(url, recursive=True)
 
 
-def gsutil_path_exists(url):
-    return subprocess.call(["gsutil", "ls", url]) == 0
+def gcs_fs_path_exists(url):
+    fs = get_gcs_fs_without_warnings()
+    return fs.exists(url)
+
+
+def gcs_fs_download(url, path):
+    fs = get_gcs_fs_without_warnings()
+    if fs.isdir(url):
+        fs.get(url, str(path), recursive=True)
+    else:
+        fs.get_file(url, str(path))
 
 
 def local_wipe_path(path_str):
