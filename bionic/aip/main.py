@@ -3,18 +3,19 @@ This module is run as main in order to execute a task on a worker.
 """
 
 import logging
+import pickle
 import os
 import sys
 
 from bionic.deps.optdep import import_optional_dependency
+from bionic.gcs import get_gcs_fs_without_warnings
 
 
 def _run(ipath):
-    # Scope the import to this function to avoid raising for anyone not using it.
-    blocks = import_optional_dependency("blocks")
     cloudpickle = import_optional_dependency("cloudpickle")
 
-    with blocks.filesystem.GCSNativeFileSystem().open(ipath, "rb") as f:
+    gcs_fs = get_gcs_fs_without_warnings()
+    with gcs_fs.open(ipath, "rb") as f:
         task = cloudpickle.load(f)
 
     # Now that we have the task, set up logging.
@@ -25,7 +26,8 @@ def _run(ipath):
 
     opath = task.output_uri()
     logging.info(f"Uploading result to {opath}")
-    blocks.pickle(result, opath)
+    with gcs_fs.open(opath, "wb") as f:
+        pickle.dump(result, f)
 
 
 # Main entry point for AIP

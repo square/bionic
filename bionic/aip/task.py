@@ -6,8 +6,9 @@ import attr
 from typing import Callable, Optional
 
 from bionic.aip.client import get_aip_client
-from bionic.deps.optdep import import_optional_dependency
 from bionic.aip.future import Future
+from bionic.deps.optdep import import_optional_dependency
+from bionic.gcs import get_gcs_fs_without_warnings
 
 
 @attr.s(auto_attribs=True, frozen=True)
@@ -100,13 +101,13 @@ class Task:
         return output
 
     def _stage(self):
-        # Scope the blocks import to this function to avoid raising for anyone not using it.
-        blocks = import_optional_dependency("blocks")
         cloudpickle = import_optional_dependency("cloudpickle")
 
         path = self.inputs_uri()
         logging.info(f"Staging task {self.name} at {path}")
-        with blocks.filesystem.GCSNativeFileSystem().open(path, "wb") as f:
+
+        gcs_fs = get_gcs_fs_without_warnings()
+        with gcs_fs.open(path, "wb") as f:
             cloudpickle.dump(self, f)
 
     def submit(self) -> Future:

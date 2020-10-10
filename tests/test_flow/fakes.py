@@ -70,32 +70,6 @@ class FakeAipExecutor:
         ).submit()
 
 
-class FakeGcsFile:
-    def __init__(self, url):
-        assert url.startswith("gs://")
-        self._url = url
-        self._data = None
-        self._open = False
-
-    def __enter__(self):
-        assert not self._open
-        self._open = True
-        return self
-
-    def __exit__(self, *args):
-        self._open = False
-
-    def read(self, length=-1):
-        assert not self._open
-        # We only read the whole file in Bionic.
-        assert length == -1
-        return self._data
-
-    def write(self, data):
-        assert self._open
-        self._data = data
-
-
 # TODO It would be nice to use a different fsspec implementation here instead
 # of writing a custom one. We tried fsspec.implementations.memory.MemoryFileSystem
 # implementation, but that has a few problems.
@@ -112,9 +86,8 @@ class FakeGcsFs:
         self._files_by_url = {}
 
     def cat_file(self, url):
-        if url not in self._files_by_url:
-            return FileNotFoundError(f"no file found for url {url}")
-        return self._files_by_url[url].read()
+        with self.open(url, "rb") as f:
+            return f.read()
 
     def exists(self, url):
         return url in self._files_by_url or self.isdir(url)
@@ -158,12 +131,15 @@ class FakeGcsFs:
             url = url + "/"
         return any(key for key in self._files_by_url if key.startswith(url))
 
+    @contextmanager
     def open(self, url, mode):
-        # We only open gcs files in Bionic for writing.
-        assert mode == "wb"
-        fake_file = FakeGcsFile(url)
-        self._files_by_url[url] = fake_file
-        return fake_file
+        assert mode in ("rb", "wb")
+        if mode == "rb" and url not in self._files_by_url:
+            raise FileNotFoundError(f"no file found for url {url}")
+
+        f = io.BytesIO(self._files_by_url.get(url, b""))
+        yield f
+        self._files_by_url[url] = f.getvalue()
 
     def put(self, str_path, url, recursive):
         # We only use put for dirs in Bionic with recursive=True.
