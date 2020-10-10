@@ -18,6 +18,7 @@ from ..helpers import (
     df_from_csv_str,
     equal_frame_and_index_content,
     local_wipe_path,
+    gcs_fs_wipe_path,
 )
 from bionic.exception import CodeVersioningError
 
@@ -40,7 +41,7 @@ def preset_gcs_builder(gcs_builder):
     return builder
 
 
-def test_gcs_caching(preset_gcs_builder, make_counter, gcs_wipe_path):
+def test_gcs_caching(preset_gcs_builder, make_counter):
     call_counter = make_counter()
     builder = preset_gcs_builder
 
@@ -63,7 +64,7 @@ def test_gcs_caching(preset_gcs_builder, make_counter, gcs_wipe_path):
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 0
 
-    gcs_wipe_path(gcs_cache_url)
+    gcs_fs_wipe_path(gcs_cache_url)
     flow = builder.build()
 
     assert flow.get("xy") == 6
@@ -77,7 +78,7 @@ def test_gcs_caching(preset_gcs_builder, make_counter, gcs_wipe_path):
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 0
 
-    gcs_wipe_path(gcs_cache_url)
+    gcs_fs_wipe_path(gcs_cache_url)
     local_wipe_path(local_cache_path_str)
     flow = builder.build()
 

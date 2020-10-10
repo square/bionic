@@ -5,7 +5,7 @@ from multiprocessing.managers import SyncManager
 import pytest
 
 import bionic as bn
-from .fakes import run_in_fake_gcp, FakeGCS
+from .fakes import run_in_fake_gcp, FakeGcsFs
 from ..helpers import (
     SimpleCounter,
     ResettingCallCounter,
@@ -15,8 +15,8 @@ from ..helpers import (
 
 
 @pytest.fixture
-def fake_gcs():
-    return FakeGCS()
+def fake_gcs_fs():
+    return FakeGcsFs()
 
 
 # Parameterizing a fixture adds the parameter in the test name at the end,
@@ -42,9 +42,9 @@ def parallel_execution_enabled(request):
         pytest.param("real-gcp", marks=pytest.mark.real_gcp),
     ],
 )
-def use_fake_gcp(request, fake_gcs):
+def use_fake_gcp(request, fake_gcs_fs):
     if request.param == "fake-gcp":
-        with run_in_fake_gcp(fake_gcs):
+        with run_in_fake_gcp(fake_gcs_fs):
             yield True
     else:
         yield False
@@ -151,21 +151,6 @@ def gcs_url_stem(request, use_fake_gcp):
     url = request.config.getoption("--bucket")
     assert url.startswith("gs://")
     return url
-
-
-@pytest.fixture
-def gcs_wipe_path(use_fake_gcp, fake_gcs):
-    """
-    Removes all files with the specified url.
-    """
-
-    def _gcs_wipe_path(url):
-        if use_fake_gcp:
-            fake_gcs.wipe_path(url)
-        else:
-            gcs_fs_wipe_path(url)
-
-    return _gcs_wipe_path
 
 
 @pytest.fixture

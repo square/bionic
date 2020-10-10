@@ -5,7 +5,8 @@ from contextlib import contextmanager
 from functools import partial
 from glob import glob
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+
 from uuid import uuid4
 
 from bionic import gcs
@@ -13,6 +14,8 @@ from bionic.aip import client as aip_client
 from bionic.aip.future import Future as AipFuture
 from bionic.aip.main import _run as run_aip
 from bionic.aip.task import Task as AipTask
+from bionic.utils.files import ensure_parent_dir_exists
+from bionic.utils.urls import path_from_url
 
 
 class FakeAipFuture(AipFuture):
@@ -65,6 +68,129 @@ class FakeAipExecutor:
             task_config=task_config,
             function=partial(fn, *args, **kwargs),
         ).submit()
+
+
+class FakeGcsFile:
+    def __init__(self, url):
+        assert url.startswith("gs://")
+        self._url = url
+        self._data = None
+        self._open = False
+
+    def __enter__(self):
+        assert not self._open
+        self._open = True
+        return self
+
+    def __exit__(self, *args):
+        self._open = False
+
+    def read(self, length=-1):
+        assert not self._open
+        # We only read the whole file in Bionic.
+        assert length == -1
+        return self._data
+
+    def write(self, data):
+        assert self._open
+        self._data = data
+
+
+# TODO It would be nice to use a different fsspec implementation here instead
+# of writing a custom one. We tried fsspec.implementations.memory.MemoryFileSystem
+# implementation, but that has a few problems.
+# 1) The glob method returns the protocol gs:// whereas gcsfs implementation doesn't
+# 2) There is a bug in the `rm` method and the tests fails to wipe the gcs cache.
+#    If you have a dir foo with only one file bar.py and you delete the foo dir
+#    recursively, fsspec throws an error after deleting bar.py with a
+#    FileNotFoundError for foo dir.
+#
+# We can override 1) but we need to get 2) fixed in fsspec before we can replace
+# this implementation.
+class FakeGcsFs:
+    def __init__(self):
+        self._files_by_url = {}
+
+    def cat_file(self, url):
+        if url not in self._files_by_url:
+            return FileNotFoundError(f"no file found for url {url}")
+        return self._files_by_url[url].read()
+
+    def exists(self, url):
+        return url in self._files_by_url or self.isdir(url)
+
+    def get(self, url, str_path, recursive):
+        # We only use get for dirs in Bionic with recursive=True.
+        assert recursive
+        assert self.isdir(url)
+
+        if str_path.endswith("/"):
+            str_path = str_path[:-1]
+
+        file_urls = self._search_files(url)
+        for file_url in file_urls:
+            relative_path = file_url.replace(url, "")
+            file_path = str_path + relative_path
+            self.get_file(file_url, file_path)
+
+    def get_file(self, url, str_path):
+        ensure_parent_dir_exists(Path(str_path))
+        with open(str_path, "wb") as f:
+            f.write(self.cat_file(url))
+
+    def _search_files(self, url):
+        return ["gs://" + glob_url for glob_url in self.glob(url + "**/*")]
+
+    def glob(self, url):
+        # We only use glob in Bionic for urls with **.
+        assert url.endswith("**/*")
+        url = url[:-4]
+        # Glob doesn't return the protocol, so we strip "gs://".
+        urls = []
+        for file_url in self._files_by_url:
+            assert file_url.startswith("gs://")
+            if url in file_url:
+                urls.append(file_url[5:])
+        return urls
+
+    def isdir(self, url):
+        if not url.endswith("/"):
+            url = url + "/"
+        return any(key for key in self._files_by_url if key.startswith(url))
+
+    def open(self, url, mode):
+        # We only open gcs files in Bionic for writing.
+        assert mode == "wb"
+        fake_file = FakeGcsFile(url)
+        self._files_by_url[url] = fake_file
+        return fake_file
+
+    def put(self, str_path, url, recursive):
+        # We only use put for dirs in Bionic with recursive=True.
+        assert recursive
+        path = path_from_url(str_path)
+        assert path.is_dir()
+
+        if url.endswith("/"):
+            url = url[:-1]
+
+        for file_path in path.glob("**/*"):
+            if not file_path.is_file():
+                continue
+            file_path_str = str(file_path)
+            sub_path_str = file_path_str.replace(str_path, "")
+            self.put_file(file_path_str, url + sub_path_str)
+
+    def put_file(self, str_path, url):
+        with self.open(url, "wb") as f:
+            f.write(open(str_path, "rb").read())
+
+    def rm(self, url, recursive=False):
+        if recursive:
+            for file_url in self._search_files(url):
+                del self._files_by_url[file_url]
+        else:
+            del self._files_by_url[url]
 
 
 class FakeBlob:
@@ -185,13 +311,10 @@ class FakeGCS:
 
 
 @contextmanager
-def run_in_fake_gcp(fake_gcs: FakeGCS):
+def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs):
     """
     Use fake GCP by mocking out GCS and AIP.
     """
-
-    mock_gcs_client = Mock()
-    mock_gcs_client.get_bucket = FakeBucket
 
     def create_aip_job(body, parent):
         run_aip(body["trainingInput"]["args"][3])
@@ -203,24 +326,12 @@ def run_in_fake_gcp(fake_gcs: FakeGCS):
         "state": "SUCCEEDED"
     }
 
-    with patch("blocks.pickle") as mock_pickle, patch(
-        "blocks.unpickle"
-    ) as mock_unpickle, patch(
-        "blocks.filesystem.GCSNativeFileSystem"
-    ) as mock_gcs_fs, patch(
-        "bionic.gcs._gsutil_cp"
-    ) as mock_gsutil_cp:
-        mock_gcs_fs().open = fake_gcs.open_blob
-        mock_pickle.side_effect = fake_gcs.block_pickle
-        mock_unpickle.side_effect = fake_gcs.block_unpickle
-        mock_gsutil_cp.side_effect = fake_gcs.gsutil_cp
-
-        cached_gcs_client = gcs._cached_gcs_client
-        cached_aip_client = aip_client._cached_aip_client
-        try:
-            gcs._cached_gcs_client = fake_gcs
-            aip_client._cached_aip_client = mock_aip_client
-            yield
-        finally:
-            gcs._cached_gcs_client = cached_gcs_client
-            aip_client._cached_aip_client = cached_aip_client
+    cached_gcs_fs = gcs._cached_gcs_fs
+    cached_aip_client = aip_client._cached_aip_client
+    try:
+        gcs._cached_gcs_fs = fake_gcs_fs
+        aip_client._cached_aip_client = mock_aip_client
+        yield
+    finally:
+        gcs._cached_gcs_fs = cached_gcs_fs
+        aip_client._cached_aip_client = cached_aip_client
