@@ -29,15 +29,17 @@ extras["standard"] = combine(extras["matplotlib"], extras["viz"])
 
 extras["dill"] = ["dill"]
 extras["dask"] = ["dask[dataframe]"]
-extras["gcp"] = ["google-cloud-storage", "fsspec", "gcsfs"]
+extras["gcp"] = ["fsspec", "gcsfs"]
 extras["parallel"] = ["cloudpickle", "loky"]
 extras["geopandas"] = ["geopandas"]
-extras["aip"] = [
-    "google-api-python-client",
-    "google-cloud-logging",
-    "sq-blocks",
-    "cloudpickle",
-]
+extras["aip"] = combine(
+    [
+        "google-api-python-client",
+        "google-cloud-logging",
+        "cloudpickle",
+    ],
+    extras["gcp"],
+)
 
 extras["examples"] = combine(extras["standard"], ["scikit-learn"])
 extras["full"] = combine(*extras.values())
