@@ -138,12 +138,22 @@ class Result:
     task_key = attr.ib()
     provenance = attr.ib()
     value = attr.ib()
-    file_path = attr.ib(default=None)
-    value_hash = attr.ib(default=None)
+    local_artifact = attr.ib()
     value_is_missing = attr.ib(default=False)
 
     def __repr__(self):
         return f"Result({self.task_key!r}, {self.value!r})"
+
+
+@attr.s(frozen=True)
+class Artifact:
+    """
+    Represents a serialized, file-like artifact, either on a local filesystem or in a
+    cloud object store.
+    """
+
+    url: str = attr.ib()
+    content_hash: str = attr.ib()
 
 
 class CaseKeySpace(ImmutableSequence):

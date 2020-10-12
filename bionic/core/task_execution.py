@@ -157,6 +157,7 @@ class TaskRunnerEntry:
                 task_key=task.key,
                 provenance=provenance,
                 value=None,
+                local_artifact=None,
                 value_is_missing=True,
             )
             value_hash = ""
@@ -185,6 +186,7 @@ class TaskRunnerEntry:
             task_key=task.key,
             provenance=provenance,
             value=value,
+            local_artifact=None,
         )
 
         if state.should_persist:

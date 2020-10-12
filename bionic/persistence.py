@@ -15,7 +15,7 @@ from uuid import uuid4
 from pathlib import Path
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
-from .datatypes import CodeFingerprint, Result
+from .datatypes import CodeFingerprint, Artifact, Result
 from .gcs import GcsTool
 from .utils.files import (
     ensure_dir_exists,
@@ -159,23 +159,21 @@ class CacheAccessor:
                 return None
 
             if entry.tier == "local":
-                file_path = path_from_url(entry.artifact_url)
+                local_artifact = entry.artifact
 
             elif entry.tier == "cloud":
-                blob_url = entry.artifact_url
-                file_path = self._file_from_blob(blob_url)
+                local_artifact = self._local_artifact_from_cloud(entry.artifact)
 
             else:
                 raise AssertionError("Unrecognized tier: " + entry.tier)
 
-            value = self._value_from_file(file_path)
+            value = self._value_from_local_artifact(local_artifact)
 
             return Result(
                 task_key=self.task_key,
                 provenance=self.provenance,
                 value=value,
-                file_path=file_path,
-                value_hash=entry.value_hash,
+                local_artifact=local_artifact,
             )
         except InternalCacheStateError as e:
             self._raise_state_error_with_explanation(e)
@@ -192,7 +190,7 @@ class CacheAccessor:
             if entry is None:
                 return None
 
-            return entry.value_hash
+            return entry.artifact.content_hash
         except InternalCacheStateError as e:
             self._raise_state_error_with_explanation(e)
 
@@ -226,24 +224,23 @@ class CacheAccessor:
 
         if result is not None:
             value_wrapper = NullableWrapper(result.value)
-            file_path = result.file_path
-            value_hash = result.value_hash
+            if result.local_artifact is not None:
+                local_artifact = result.local_artifact
+            else:
+                local_artifact = None
         else:
             value_wrapper = None
-            file_path = None
-            value_hash = None
+            local_artifact = None
 
-        blob_url = None
+        cloud_artifact = None
 
-        if file_path is None:
-            if local_entry.has_artifact:
-                file_path = path_from_url(local_entry.artifact_url)
-                value_hash = local_entry.value_hash
+        if local_artifact is None:
+            if local_entry.artifact is not None:
+                local_artifact = local_entry.artifact
             elif value_wrapper is not None:
-                file_path = self._file_from_value(value_wrapper.value)
-                value_hash = self.protocol.tokenize_file(file_path)
+                local_artifact = self._local_artifact_from_value(value_wrapper.value)
             else:
-                if cloud_entry is None or not cloud_entry.has_artifact:
+                if cloud_entry is None or cloud_entry.artifact is None:
                     raise AssertionError(
                         oneline(
                             """
@@ -254,31 +251,27 @@ class CacheAccessor:
                         happen."""
                         )
                     )
-                blob_url = cloud_entry.artifact_url
-                file_path = self._file_from_blob(blob_url)
-                value_hash = cloud_entry.value_hash
+                cloud_artifact = cloud_entry.artifact
+                local_artifact = self._local_artifact_from_cloud(cloud_artifact)
 
         if not local_entry.exactly_matches_provenance:
-            file_url = url_from_path(file_path)
-            local_entry = self._local.inventory.register_url(
+            local_entry = self._local.inventory.register_artifact(
                 self.provenance,
-                file_url,
-                value_hash,
+                local_artifact,
             )
         self._stored_local_entry = local_entry
 
         if self._cloud:
             assert cloud_entry is not None
             if not cloud_entry.exactly_matches_provenance:
-                if blob_url is None:
-                    if cloud_entry.has_artifact:
-                        blob_url = cloud_entry.artifact_url
+                if cloud_artifact is None:
+                    if cloud_entry.artifact is not None:
+                        cloud_artifact = cloud_entry.artifact
                     else:
-                        blob_url = self._blob_from_file(file_path)
-                cloud_entry = self._cloud.inventory.register_url(
+                        cloud_artifact = self._cloud_artifact_from_local(local_artifact)
+                cloud_entry = self._cloud.inventory.register_artifact(
                     self.provenance,
-                    blob_url,
-                    value_hash,
+                    cloud_artifact,
                 )
             self._stored_cloud_entry = cloud_entry
 
@@ -289,11 +282,11 @@ class CacheAccessor:
         """
 
         local_entry = self._get_local_entry()
-        if local_entry.has_artifact:
+        if local_entry.artifact is not None:
             return local_entry
 
         cloud_entry = self._get_cloud_entry()
-        if cloud_entry is not None and cloud_entry.has_artifact:
+        if cloud_entry is not None and cloud_entry.artifact is not None:
             return cloud_entry
 
         return None
@@ -310,23 +303,31 @@ class CacheAccessor:
             self._stored_cloud_entry = self._cloud.inventory.find_entry(self.provenance)
         return self._stored_cloud_entry
 
-    def _file_from_blob(self, blob_url):
+    def _local_artifact_from_cloud(self, cloud_artifact):
         dir_path = self._local.generate_unique_dir_path(self.provenance)
-        filename = path_from_url(blob_url).name
+        filename = path_from_url(cloud_artifact.url).name
         file_path = dir_path / filename
 
         ensure_parent_dir_exists(file_path)
 
         logger.info("Downloading %s from GCS ...", self.task_key)
         try:
-            self._cloud.download(file_path, blob_url)
+            self._cloud.download(file_path, cloud_artifact.url)
         except Exception as e:
-            raise InternalCacheStateError.from_failure("artifact blob", blob_url, e)
+            raise InternalCacheStateError.from_failure(
+                "artifact blob",
+                cloud_artifact.url,
+                e,
+            )
 
-        return file_path
+        return Artifact(
+            url=url_from_path(file_path),
+            content_hash=cloud_artifact.content_hash,
+        )
 
-    def _blob_from_file(self, file_path):
+    def _cloud_artifact_from_local(self, local_artifact):
         url_prefix = self._cloud.generate_unique_url_prefix(self.provenance)
+        file_path = path_from_url(local_artifact.url)
         blob_url = url_prefix + "/" + file_path.name
 
         logger.info("Uploading %s to GCS ...", self.task_key)
@@ -335,9 +336,12 @@ class CacheAccessor:
         except Exception as e:
             raise InternalCacheStateError.from_failure("artifact file", file_path, e)
 
-        return blob_url
+        return Artifact(
+            url=blob_url,
+            content_hash=local_artifact.content_hash,
+        )
 
-    def _file_from_value(self, value):
+    def _local_artifact_from_value(self, value):
         dir_path = self._local.generate_unique_dir_path(self.provenance)
 
         extension = self.protocol.file_extension_for_value(value)
@@ -358,9 +362,15 @@ class CacheAccessor:
                 )
             ) from e
 
+        value_hash = self.protocol.tokenize_file(value_path)
+        return Artifact(
+            url=url_from_path(value_path),
+            content_hash=value_hash,
+        )
         return value_path
 
-    def _value_from_file(self, file_path):
+    def _value_from_local_artifact(self, local_artifact):
+        file_path = path_from_url(local_artifact.url)
         value_filename = file_path.name
         extension = value_filename[len(self.value_filename_stem) :]
         try:
@@ -408,11 +418,9 @@ class InventoryEntry:
     """
 
     tier = attr.ib()
-    has_artifact = attr.ib()
-    artifact_url = attr.ib()
     provenance = attr.ib()
     exactly_matches_provenance = attr.ib()
-    value_hash = attr.ib()
+    artifact = attr.ib()
 
 
 @attr.s(frozen=True)
@@ -457,17 +465,17 @@ class Inventory:
         self._fs = filesystem
         self.root_url = filesystem.root_url
 
-    def register_url(self, provenance, url, value_hash):
+    def register_artifact(self, provenance, artifact):
         """
         Records metadata indicating that the provided Provenance is satisfied
-        by the provided URL, and returns a corresponding InventoryEntry.
+        by the provided Artifact, and returns a corresponding InventoryEntry.
         """
 
         logger.debug(
             "In     %s inventory for %r, saving artifact URL %s ...",
             self.tier,
             provenance,
-            url,
+            artifact.url,
         )
 
         expected_metadata_url = self._exact_metadata_url_for_provenance(provenance)
@@ -479,7 +487,7 @@ class Inventory:
                 "In %s cache, attempted to create duplicate entry mapping %r " "to %s",
                 self.tier,
                 provenance,
-                url,
+                artifact.url,
             )
             metadata_record = self._load_metadata_if_valid_else_delete(
                 expected_metadata_url,
@@ -487,9 +495,7 @@ class Inventory:
 
         if metadata_record is None:
             metadata_url, metadata_record = self._create_and_write_metadata(
-                provenance,
-                url,
-                value_hash,
+                provenance, artifact
             )
 
             assert metadata_url == expected_metadata_url
@@ -502,11 +508,9 @@ class Inventory:
 
         return InventoryEntry(
             tier=self.tier,
-            has_artifact=True,
-            artifact_url=url,
             provenance=metadata_record.provenance,
             exactly_matches_provenance=True,
-            value_hash=metadata_record.value_hash,
+            artifact=artifact,
         )
 
     def find_entry(self, provenance):
@@ -540,11 +544,9 @@ class Inventory:
 
                 return InventoryEntry(
                     tier=self.tier,
-                    has_artifact=False,
-                    artifact_url=None,
                     provenance=None,
                     exactly_matches_provenance=False,
-                    value_hash=None,
+                    artifact=None,
                 )
 
             metadata_record = self._load_metadata_if_valid_else_delete(
@@ -563,11 +565,12 @@ class Inventory:
 
             return InventoryEntry(
                 tier=self.tier,
-                has_artifact=True,
-                artifact_url=metadata_record.artifact_url,
                 provenance=metadata_record.provenance,
                 exactly_matches_provenance=(match.level == "exact"),
-                value_hash=metadata_record.value_hash,
+                artifact=Artifact(
+                    url=metadata_record.artifact_url,
+                    content_hash=metadata_record.value_hash,
+                ),
             )
 
     def list_items(self):
@@ -671,14 +674,14 @@ class Inventory:
         else:
             return metadata_record
 
-    def _create_and_write_metadata(self, provenance, artifact_url, value_hash):
+    def _create_and_write_metadata(self, provenance, artifact):
         metadata_url = self._exact_metadata_url_for_provenance(provenance)
 
         metadata_record = ArtifactMetadataRecord(
             descriptor=provenance.descriptor,
-            artifact_url=artifact_url,
+            artifact_url=artifact.url,
             provenance=provenance,
-            value_hash=value_hash,
+            value_hash=artifact.content_hash,
         )
         metadata_yaml = metadata_record.to_relativized_yaml(metadata_url)
         self._fs.write_bytes(metadata_yaml.encode("utf8"), metadata_url)
@@ -935,6 +938,8 @@ def valid_filename_from_provenance(provenance):
     return provenance.descriptor.replace(" ", "-")
 
 
+# Next time we change this, it would be nice to also update ArtifactMetadataRecord to
+# contain an Artifact directly.
 CACHE_SCHEMA_VERSION = 10
 
 
@@ -1134,6 +1139,9 @@ attr.resolve_types(Provenance)
 METADATA_CONVERTER = cattr.Converter()
 
 
+# TODO It would be nice if this contained an Artifact object instead of the separate
+# URL and hash, but that will require changing the cache schema. Maybe we can do this
+# along with the next schema-breaking change.
 @attr.s
 class ArtifactMetadataRecord:
     """

@@ -50,6 +50,7 @@ from .utils.misc import (
     oneline,
 )
 from .utils.reload import recursive_reload
+from .utils.urls import path_from_url
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
     protos.JsonProtocol(),
@@ -1208,10 +1209,9 @@ class Flow:
         if mode is object or mode == "object":
             values = [result.value for result in result_group]
         else:
-            # all other modes expect the entity to be persisted
-            result_file_paths = [result.file_path for result in result_group]
-
-            if None in result_file_paths:
+            # All other modes expect the entity to be persisted.
+            result_artifacts = [result.local_artifact for result in result_group]
+            if None in result_artifacts:
                 raise ValueError(
                     oneline(
                         f"""
@@ -1219,13 +1219,16 @@ class Flow:
                     expected by mode {mode!r}"""
                     )
                 )
+            result_paths = [
+                path_from_url(artifact.url) for artifact in result_artifacts
+            ]
 
             if mode is Path or mode == "path":
-                values = result_file_paths
+                values = result_paths
             elif mode == "FileCopier":
-                values = [FileCopier(fp) for fp in result_file_paths]
+                values = [FileCopier(path) for path in result_paths]
             elif mode == "filename":
-                values = [str(fp) for fp in result_file_paths]
+                values = [str(path) for path in result_paths]
             else:
                 raise ValueError(f"Unrecognized mode {mode!r}")
 
@@ -1347,9 +1350,9 @@ class Flow:
 
         (result,) = result_group
 
-        if result.file_path is None:
+        if result.local_artifact is None:
             raise ValueError(f"Entity {name!r} is not locally persisted")
-        src_file_path = result.file_path
+        src_file_path = path_from_url(result.local_artifact.url)
 
         if dir_path is None and file_path is None:
             return src_file_path
