@@ -14,7 +14,7 @@ _cached_gcs_fs = None
 
 
 def get_gcs_fs_without_warnings(cache_value=True):
-    # TODO It's not expensive to create gcs filesystem, but caching this enables
+    # TODO It's not expensive to create the gcs filesystem, but caching this enables
     # us to mock the cached gcs_fs with a mock implementation in tests. We should
     # change the tests to inject the filesystem in a different way and get rid of
     # this caching.

@@ -27,7 +27,9 @@ class FileCopier:
         Copies file that FileCopier represents to `destination`
 
         This supports both local and GCS destinations. For the former, we follow cp's
-        conventions and for the latter we follow fsspec put's conventions.
+        conventions and for the latter we follow fsspec's put / put_file APIs which
+        can be found at
+        https://filesystem-spec.readthedocs.io/en/latest/api.html#fsspec.spec.AbstractFileSystem.
 
         Parameters
         ----------

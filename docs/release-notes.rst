@@ -65,14 +65,20 @@ For each release, we list the following types of change (in this order):
 - **Development Changes**: Significant changes to Bionic's development process, such
   as changes to our Pytest configuration or our Continuous Integration ("CI").
 
-.. Upcoming Version (Not Yet Released)
-.. -----------------------------------
+Upcoming Version (Not Yet Released)
+-----------------------------------
 
 .. Record any notable changes in this section. When we update the current version,
    add a new version heading below, and then comment out the heading above until more
    changes are added. This way, the "Upcoming Version" section will be never be visible
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
+
+Improvements
+............
+
+- Bionic no longer requires `gsutil <https://cloud.google.com/storage/docs/gsutil>`_
+  for GCS caching, and as a result, GCS caching now works with Python 3.8.
 
 0.9.0 (Oct 8, 2020)
 --------------------

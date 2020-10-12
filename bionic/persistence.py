@@ -864,7 +864,7 @@ class GcsFilesystem:
     """
     Wrapper around fsspec's GCS "FileSystem" that validates the bucket
     and object_prefix. It also exposes extra APIs, namely, search,
-    write_bytes, and read_bytes for conveniece and consistency with
+    write_bytes, and read_bytes for convenience and consistency with
     LocalFilesystem.
     """
 
