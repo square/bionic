@@ -371,10 +371,8 @@ class CacheAccessor:
 
     def _value_from_local_artifact(self, local_artifact):
         file_path = path_from_url(local_artifact.url)
-        value_filename = file_path.name
-        extension = value_filename[len(self.value_filename_stem) :]
         try:
-            return self.protocol.read_with_extension(file_path, extension)
+            return self.protocol.read(file_path)
 
         except UnsupportedSerializedValueError:
             raise
