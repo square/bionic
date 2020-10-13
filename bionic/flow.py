@@ -57,10 +57,12 @@ DEFAULT_PROTOCOL = protos.CombinedProtocol(
     # Every GeoPandas DataFrame is also a Pandas DataFrame, so we need to do the
     # GeoPandas check first.
     protos.GeoPandasProtocol(),
+    # Similarly, every Dask file extension also matches the Parquet extension, so we
+    # need to check Dask first.
+    protos.DaskProtocol(),
     protos.ParquetDataFrameProtocol(),
     protos.ImageProtocol(),
     protos.NumPyProtocol(),
-    protos.DaskProtocol(),
     protos.PicklableProtocol(),
 )
 
