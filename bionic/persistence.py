@@ -16,7 +16,7 @@ from pathlib import Path
 
 from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
 from .datatypes import CodeFingerprint, Artifact, Result
-from .gcs import GcsTool
+from .gcs import get_gcs_fs_without_warnings
 from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
@@ -24,6 +24,7 @@ from .utils.files import (
 )
 from .utils.misc import hash_simple_obj_to_hex, oneline
 from .utils.urls import (
+    bucket_and_object_names_from_gs_url,
     derelativize_url,
     path_from_url,
     relativize_url,
@@ -591,7 +592,10 @@ class Inventory:
             )
 
     def delete_url(self, url):
-        return self._fs.delete(url)
+        if not self._fs.exists(url):
+            return False
+        self._fs.rm(url)
+        return True
 
     def _find_best_match(self, provenance):
         equivalent_url_prefix = self._equivalent_metadata_url_prefix_for_provenance(
@@ -739,11 +743,9 @@ class GcsCloudStore:
     """
 
     def __init__(self, url):
-        self._tool = GcsTool(url)
+        self._fs = GcsFilesystem(url, "/inventory")
 
-        self.inventory = Inventory(
-            "GCS", "cloud", GcsFilesystem(self._tool, "/inventory")
-        )
+        self.inventory = Inventory("GCS", "cloud", self._fs)
         self._artifact_root_url_prefix = url + "/artifacts"
 
     def generate_unique_url_prefix(self, provenance):
@@ -759,8 +761,7 @@ class GcsCloudStore:
                 ]
             )
 
-            matching_blobs = self._tool.blobs_matching_url_prefix(url_prefix)
-            if len(list(matching_blobs)) == 0:
+            if not self._fs.exists(url_prefix):
                 return url_prefix
             else:
                 n_attempts += 1
@@ -775,24 +776,17 @@ class GcsCloudStore:
                     )
 
     def upload(self, path, url):
-        # TODO For large individual files, we may still want to use gsutil.
         if path.is_dir():
-            self._tool.gsutil_cp(str(path), url)
+            self._fs.put_dir(path, url)
         else:
             assert path.is_file()
-            self._tool.blob_from_url(url).upload_from_filename(str(path))
+            self._fs.put_file(path, url)
 
     def download(self, path, url):
-        blob = self._tool.blob_from_url(url)
-        # TODO For large individual files, we may still want to use gsutil.
-        if not blob.exists():
-            # `gsutil cp -r gs://A/B X/Y` doesn't work when B contains
-            # multiple files and Y doesn't exist yet.  However, if B == Y, we
-            # can run `gsutil cp -r gs://A/B X`, which will create Y for us.
-            assert path.name == blob.name.rsplit("/", 1)[1]
-            self._tool.gsutil_cp(url, str(path.parent))
+        if self._fs.isdir(url):
+            self._fs.get_dir(url, path)
         else:
-            blob.download_to_filename(str(path))
+            self._fs.get_file(url, path)
 
 
 class FakeCloudStore(LocalStore):
@@ -844,12 +838,9 @@ class LocalFilesystem:
             for sub_path in path_prefix.glob("**/*")
         ]
 
-    def delete(self, url):
+    def rm(self, url):
         path = path_from_url(url)
-        if not path.exists():
-            return False
         path.unlink()
-        return True
 
     def write_bytes(self, content_bytes, url):
         path = path_from_url(url)
@@ -871,42 +862,96 @@ class LocalFilesystem:
 
 class GcsFilesystem:
     """
-    Implements a generic "FileSystem" interface for reading/writing small files
-    to GCS.
+    Wrapper around fsspec's GCS "FileSystem" that validates the bucket
+    and object_prefix. It also exposes extra APIs, namely, search,
+    write_bytes, and read_bytes for convenience and consistency with
+    LocalFilesystem.
     """
 
-    def __init__(self, gcs_tool, object_prefix_extension):
-        self._tool = gcs_tool
-        self.root_url = self._tool.url + object_prefix_extension
+    def __init__(self, url, object_prefix_extension):
+        if url.endswith("/"):
+            url = url[:-1]
+        self.root_url = url + object_prefix_extension
+
+        bucket_name, object_prefix = bucket_and_object_names_from_gs_url(url)
+        self._bucket_name = bucket_name
+        self._object_prefix = object_prefix
+        self._init_fs()
+
+    def __getstate__(self):
+        # Copy the object's state from self.__dict__ which contains
+        # all our instance attributes. Always use the dict.copy()
+        # method to avoid modifying the original state.
+        state = self.__dict__.copy()
+        # Remove the unpicklable entries.
+        del state["_fs"]
+        return state
+
+    def __setstate__(self, state):
+        # Restore instance attributes.
+        self.__dict__.update(state)
+        # Restore the fs.
+        self._init_fs()
+
+    def _init_fs(self):
+        self._fs = get_gcs_fs_without_warnings()
 
     def exists(self, url):
-        # Checking for "existence" on GCS is slightly complicated. If the URL in
-        # question corresponds to a single file, we should find an object with a
-        # matching name. If it corresponds to directory of files, we should find one or
-        # more objects with a matching prefix (the expected name followed by a slash).
-        return any(
-            found_url == url or found_url.startswith(url + "/")
-            for found_url in self.search(url)
-        )
+        self._validate_object_name_from_url(url)
+        return self._fs.exists(url)
 
     def search(self, url_prefix):
-        return [
-            self._tool.url_from_object_name(blob.name)
-            for blob in self._tool.blobs_matching_url_prefix(url_prefix)
-        ]
+        # This endpoint is a glob **/* search.
+        glob_url = url_prefix + "**/*"
+        return ["gs://" + url for url in self._fs.glob(glob_url)]
 
-    def delete(self, url):
-        blob = self._tool.blob_from_url(url)
-        if blob is None:
-            return False
-        blob.delete()
-        return True
+    def rm(self, url):
+        self._validate_object_name_from_url(url)
+        self._fs.rm(url)
 
     def write_bytes(self, content_bytes, url):
-        self._tool.blob_from_url(url).upload_from_string(content_bytes)
+        self._validate_object_name_from_url(url)
+        with self._fs.open(url, "wb") as f:
+            f.write(content_bytes)
 
     def read_bytes(self, url):
-        return self._tool.blob_from_url(url).download_as_string()
+        self._validate_object_name_from_url(url)
+        return self._fs.cat_file(url)
+
+    def get_dir(self, url, path):
+        self._validate_object_name_from_url(url)
+        return self._fs.get(url, str(path), recursive=True)
+
+    def get_file(self, url, path):
+        self._validate_object_name_from_url(url)
+        return self._fs.get_file(url, str(path))
+
+    def put_dir(self, path, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.put(str(path), url, recursive=True)
+
+    def put_file(self, path, url):
+        self._validate_object_name_from_url(url)
+        # If gcs url is a folder, we want to write the file in the folder.
+        # There seems to be a bug in fsspec due to which, the file is uploaded
+        # as the url, instead of inside the folder. What this means is, writing
+        # a file c.json to gs://a/b/ would result in file gs://a/b instead of
+        # gs://a/b/c.json.
+        #
+        # `put` API is supposed to write the file inside the folder but it strips
+        # the ending "/" at the end in fsspec's `_strip_protocol` method.
+        if url.endswith("/"):
+            url = url + path.name
+        return self._fs.put_file(str(path), url)
+
+    def isdir(self, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.isdir(url)
+
+    def _validate_object_name_from_url(self, url):
+        bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
+        assert bucket_name == self._bucket_name
+        assert object_name.startswith(self._object_prefix)
 
 
 class InternalCacheStateError(Exception):

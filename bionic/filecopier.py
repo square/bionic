@@ -5,7 +5,7 @@ Contains the ``FileCopier`` class, which is essentially a file path with a usefu
 
 import subprocess
 
-from bionic.gcs import gsutil_cp
+from bionic.gcs import upload_to_gcs
 
 
 class FileCopier:
@@ -27,8 +27,9 @@ class FileCopier:
         Copies file that FileCopier represents to `destination`
 
         This supports both local and GCS destinations. For the former, we follow cp's
-        conventions and for the latter we follow gsutil cp's conventions. For
-        example, trying to copy a file locally to a non-existent directory will fail.
+        conventions and for the latter we follow fsspec's put / put_file APIs which
+        can be found at
+        https://filesystem-spec.readthedocs.io/en/latest/api.html#fsspec.spec.AbstractFileSystem.
 
         Parameters
         ----------
@@ -39,7 +40,7 @@ class FileCopier:
 
         #  handle gcs
         if str(destination).startswith("gs://"):
-            gsutil_cp(str(self.src_file_path), str(destination))
+            upload_to_gcs(self.src_file_path, str(destination))
         else:
             subprocess.check_call(
                 ["cp", "-R", str(self.src_file_path), str(destination)]

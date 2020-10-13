@@ -28,12 +28,10 @@ def first_token_from_package_desc(desc):
 # For packages that we don't import by the exact package name, these are
 # aliases we use.
 alias_lists_by_package = {
-    "google-cloud-storage": ["google.cloud.storage"],
     "google-cloud-logging": ["google.cloud.logging"],
     "Pillow": ["PIL.Image"],
     "dask[dataframe]": ["dask.dataframe"],
     "google-api-python-client": ["googleapiclient.discovery"],
-    "sq-blocks": ["blocks"],
 }
 
 # Now we contruct a new data structure to allow us to give helpful error

@@ -562,11 +562,11 @@ Bionic will load data from the GCS cache whenever it's not in the local cache,
 and will write back to both caches.  Note that the upload time will make each
 entity computation a bit slower.
 
-In order to use GCS caching, you must have the `gsutil`_ tool installed, and
+In order to use GCS caching, you must have the `gcloud`_ cli tool installed, and
 you must have GCP credentials configured.  You should also use ``pip install
 'bionic[gcp]'`` to install the required Python libraries.
 
-.. _gsutil: https://cloud.google.com/storage/docs/gsutil
+.. _gcloud: https://cloud.google.com/sdk/gcloud
 
 .. _protocols :
 

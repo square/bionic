@@ -1,10 +1,11 @@
 import logging
+import pickle
 import time
 from concurrent.futures import Future as _Future, TimeoutError, CancelledError
 from enum import Enum, auto
 
 from bionic.aip.client import get_aip_client
-from bionic.deps.optdep import import_optional_dependency
+from bionic.gcs import get_gcs_fs_without_warnings
 
 
 class AipError(Exception):
@@ -85,16 +86,15 @@ class Future(_Future):
         return state.is_finished()
 
     def result(self, timeout: int = None):
-        # Scope the import to this function to avoid raising for anyone not using it.
-        blocks = import_optional_dependency("blocks")
-
         # This will need an update to support other serializers.
         exc = self.exception(timeout)
         if exc is not None:
             raise exc
 
         try:
-            return blocks.unpickle(self.output)
+            gcs_fs = get_gcs_fs_without_warnings()
+            with gcs_fs.open(self.output, "rb") as f:
+                return pickle.load(f)
         except:  # NOQA
             logging.warning(
                 f"Failed to load output from succesful job at {self.output}"

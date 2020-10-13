@@ -5,18 +5,18 @@ from multiprocessing.managers import SyncManager
 import pytest
 
 import bionic as bn
-from .fakes import run_in_fake_gcp, FakeGCS
+from .fakes import run_in_fake_gcp, FakeGcsFs
 from ..helpers import (
     SimpleCounter,
     ResettingCallCounter,
-    gsutil_wipe_path,
-    gsutil_path_exists,
+    gcs_fs_wipe_path,
+    gcs_fs_path_exists,
 )
 
 
 @pytest.fixture
-def fake_gcs():
-    return FakeGCS()
+def fake_gcs_fs():
+    return FakeGcsFs()
 
 
 # Parameterizing a fixture adds the parameter in the test name at the end,
@@ -42,9 +42,9 @@ def parallel_execution_enabled(request):
         pytest.param("real-gcp", marks=pytest.mark.real_gcp),
     ],
 )
-def use_fake_gcp(request, fake_gcs):
+def use_fake_gcp(request, fake_gcs_fs):
     if request.param == "fake-gcp":
-        with run_in_fake_gcp(fake_gcs):
+        with run_in_fake_gcp(fake_gcs_fs):
             yield True
     else:
         yield False
@@ -154,21 +154,6 @@ def gcs_url_stem(request, use_fake_gcp):
 
 
 @pytest.fixture
-def gcs_wipe_path(use_fake_gcp, fake_gcs):
-    """
-    Removes all files with the specified url.
-    """
-
-    def _gcs_wipe_path(url):
-        if use_fake_gcp:
-            fake_gcs.wipe_path(url)
-        else:
-            gsutil_wipe_path(url)
-
-    return _gcs_wipe_path
-
-
-@pytest.fixture
 def session_tmp_gcs_url_prefix(gcs_url_stem, use_fake_gcp):
     """
     Sets up and tears down a temporary "directory" on GCS to be shared by all
@@ -182,7 +167,7 @@ def session_tmp_gcs_url_prefix(gcs_url_stem, use_fake_gcp):
     # This emits a stderr warning because the URL doesn't exist.  That's
     # annoying but I wasn't able to find a straightforward way to avoid it.
     if not use_fake_gcp:
-        assert not gsutil_path_exists(gs_url)
+        assert not gcs_fs_path_exists(gs_url)
 
     yield gs_url
 
@@ -191,7 +176,7 @@ def session_tmp_gcs_url_prefix(gcs_url_stem, use_fake_gcp):
     # *and* doesn't clean all of them up. If this changes, we may need to start
     # handling this more gracefully.
     if not use_fake_gcp:
-        gsutil_wipe_path(gs_url)
+        gcs_fs_wipe_path(gs_url)
 
 
 @pytest.fixture(scope="function")
@@ -202,5 +187,6 @@ def tmp_gcs_url_prefix(session_tmp_gcs_url_prefix, request):
     # This is an open issue with gsutil but till it's fixed, we are going
     # to change the node name to not have any wildcard characters.
     # https://github.com/GoogleCloudPlatform/gsutil/issues/290
+    # gcsfs seems to have the same problem.
     node_name = request.node.name.replace("[", "_").replace("]", "")
     return session_tmp_gcs_url_prefix + node_name + "/"

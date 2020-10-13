@@ -2,30 +2,29 @@
 Utilities for working with Google Cloud Storage.
 """
 
-import subprocess
+import logging
 import warnings
 
 from .deps.optdep import import_optional_dependency
-from .utils.urls import bucket_and_object_names_from_gs_url
-
-import logging
 
 logger = logging.getLogger(__name__)
 
-_cached_gcs_client = None
+
+_cached_gcs_fs = None
 
 
-def get_gcs_client_without_warnings(cache_value=True):
-    # TODO This caching saves a lot of time, especially in tests.  But it would
-    # be better if Bionic were able to re-use its in-memory cache when creating
-    # new flows, instead of resetting the cache each time.
+def get_gcs_fs_without_warnings(cache_value=True):
+    # TODO It's not expensive to create the gcs filesystem, but caching this enables
+    # us to mock the cached gcs_fs with a mock implementation in tests. We should
+    # change the tests to inject the filesystem in a different way and get rid of
+    # this caching.
     if cache_value:
-        global _cached_gcs_client
-        if _cached_gcs_client is None:
-            _cached_gcs_client = get_gcs_client_without_warnings(cache_value=False)
-        return _cached_gcs_client
+        global _cached_gcs_fs
+        if _cached_gcs_fs is None:
+            _cached_gcs_fs = get_gcs_fs_without_warnings(cache_value=False)
+        return _cached_gcs_fs
 
-    gcs = import_optional_dependency("google.cloud.storage", purpose="caching to GCS")
+    fsspec = import_optional_dependency("fsspec", purpose="caching to GCS")
 
     with warnings.catch_warnings():
         # Google's SDK warns if you use end user credentials instead of a
@@ -37,99 +36,36 @@ def get_gcs_client_without_warnings(cache_value=True):
         warnings.filterwarnings(
             "ignore", "Your application has authenticated using end user credentials"
         )
-        logger.info("Initializing GCS client ...")
-        return gcs.Client()
+        logger.info("Initializing GCS filesystem ...")
+        return fsspec.filesystem("gcs")
 
 
-def copy_to_gcs(src, dst):
-    """Copy a local file at src to GCS at dst"""
-    bucket = dst.replace("gs://", "").split("/")[0]
-    prefix = f"gs://{bucket}"
-    path = dst[len(prefix) + 1 :]
-
-    client = get_gcs_client_without_warnings()
-    blob = client.get_bucket(bucket).blob(path)
-    blob.upload_from_filename(src)
-
-
-class GcsTool:
+# TODO: Consider using persistence.GcsFilesystem instead of exposing this function.
+def upload_to_gcs(path, url):
     """
-    A helper object providing utility methods for accessing GCS.  Maintains
-    a GCS client, and a prefix defining a default namespace to read/write on.
+    Copy a local path to GCS URL.
+
+    This method is a proxy for _upload_to_gcs which does the actual work.
+    The proxy exists so that _upload_to_gcs can be replaced for testing.
     """
+    _upload_to_gcs(path, url)
 
-    _GS_URL_PREFIX = "gs://"
 
-    def __init__(self, url):
+def _upload_to_gcs(path, url):
+    fs = get_gcs_fs_without_warnings()
+    if path.is_dir():
+        fs.put(str(path), url, recursive=True)
+    else:
+        # If the GCS URL is a folder, we want to write the file in the folder.
+        # There seems to be a bug in fsspec due to which, the file is uploaded
+        # as the url, instead of inside the folder. What this means is, writing
+        # a file c.json to gs://a/b/ would result in file gs://a/b instead of
+        # gs://a/b/c.json.
+        #
+        # The `put` API is supposed to write the file inside the folder but it
+        # strips the ending "/" at the end in fsspec's `_strip_protocol` method.
+        # See https://github.com/intake/filesystem_spec/issues/448 for more
+        # details and tracking this issue.
         if url.endswith("/"):
-            url = url[:-1]
-        self.url = url
-        bucket_name, object_prefix = bucket_and_object_names_from_gs_url(url)
-
-        self._bucket_name = bucket_name
-        self._object_prefix = object_prefix
-        self._init_client()
-
-    def __getstate__(self):
-        # Copy the object's state from self.__dict__ which contains
-        # all our instance attributes. Always use the dict.copy()
-        # method to avoid modifying the original state.
-        state = self.__dict__.copy()
-        # Remove the unpicklable entries.
-        del state["_client"]
-        del state["_bucket"]
-        return state
-
-    def __setstate__(self, state):
-        # Restore instance attributes.
-        self.__dict__.update(state)
-        # Restore the client and bucket.
-        self._init_client()
-
-    def _init_client(self):
-        self._client = get_gcs_client_without_warnings()
-        self._bucket = self._client.get_bucket(self._bucket_name)
-
-    def blob_from_url(self, url):
-        object_name = self._validated_object_name_from_url(url)
-        return self._bucket.blob(object_name)
-
-    def url_from_object_name(self, object_name):
-        return self._GS_URL_PREFIX + self._bucket.name + "/" + object_name
-
-    def blobs_matching_url_prefix(self, url_prefix):
-        obj_prefix = self._validated_object_name_from_url(url_prefix)
-        return self._bucket.list_blobs(prefix=obj_prefix)
-
-    @staticmethod
-    def gsutil_cp(src_url, dst_url):
-        gsutil_cp(src_url, dst_url)
-
-    def _validated_object_name_from_url(self, url):
-        bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
-        assert bucket_name == self._bucket.name
-        assert object_name.startswith(self._object_prefix)
-        return object_name
-
-
-def gsutil_cp(src_url, dst_url):
-    """
-    This method is a proxy for _gsutil_cp which does the actual work. The proxy
-    exists so that _gsutil_cp can be replaced for testing.
-    """
-    _gsutil_cp(str(src_url), str(dst_url))
-
-
-def _gsutil_cp(src_url, dst_url):
-    args = [
-        "gsutil",
-        "-q",  # Don't log anything but errors.
-        "-m",  # Transfer files in parallel.
-        "cp",
-        "-r",  # Recursively sync sub-directories.
-        src_url,
-        dst_url,
-    ]
-    logger.debug("Running command: %s" % " ".join(args))
-    subprocess.check_call(args)
-    logger.debug("Finished running gsutil")
+            url = url + path.name
+        fs.put_file(str(path), url)
