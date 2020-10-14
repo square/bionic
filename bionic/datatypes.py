@@ -56,9 +56,6 @@ class DescriptorMetadata:
 
     Attributes
     ----------
-    protocol: Protocol
-        The protocol to use when serializing and deserializing descriptor values on
-        disk.
     doc: string
         A human-readable description of the descriptor.
     should_memoize: boolean
@@ -66,18 +63,18 @@ class DescriptorMetadata:
     should_memoize_for_query: boolean
         Whether the value should be memoized for the lifetime of a Flow.get() call.
         (Only relevant if ``should_memoize`` is False.)
-    should_persist: boolean
-        Whether the value should be persisted.
+    is_artifact: boolean
+        Whether the value is an artifact which should be registered with the persistent
+        cache.
     is_composite: boolean
         Whether the value contains other descriptor values. (If so, it's desirable to
         get it out of memory quickly.)
     """
 
-    protocol = attr.ib()
     doc = attr.ib()
     should_memoize = attr.ib(default=False)
     should_memoize_for_query = attr.ib(default=False)
-    should_persist = attr.ib(default=False)
+    is_artifact = attr.ib(default=False)
     is_composite = attr.ib(default=True)
 
 
@@ -144,7 +141,6 @@ class Result:
 
     task_key = attr.ib()
     value = attr.ib()
-    local_artifact = attr.ib()
     value_is_missing = attr.ib(default=False)
 
     def __repr__(self):

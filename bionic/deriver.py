@@ -12,7 +12,7 @@ from .datatypes import ResultGroup, DescriptorMetadata, TaskKey, VersioningPolic
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .deps.optdep import import_optional_dependency
-from .exception import UndefinedEntityError
+from .exception import UndefinedEntityError, UnavailableArtifactError
 from .core.flow_execution import (
     ExecutionContext,
     MemoryResultCache,
@@ -20,11 +20,13 @@ from .core.flow_execution import (
     TaskKeyLogger,
 )
 from .core.task_execution import TaskState
-from .protocols import TupleProtocol, NonSerializableObjectProtocol
+from .protocols import NonSerializableObjectProtocol, TupleProtocol
 from .provider import (
+    LoadingFromDiskProvider,
     TupleConstructionProvider,
     TupleDeconstructionProvider,
-    PassthroughProvider,
+    ValidatingAndSavingToDiskProvider,
+    ValidatingProvider,
 )
 from .utils.misc import oneline
 
@@ -54,26 +56,33 @@ class EntityDeriver:
         self._flow_config = flow_config
         self._flow_instance_uuid = flow_instance_uuid
 
-        # For many dnodes, we can precompute the appropriate provider ahead of time.
-        # This is set by _register_static_providers().
+        # These are set by _register_static_providers().
+        # If we can precompute the appropriate provider for a dnode, we store it here.
         self._static_providers_by_dnode = None
         # For some dnodes (namely, those containing drafts), computing them should
         # cause us to automatically compute some additional dnodes.
         self._followup_dnode_lists_by_dnode = None
+        # When computing a static provider for a persistable dnode, if we don't have
+        # access to a persistent cache, we'll treat the dnode as non-persistable. We
+        # track all such dnodes here so that we can warn the user if we end up using
+        # them. (Normally we don't use them; after bootstrapping the execution core,
+        # which contains the persistent cache, we re-register all the static providers.
+        # The only time we need to warn is if a persistable dnode is needed during
+        # this bootstrapping phase for some reason.)
+        self._dnodes_forced_to_be_non_persistable = None
 
         # These are used to cache DescriptorInfo and TaskState objects, respectively.
         self._saved_dinfos_by_dnode = {}
         self._saved_task_states_by_key = {}
 
-        # Tracks whether we've pre-validated the base descriptors in this flow.
-        self._base_prevalidation_is_complete = False
-
         # We need an ExecutionCore object to do any derivation, but creating the core
         # itself requires derivation. We'll use this default core to get us through the
         # initial bootstrapping phase, and then replace it with a properly configured
         # core.
-        self._core_is_final = False
         self._core = BOOTSTRAP_CORE
+        # This indicates that everything above is propertly initalized and we're ready
+        # for the `derive` method to be called.
+        self._is_ready = False
 
     # TODO We should adjust the wording of the docstring below or refactor this a
     # little. It's not necessary for *the user* to call this method, but it is necessary
@@ -84,9 +93,23 @@ class EntityDeriver:
         Make sure this Deriver is ready to derive().  Calling this is not
         necessary but allows errors to surface earlier.
         """
+        if self._is_ready:
+            return
+
+        # First, we need to set up the execution core. That requires deriving several
+        # "core entities", which means we need to precompute our static providers.
         self._register_static_providers()
         self._set_up_final_core()
+
+        # The way we configure our static providers depends on the core, so now that
+        # we've set it up we'll need to re-generate our providers.
+        self._register_static_providers()
+
+        # Now everything should be set up; to check, we'll validate that all the basic
+        # user-defined entities are derivable.
         self._prevalidate_base_dnodes()
+
+        self._is_ready = True
 
     def derive(self, dnode):
         """
@@ -229,10 +252,8 @@ class EntityDeriver:
         intermediate draft values can be discarded.
         """
 
-        if self._static_providers_by_dnode is not None:
-            return
-
         static_providers_by_dnode = {}
+        dnodes_forced_to_be_non_persistable = set()
         followup_dnode_lists_by_dnode = defaultdict(list)
 
         def register_followup(out_dnode, dep_dnode):
@@ -252,14 +273,45 @@ class EntityDeriver:
                 if child_dnode.is_draft():
                     assert False
 
-                # If we have a draft of an entity (like "<X>"), we just convert it to
-                # the plain entity ("X"). The conversion is a "passthrough", which
-                # means it doesn't actually change the value; however, if the entity is
-                # persisted, that will happen along with the conversion, so the
-                # converted value can still be different from the draft value.
+                # If we have a draft of an entity (like "<X>"), we want to validate the
+                # value and possible convert it to a persistent artifact.
                 elif child_dnode.is_entity():
-                    register_provider(PassthroughProvider(child_dnode, dnode))
-                    register_followup(child_dnode, dnode)
+                    entity_def = self._flow_config.entity_defs_by_name[child_dnode.name]
+                    should_persist = self._entity_def_should_persist(entity_def)
+
+                    # If we're in the bootstrapping phase, we don't have access to a
+                    # persistent cache, so we need to treat all entities as
+                    # non-persistable. Hopefully we don't actually need to use any of
+                    # these entities until we've constructed the cache (at which point
+                    # we'll recompute all our static providers) but if we do, we'll
+                    # want to remember this and emit a warning.
+                    if should_persist and self._core.persistent_cache is None:
+                        dnodes_forced_to_be_non_persistable.add(child_dnode)
+                        should_persist = False
+
+                    # If the entity is persistable, we both validate and serialize the
+                    # entity, like this:
+                    #     <X> -> X/artifact -> X
+                    if should_persist:
+                        out_dnode = ast.GenericNode(child_dnode, "artifact")
+                        provider = ValidatingAndSavingToDiskProvider(
+                            out_dnode,
+                            dnode,
+                            entity_def.protocol,
+                            self._core.persistent_cache,
+                        )
+                    # If the entity is not persistable, we just validate the value and
+                    # return the regular entity:
+                    #     <X> -> X
+                    else:
+                        out_dnode = child_dnode
+                        provider = ValidatingProvider(
+                            out_dnode,
+                            dnode,
+                            entity_def.protocol,
+                        )
+                    register_provider(provider)
+                    register_followup(out_dnode, dnode)
 
                 # If we have a draft of a tuple (like "<D1, D2>"), we "distribute" the
                 # draft-ness over the childern (producing "<D1>, <D2>"). The idea is
@@ -275,11 +327,47 @@ class EntityDeriver:
                         ast.DraftNode(grandchild_dnode)
                         for grandchild_dnode in child_dnode.children
                     )
-                    register_provider(PassthroughProvider(out_dnode, dnode))
+                    register_provider(
+                        ValidatingProvider(
+                            out_dnode,
+                            dnode,
+                            TupleProtocol(len(child_dnode.children)),
+                        ),
+                    )
                     register_followup(out_dnode, dnode)
+
+                # We should never have a draft of an artifact, because user-defined
+                # functions should never generate artifacts.
+                elif child_dnode.is_generic():
+                    raise AssertionError(
+                        f"""
+                        Encountered a draft of an artifact, {dnode.to_descriptor()!r},
+                        which should be impossible.
+                        """
+                    )
 
                 else:
                     dnode.fail_match()
+
+            # We only have one type of generic: an artifact. The next step for an
+            # artifact is to deserialize it into a regular in-memory entity.
+            elif dnode.is_generic():
+                assert dnode.name == "artifact"
+                # If we don't have a persistent cache, we shouldn't be generating any
+                # providers with artifact descriptors.
+                assert self._core.persistent_cache is not None
+                out_dnode = dnode.child
+                entity_name = out_dnode.assume_entity().name
+                entity_def = self._flow_config.entity_defs_by_name[entity_name]
+                provider = LoadingFromDiskProvider(
+                    out_dnode,
+                    dnode,
+                    entity_def.protocol,
+                    self._core.persistent_cache,
+                )
+                register_provider(provider)
+                # Once the artifact is computed, it will also be persisted to disk, so
+                # we don't need a follow-up.
 
             # If this provider generates a tuple value ("D1, D2"), we will add
             # providers for extracting all the components ("D1" and "D2"). Note that
@@ -305,6 +393,7 @@ class EntityDeriver:
             register_provider(provider)
 
         self._static_providers_by_dnode = static_providers_by_dnode
+        self._dnodes_forced_to_be_non_persistable = dnodes_forced_to_be_non_persistable
         # We convert this from a defaultdict to a dict just to rule out any surprising
         # behavior downstream.
         self._followup_dnode_lists_by_dnode = dict(followup_dnode_lists_by_dnode)
@@ -313,9 +402,6 @@ class EntityDeriver:
         """
         Initializes some key objects needed to compute user-defined entities.
         """
-
-        if self._core_is_final:
-            return
 
         self._core = ExecutionCore(
             persistent_cache=self._compute_core_entity("core__persistent_cache"),
@@ -334,7 +420,6 @@ class EntityDeriver:
             ),
             task_key_logging_level=logging.INFO,
         )
-        self._core_is_final = True
 
     def _prevalidate_base_dnodes(self):
         """
@@ -345,15 +430,7 @@ class EntityDeriver:
         the only effect of this function is to cause any errors to be surfaced earlier.)
         """
 
-        # Avoid doing pre-validation multiple times. (It's not that expensive since all
-        # the state is cached, but it's still O(number of descriptors), so we'll avoid
-        # it on principle.)
-        if self._base_prevalidation_is_complete:
-            return
-
         self._prevalidate_dnodes(self._get_base_dnodes())
-
-        self._base_prevalidation_is_complete = True
 
     def _prevalidate_dnodes(self, dnodes):
         """
@@ -406,6 +483,12 @@ class EntityDeriver:
             """
             raise AssertionError(oneline(message))
 
+        elif dnode.is_generic():
+            assert dnode.name == "artifact"
+            # If this provider is not statically registered, then the entity is not
+            # persisted and we can't do this.
+            raise UnavailableArtifactError(dnode)
+
         elif dnode.is_tuple():
             return TupleConstructionProvider(dnode)
 
@@ -427,7 +510,6 @@ class EntityDeriver:
             # somewhat complicated by the fact that defining an entity with @builder
             # resets its entity configuration (which was probably a bad design choice
             # that we should change at some point).
-
             if entity_def.optional_should_memoize is not None:
                 should_memoize = entity_def.optional_should_memoize
             else:
@@ -456,54 +538,45 @@ class EntityDeriver:
                 warnings.warn(oneline(message))
                 should_memoize = True
 
-            if entity_def.optional_should_persist is not None:
-                should_persist = entity_def.optional_should_persist
-            else:
-                should_persist = self._core.should_persist_default
-            if should_persist and self._core.persistent_cache is None:
-                descriptor = dnode.to_descriptor()
-                message = f"""
-                Descriptor {descriptor!r} is set to be persisted, but it can't be
-                because core entities depend on it.
-                The corresponding value will not be serialized and deserialized,
-                which may cause that value to be subtly different. To avoid this
-                warning, disable persistence by applying `@persist(False)` or
-                `@immediate` to the corresponding function, or passing
-                `persist=False` when you `declare` or `assign` the entity values.
-                """
-                # TODO We should choose between `logger.warn` and `warnings.warn` and
-                # use one consistently.
-                logger.warn(oneline(message))
-                should_persist = False
-
+            should_persist = self._entity_def_should_persist(entity_def)
             should_memoize_for_query = (
                 self._core.should_memoize_for_query_if_uncached
                 and not (should_memoize or should_persist)
             )
 
             return DescriptorMetadata(
-                protocol=entity_def.protocol,
                 doc=entity_def.doc,
                 should_memoize=should_memoize,
                 should_memoize_for_query=should_memoize_for_query,
-                should_persist=should_persist,
             )
 
         elif dnode.is_draft():
             child_entity_def = self._obtain_metadata_for_dnode(dnode.child)
+            # "Intermediate value" is a vague description, but we don't want to go into
+            # detail on what a "draft" is, since they're really an implementation
+            # detail. Users will generally only see this when they visualize a DAG
+            # containing a tuple-generating function.
             doc_prefix = "(Intermediate value)"
             if child_entity_def.doc is None:
                 doc = doc_prefix
             else:
                 doc = doc_prefix + " " + child_entity_def.doc
             return DescriptorMetadata(
-                protocol=NON_SERIALIZABLE_OBJECT_PROTOCOL,
                 doc=doc,
+            )
+
+        elif dnode.is_generic():
+            assert dnode.name == "artifact"
+            return DescriptorMetadata(
+                doc="A file artifact persisted to disk.",
+                is_artifact=True,
+                # Artifact objects are small, so it would be nice if we could memoize
+                # them, but they can also become invalidated between `get` calls, so
+                # we don't.
             )
 
         elif dnode.is_tuple():
             return DescriptorMetadata(
-                protocol=TupleProtocol(len(dnode.children)),
                 doc=f"A Python tuple with {len(dnode.children)} values.",
                 is_composite=True,
             )
@@ -531,8 +604,8 @@ class EntityDeriver:
             for dep_dinfo in dep_dinfos
         }
 
-        # TODO Maybe of having these two separate variables that we pass around, we
-        # should just have a single method:
+        # TODO Maybe instead of having these two separate variables that we pass
+        # around, we should just have a single method:
         #
         #     provider.get_dinfo(dep_dinfos_by_dnode)
         key_space = provider.get_key_space(dep_key_spaces_by_dnode)
@@ -617,22 +690,54 @@ class EntityDeriver:
         # Optionally, we will also add "follow-up" references:
         if dnode in self._followup_dnode_lists_by_dnode:
             for followup_dnode in self._followup_dnode_lists_by_dnode[dnode]:
+                # Because all follow-ups have exactly one dependency, they always have
+                # the same case key as their parent. (The assert below checks both of
+                # these assumptions.)
                 followup_key = TaskKey(dnode=followup_dnode, case_key=case_key)
                 followup_state = self._get_or_create_task_state_for_key(
                     followup_key, in_progress_states_by_key
                 )
+                (dep_task_key,) = followup_state.task.dep_keys
+                assert task_key == dep_task_key
                 task_state.followup_states.append(followup_state)
 
-        # We should not have followup tasks for any persistable value; we only have
-        # followups for draft values and those are never persistable.
-        if metadata.should_persist:
+        # We should not have followup tasks for any artifact value; we only have
+        # followups for draft values (which are never artifacts).
+        if metadata.is_artifact:
             assert len(task_state.followup_states) == 0
+
+        # If we're in the bootstrapping phase, we may not be able to persist all the
+        # entities we should.
+        if dnode in self._dnodes_forced_to_be_non_persistable:
+            descriptor = dnode.to_descriptor()
+            message = f"""
+            Descriptor {descriptor!r} is set to be persisted, but it can't be
+            because core bootstrap entities depend on it.
+            The corresponding value will not be serialized and deserialized,
+            which may cause that value to be subtly different. To avoid this
+            warning, disable persistence by applying `@persist(False)` or
+            `@immediate` to the corresponding function, or passing
+            `persist=False` when you `declare` or `assign` the entity values.
+            """
+            # TODO We should choose between `logger.warn` and `warnings.warn` and
+            # use one consistently.
+            logger.warn(oneline(message))
 
         # Now the TaskState is fully initialized, so we can put it in the real cache
         # and return it.
         assert task.key not in self._saved_task_states_by_key
         self._saved_task_states_by_key[task.key] = task_state
         return task_state
+
+    def _entity_def_should_persist(self, entity_def):
+        """Determines whether an entity should be persisted."""
+
+        if entity_def.optional_should_persist is not None:
+            return entity_def.optional_should_persist
+        elif self._core.persistent_cache is not None:
+            return self._core.should_persist_default
+        else:
+            return False
 
     def _compute_core_entity(self, entity_name):
         """

@@ -26,11 +26,12 @@ from .datatypes import (
     ResultGroup,
 )
 from .exception import (
-    UndefinedEntityError,
     AlreadyDefinedEntityError,
-    IncompatibleEntityError,
-    UnsetEntityError,
     AttributeValidationError,
+    IncompatibleEntityError,
+    UnavailableArtifactError,
+    UndefinedEntityError,
+    UnsetEntityError,
 )
 from .executor import AipExecutor, ProcessExecutor
 from .persistence import LocalStore, GcsCloudStore, PersistentCache
@@ -40,6 +41,7 @@ from .provider import (
     AttrUpdateProvider,
 )
 from .deriver import EntityDeriver, entity_is_internal
+from .descriptors import ast
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .filecopier import FileCopier
@@ -1199,8 +1201,26 @@ class Flow:
         The value of the entity, or a collection containing its values.
         """
 
-        dnode = entity_dnode_from_descriptor(name)
-        orig_result_group = self._deriver.derive(dnode)
+        entity_dnode = entity_dnode_from_descriptor(name)
+
+        retrieve_artifacts = not (mode is object or mode == "object")
+        if retrieve_artifacts:
+            dnode = ast.GenericNode(entity_dnode, "artifact")
+        else:
+            dnode = entity_dnode
+
+        try:
+            orig_result_group = self._deriver.derive(dnode)
+        except UnavailableArtifactError as e:
+            if e.artifact_dnode.child == entity_dnode:
+                message = f"""
+                Entity {name!r} is not persisted, but persisted file is required
+                expected by mode {mode!r}
+                """
+                raise ValueError(oneline(message))
+            else:
+                raise e
+
         # Remove all results with missing values.
         result_group = ResultGroup(
             results=[
@@ -1208,23 +1228,13 @@ class Flow:
             ],
             key_space=orig_result_group.key_space,
         )
+        raw_values = [result.value for result in result_group]
 
-        if mode is object or mode == "object":
-            values = [result.value for result in result_group]
+        if not retrieve_artifacts:
+            values = raw_values
         else:
-            # All other modes expect the entity to be persisted.
-            result_artifacts = [result.local_artifact for result in result_group]
-            if None in result_artifacts:
-                raise ValueError(
-                    oneline(
-                        f"""
-                    Entity {name!r} is not persisted but persisted file is
-                    expected by mode {mode!r}"""
-                    )
-                )
-            result_paths = [
-                path_from_url(artifact.url) for artifact in result_artifacts
-            ]
+            artifacts = raw_values
+            result_paths = [path_from_url(artifact.url) for artifact in artifacts]
 
             if mode is Path or mode == "path":
                 values = result_paths
@@ -1340,8 +1350,17 @@ class Flow:
             "Flow#export is deprecated; use the mode argument to Flow#get " "instead"
         )
 
-        dnode = entity_dnode_from_descriptor(name)
-        result_group = self._deriver.derive(dnode)
+        entity_dnode = entity_dnode_from_descriptor(name)
+        dnode = ast.GenericNode(entity_dnode, "artifact")
+
+        try:
+            result_group = self._deriver.derive(dnode)
+        except UnavailableArtifactError as e:
+            if e.artifact_dnode.child == entity_dnode:
+                raise ValueError(f"Entity {name!r} is not locally persisted")
+            else:
+                raise e
+
         if len(result_group) != 1:
             raise ValueError(
                 oneline(
@@ -1352,10 +1371,8 @@ class Flow:
             )
 
         (result,) = result_group
-
-        if result.local_artifact is None:
-            raise ValueError(f"Entity {name!r} is not locally persisted")
-        src_file_path = path_from_url(result.local_artifact.url)
+        artifact = result.value
+        src_file_path = path_from_url(artifact.url)
 
         if dir_path is None and file_path is None:
             return src_file_path
