@@ -729,7 +729,12 @@ class TaskState:
     def _local_artifact_from_value(self, value):
         protocol = self.desc_metadata.protocol
 
-        dir_path = self._cache_accessor.generate_unique_local_dir_path()
+        descriptor = self.task_key.dnode.to_descriptor()
+        # TODO This private access is awkward, but we'll fix it once we add file
+        # descriptors.
+        dir_path = self._cache_accessor._parent_cache.generate_unique_local_dir_path_for_descriptor(
+            descriptor
+        )
         extension = protocol.file_extension_for_value(value)
         # At least for now, we only serialize entity values, not other kinds of
         # descriptors.
@@ -745,8 +750,7 @@ class TaskState:
             raise EntitySerializationError(
                 oneline(
                     f"""
-                Value of descriptor {self.task_key.dnode.to_descriptor()!r}
-                could not be serialized to disk
+                Value of descriptor {descriptor!r} could not be serialized to disk
                 """
                 )
             ) from e
@@ -767,7 +771,9 @@ class TaskState:
         except UnsupportedSerializedValueError:
             raise
         except Exception as e:
-            self._cache_accessor.raise_state_error_with_explanation(
+            # TODO This private access is awkward, but we'll fix it once we add file
+            # descriptors.
+            self._cache_accessor._parent_cache.raise_state_error_with_explanation(
                 e,
                 preamble_message=f"""
                 Unable to read value of descriptor

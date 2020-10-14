@@ -92,6 +92,40 @@ class PersistentCache:
     def get_accessor(self, task_key, provenance):
         return CacheAccessor(self, task_key, provenance)
 
+    # TODO Exposing these two methods publicly is kind of awkward, but it feels too
+    # early to try to settle on a cleaner architecture. As we migrate more
+    # functionality out of this class, a better organization will hopefully become
+    # clearer.
+    def generate_unique_local_dir_path_for_descriptor(self, descriptor):
+        """
+        Generates a random directory path in our local file store, suitable for writing
+        an artifact into.
+        """
+        return self._local_store.generate_unique_dir_path(descriptor)
+
+    def raise_state_error_with_explanation(self, source_exc, preamble_message=None):
+        """
+        Wraps an exception with a message explaining that the exception may originate
+        from cache corruption, and how to resolve the problem.
+        """
+        stores = [self._local_store]
+        if self._cloud_store:
+            stores.append(self._cloud_store)
+        inventory_root_urls = " and ".join(store.inventory.root_url for store in stores)
+
+        message = f"""
+        {preamble_message}
+        Cached data may be in an invalid state; this should be
+        impossible but could have resulted from either a bug or a
+        change to the cached files. You should be able to repair
+        the problem by removing all cached files under
+        {inventory_root_urls}."""
+        if preamble_message is None:
+            final_message = oneline(message)
+        else:
+            final_message = oneline(preamble_message) + "\n" + oneline(message)
+        raise InvalidCacheStateError(final_message) from source_exc
+
 
 class CacheAccessor:
     """
@@ -104,6 +138,7 @@ class CacheAccessor:
         self.task_key = task_key
         self.provenance = provenance
 
+        self._parent_cache = parent_cache
         self._local = parent_cache._local_store
         self._cloud = parent_cache._cloud_store
 
@@ -126,7 +161,7 @@ class CacheAccessor:
         try:
             return self._get_nearest_entry_with_artifact() is not None
         except InternalCacheStateError as e:
-            self.raise_state_error_with_explanation(e)
+            self._parent_cache.raise_state_error_with_explanation(e)
 
     def load_provenance(self):
         """
@@ -140,7 +175,7 @@ class CacheAccessor:
                 return None
             return entry.provenance
         except InternalCacheStateError as e:
-            self.raise_state_error_with_explanation(e)
+            self._parent_cache.raise_state_error_with_explanation(e)
 
     def load_artifact(self):
         """
@@ -183,7 +218,7 @@ class CacheAccessor:
             return local_artifact
 
         except InternalCacheStateError as e:
-            self.raise_state_error_with_explanation(e)
+            self._parent_cache.raise_state_error_with_explanation(e)
 
     def save_local_artifact(self, artifact):
         """
@@ -194,7 +229,7 @@ class CacheAccessor:
         try:
             self._save_or_reregister_artifact(artifact)
         except InternalCacheStateError as e:
-            self.raise_state_error_with_explanation(e)
+            self._parent_cache.raise_state_error_with_explanation(e)
 
     def update_provenance(self):
         """
@@ -206,41 +241,7 @@ class CacheAccessor:
         try:
             self._save_or_reregister_artifact(None)
         except InternalCacheStateError as e:
-            self.raise_state_error_with_explanation(e)
-
-    # TODO Exposing these two methods publicly is kind of awkward, but it feels too
-    # early to try to settle on a cleaner architecture. As we migrate more
-    # functionality out of this class, a better organization will hopefully become
-    # clearer.
-    def generate_unique_local_dir_path(self):
-        """
-        Generates a random directory path in our local file store, suitable for writing
-        an artifact into.
-        """
-        return self._local.generate_unique_dir_path(self.provenance)
-
-    def raise_state_error_with_explanation(self, source_exc, preamble_message=None):
-        """
-        Wraps an exception with a message explaining that the exception may originate
-        from cache corruption, and how to resolve the problem.
-        """
-        stores = [self._local]
-        if self._cloud:
-            stores.append(self._cloud)
-        inventory_root_urls = " and ".join(store.inventory.root_url for store in stores)
-
-        message = f"""
-        {preamble_message}
-        Cached data may be in an invalid state; this should be
-        impossible but could have resulted from either a bug or a
-        change to the cached files. You should be able to repair
-        the problem by removing all cached files under
-        {inventory_root_urls}."""
-        if preamble_message is None:
-            final_message = oneline(message)
-        else:
-            final_message = oneline(preamble_message) + "\n" + oneline(message)
-        raise InvalidCacheStateError(final_message) from source_exc
+            self._parent_cache.raise_state_error_with_explanation(e)
 
     def _save_or_reregister_artifact(self, artifact):
         """
@@ -325,7 +326,7 @@ class CacheAccessor:
         return self._stored_cloud_entry
 
     def _local_artifact_from_cloud(self, cloud_artifact):
-        dir_path = self._local.generate_unique_dir_path(self.provenance)
+        dir_path = self._local.generate_unique_dir_path(self.provenance.descriptor)
         filename = path_from_url(cloud_artifact.url).name
         file_path = dir_path / filename
 
@@ -347,7 +348,7 @@ class CacheAccessor:
         )
 
     def _cloud_artifact_from_local(self, local_artifact):
-        url_prefix = self._cloud.generate_unique_url_prefix(self.provenance)
+        url_prefix = self._cloud.generate_unique_url_prefix(self.provenance.descriptor)
         file_path = path_from_url(local_artifact.url)
         blob_url = url_prefix + "/" + file_path.name
 
@@ -594,7 +595,7 @@ class Inventory:
         return (
             self._fs.root_url
             + "/"
-            + valid_filename_from_provenance(provenance)
+            + valid_filename_from_descriptor(provenance.descriptor)
             + "/"
             + provenance.functional_hash
         )
@@ -669,14 +670,14 @@ class LocalStore:
             "local disk", "local", LocalFilesystem(inventory_root_path, tmp_root_path)
         )
 
-    def generate_unique_dir_path(self, provenance):
+    def generate_unique_dir_path(self, descriptor):
         n_attempts = 0
         while True:
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
             path = (
                 self._artifact_root_path
-                / valid_filename_from_provenance(provenance)
+                / valid_filename_from_descriptor(descriptor)
                 / str(uuid4())
             )
 
@@ -707,7 +708,7 @@ class GcsCloudStore:
         self.inventory = Inventory("GCS", "cloud", self._fs)
         self._artifact_root_url_prefix = url + "/artifacts"
 
-    def generate_unique_url_prefix(self, provenance):
+    def generate_unique_url_prefix(self, descriptor):
         n_attempts = 0
         while True:
             # TODO This path can be anything as long as it's unique, so we
@@ -715,7 +716,7 @@ class GcsCloudStore:
             url_prefix = "/".join(
                 [
                     str(self._artifact_root_url_prefix),
-                    valid_filename_from_provenance(provenance),
+                    valid_filename_from_descriptor(descriptor),
                     str(uuid4()),
                 ]
             )
@@ -887,14 +888,13 @@ class InvalidCacheStateError(Exception):
 
 # TODO Do we ever use this for descriptors that are not just entity names? If so, should
 # we worry about other special characters in descriptors?
-def valid_filename_from_provenance(provenance):
+def valid_filename_from_descriptor(descriptor):
     """
-    Generates a filename from a provenance.
+    Generates a filename from a descriptor.
 
-    This just converts the node to a descriptor string and replaces any spaces with
-    hyphens.
+    For now this just replaces any spaces in the descriptor with hyphens.
     """
-    return provenance.descriptor.replace(" ", "-")
+    return descriptor.replace(" ", "-")
 
 
 CACHE_SCHEMA_VERSION = 11
