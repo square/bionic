@@ -15,6 +15,7 @@ from uuid import uuid4
 from pathlib import Path
 
 from .datatypes import CodeFingerprint, Artifact
+from .descriptors.parsing import dnode_from_descriptor
 from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
@@ -96,12 +97,12 @@ class PersistentCache:
     # early to try to settle on a cleaner architecture. As we migrate more
     # functionality out of this class, a better organization will hopefully become
     # clearer.
-    def generate_unique_local_dir_path_for_descriptor(self, descriptor):
+    def generate_unique_local_dir_path_for_artifact_dnode(self, artifact_dnode):
         """
         Generates a random directory path in our local file store, suitable for writing
         an artifact into.
         """
-        return self._local_store.generate_unique_dir_path(descriptor)
+        return self._local_store.generate_unique_dir_path(artifact_dnode)
 
     def raise_state_error_with_explanation(self, source_exc, preamble_message=None):
         """
@@ -326,7 +327,7 @@ class CacheAccessor:
         return self._stored_cloud_entry
 
     def _local_artifact_from_cloud(self, cloud_artifact):
-        dir_path = self._local.generate_unique_dir_path(self.provenance.descriptor)
+        dir_path = self._local.generate_unique_dir_path(self.provenance.dnode)
         filename = path_from_url(cloud_artifact.url).name
         file_path = dir_path / filename
 
@@ -348,7 +349,7 @@ class CacheAccessor:
         )
 
     def _cloud_artifact_from_local(self, local_artifact):
-        url_prefix = self._cloud.generate_unique_url_prefix(self.provenance.descriptor)
+        url_prefix = self._cloud.generate_unique_url_prefix(self.provenance.dnode)
         file_path = path_from_url(local_artifact.url)
         blob_url = url_prefix + "/" + file_path.name
 
@@ -595,7 +596,7 @@ class Inventory:
         return (
             self._fs.root_url
             + "/"
-            + valid_filename_from_descriptor(provenance.descriptor)
+            + valid_filename_from_artifact_dnode(provenance.dnode)
             + "/"
             + provenance.functional_hash
         )
@@ -670,14 +671,14 @@ class LocalStore:
             "local disk", "local", LocalFilesystem(inventory_root_path, tmp_root_path)
         )
 
-    def generate_unique_dir_path(self, descriptor):
+    def generate_unique_dir_path(self, artifact_dnode):
         n_attempts = 0
         while True:
             # TODO This path can be anything as long as it's unique, so we
             # could make it more human-readable.
             path = (
                 self._artifact_root_path
-                / valid_filename_from_descriptor(descriptor)
+                / valid_filename_from_artifact_dnode(artifact_dnode)
                 / str(uuid4())
             )
 
@@ -708,7 +709,7 @@ class GcsCloudStore:
         self.inventory = Inventory("GCS", "cloud", self._fs)
         self._artifact_root_url_prefix = url + "/artifacts"
 
-    def generate_unique_url_prefix(self, descriptor):
+    def generate_unique_url_prefix(self, artifact_dnode):
         n_attempts = 0
         while True:
             # TODO This path can be anything as long as it's unique, so we
@@ -716,7 +717,7 @@ class GcsCloudStore:
             url_prefix = "/".join(
                 [
                     str(self._artifact_root_url_prefix),
-                    valid_filename_from_descriptor(descriptor),
+                    valid_filename_from_artifact_dnode(artifact_dnode),
                     str(uuid4()),
                 ]
             )
@@ -886,15 +887,16 @@ class InvalidCacheStateError(Exception):
     """
 
 
-# TODO Do we ever use this for descriptors that are not just entity names? If so, should
-# we worry about other special characters in descriptors?
-def valid_filename_from_descriptor(descriptor):
+def valid_filename_from_artifact_dnode(artifact_dnode):
     """
-    Generates a filename from a descriptor.
+    Generates a filename from an artifact descriptor node.
 
-    For now this just replaces any spaces in the descriptor with hyphens.
+    For now, we assume the artifact is of an entity, and we use the entity name as the
+    filename.
     """
-    return descriptor.replace(" ", "-")
+
+    entity_name = artifact_dnode.assume_generic().child.assume_entity().name
+    return entity_name
 
 
 CACHE_SCHEMA_VERSION = 11
@@ -1033,6 +1035,10 @@ class Provenance:
         v_min = self.code_version_minor
         hash_ex = self.exact_hash[:8]
         return f"Provenance[{hash_fn}/{v_maj}.{v_min}/{hash_ex}]"
+
+    @property
+    def dnode(self):
+        return dnode_from_descriptor(self.descriptor)
 
     @property
     def code_version_major(self):

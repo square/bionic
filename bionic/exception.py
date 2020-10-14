@@ -2,6 +2,8 @@
 Bionic-specific exception classes.
 """
 
+from .utils.misc import oneline
+
 
 class UndefinedEntityError(KeyError):
     @classmethod
@@ -51,3 +53,13 @@ class AttributeValidationError(Exception):
 
 class MalformedDescriptorError(Exception):
     pass
+
+
+class UnavailableArtifactError(Exception):
+    def __init__(self, artifact_dnode):
+        source_desc = artifact_dnode.assume_generic().child.to_descriptor()
+        message = f"""
+        Descriptor {source_desc!r} is not configured to have a persisted artifact.
+        """
+        super(UnavailableArtifactError, self).__init__(oneline(message))
+        self.artifact_dnode = artifact_dnode

@@ -146,12 +146,12 @@ class TaskCompletionRunner:
         if self._mark_entry_completed_if_possible(entry):
             return
 
-        # If this entry is persistable, we may be able to load it from the persistent
-        # cache, which would immediately get us to the CACHED level.
-        if entry.state.should_persist:
-            entry.state.attempt_to_access_persistent_cached_value()
+        # If this entry produces an artifact, we may be able to load it from the
+        # persistent cache, which would immediately get us to the CACHED level.
+        if entry.state.yields_artifact:
+            entry.state.attempt_to_access_cached_artifact()
 
-        # Otherwise, if it's not persistable, then initializing it should have gotten it
+        # Otherwise, if it's not an artifact, then initializing it should have gotten it
         # to the PRIMED level.
         else:
             assert entry.level >= EntryLevel.PRIMED
@@ -162,11 +162,11 @@ class TaskCompletionRunner:
 
         # At this point we'll need to actually compute the entry. If possible, we
         # prefer to compute it remotely. This requires checking several prerequisites,
-        # then analyzing the entry's non-persistable dependencies to see if they can
+        # then analyzing the entry's non-artifact dependencies to see if they can
         # run outside the this process and/or need to be run on AIP.
         entry_may_be_computable_remotely = (
             self._aip_execution_enabled or self._parallel_execution_enabled
-        ) and entry.state.should_persist
+        ) and entry.state.yields_artifact
         if entry_may_be_computable_remotely:
             remote_subgraph = RemoteSubgraph(entry.state)
             if self._aip_execution_enabled:
@@ -734,10 +734,12 @@ class TaskKeyLogger:
         if not should_log:
             return
 
-        # To make the log output look more consistent, we'll un-draft the descriptor
+        # To make the log output look more consistent, we'll clean up the descriptor
         # before logging it. (Otherwise a given entity X will sometimes be logged as
         # "X" and sometimes as "<X>", which will look weird to users.)
-        clean_task_key = task_key.evolve(dnode=dnode_without_drafts(task_key.dnode))
+        clean_task_key = task_key.evolve(
+            dnode=dnode_without_drafts_or_generics(task_key.dnode)
+        )
         logger.log(self._level, template, clean_task_key)
 
     def log_accessed_from_memory(self, task_key):
@@ -801,5 +803,5 @@ class MemoryResultCache:
         del self._results_by_task_key[task_key]
 
 
-def dnode_without_drafts(dnode):
-    return dnode.edit(lambda d: d.child if d.is_draft() else d)
+def dnode_without_drafts_or_generics(dnode):
+    return dnode.edit(lambda d: d.child if d.is_draft() or d.is_generic() else d)

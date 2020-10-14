@@ -25,16 +25,13 @@ from typing import Optional
 
 import attr
 
-from ..datatypes import Artifact, Result
-from ..exception import (
-    CodeVersioningError,
-    EntitySerializationError,
-    UnsupportedSerializedValueError,
-)
+from ..datatypes import Result
+from ..exception import CodeVersioningError
 from ..persistence import Provenance, ProvenanceDigest
+# FIXME-1 come back and remove stray imports
 from ..utils.files import ensure_parent_dir_exists
-from ..utils.misc import hash_simple_obj_to_hex, oneline
 from ..utils.urls import path_from_url, url_from_path
+from ..utils.misc import hash_simple_obj_to_hex, oneline
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +123,7 @@ class TaskRunnerEntry:
 
     @property
     def _is_primed(self):
-        if self.state.should_persist:
+        if self.state.yields_artifact:
             return self._is_cached
         else:
             return self.state.is_initialized
@@ -146,7 +143,6 @@ class TaskRunnerEntry:
 
         state = self.state
         task = state.task
-        protocol = state.desc_metadata.protocol
 
         assert state.is_initialized
         assert not state.is_cached
@@ -169,13 +165,12 @@ class TaskRunnerEntry:
             result = Result(
                 task_key=task.key,
                 value=None,
-                local_artifact=None,
                 value_is_missing=True,
             )
             value_hash = ""
             # TODO Should we do this even when memoization is disabled?
             state._result = result
-            if state.should_persist:
+            if state.yields_artifact:
                 state._result_value_hash = value_hash
             return result
 
@@ -193,14 +188,12 @@ class TaskRunnerEntry:
         else:
             context.task_key_logger.log_computed(state.task_key)
 
-        protocol.validate_for_dnode(task.key.dnode, value)
         result = Result(
             task_key=task.key,
             value=value,
-            local_artifact=None,
         )
 
-        if state.should_persist:
+        if state.yields_artifact:
             artifact = state._local_artifact_from_value(result.value, context)
             state._cache_accessor.save_local_artifact(artifact)
             state._result_value_hash = artifact.content_hash
@@ -329,15 +322,15 @@ class EntryLevel(IntEnum):
         available, which means we can attempt to load its value from the persistent
         cache.
 
-    3. PRIMED: If the TaskState's value is persistable, this is equivalent to CACHED;
+    3. PRIMED: If the TaskState's value is an artifact, this is equivalent to CACHED;
         otherwise it's equivalent to INITIALIZED. This abstract definition is useful
         because it guarantees two things:
 
         a.  The task's provenance digest is available, which means any downstream tasks
             can have their values loaded from the persisted cache. For a task with
-            non-persistable output, its provenance digest depends only on its
+            non-artifact output, its provenance digest depends only on its
             provenance; it doesn't actually require the task to be computed. However,
-            for a task with persistable output, the provenance digest depends on its
+            for a task with artifact output, the provenance digest depends on its
             actual value, so the task must be computed and its output cached.
 
         b. There is no additional *persistable* work to do on this task. In other words,
@@ -347,8 +340,8 @@ class EntryLevel(IntEnum):
             results can't be serialized and transmitted. (On the other hand, if we
             have a dependent task to run *in this same process*, we'll want to bring
             this task to the CACHED level instead.) As with (a), for a task with
-            non-persistable output, this milestone is reached as soon as we compute
-            its provenance; for a task with persistable output, it's reached only
+            non-artifact output, this milestone is reached as soon as we compute
+            its provenance; for a task with artifact output, it's reached only
             when the task is computed and its output is cached.
 
     4. CACHED: The task has been computed and its output value is stored somewhere --
@@ -438,8 +431,8 @@ class TaskState:
         self._cache_accessor = None
 
         # This can be set by compute(), _load_value_hash(), or
-        # attempt_to_access_persistent_cached_value().
-        # This will be present only if should_persist is True.
+        # attempt_to_access_cached_artifact().
+        # This will be present only if yields_artifact is True.
         self._result_value_hash = None
 
         # This can be set by get_cached_result() or compute().
@@ -458,9 +451,12 @@ class TaskState:
     def should_memoize_for_query(self):
         return self.desc_metadata.should_memoize_for_query
 
+    # We could also have called this `is_artifact`, as we do in DescriptorMetadata, but
+    # on this class we mostly use `is` to describe a condition that can change with
+    # time.
     @property
-    def should_persist(self):
-        return self.desc_metadata.should_persist and not self.output_would_be_missing()
+    def yields_artifact(self):
+        return self.desc_metadata.is_artifact and not self.output_would_be_missing()
 
     @property
     def is_cached(self):
@@ -489,12 +485,11 @@ class TaskState:
             context.task_key_logger.log_accessed_from_memory(self.task_key)
             return self._result
 
-        local_artifact = self._cache_accessor.replicate_and_load_local_artifact()
-        value = self._value_from_local_artifact(local_artifact)
+        assert self.desc_metadata.is_artifact
+        value = self._cache_accessor.replicate_and_load_local_artifact()
         result = Result(
             task_key=self.task_key,
             value=value,
-            local_artifact=local_artifact,
         )
 
         context.task_key_logger.log_loaded_from_disk(result.task_key)
@@ -504,17 +499,17 @@ class TaskState:
 
         return result
 
-    def attempt_to_access_persistent_cached_value(self):
+    def attempt_to_access_cached_artifact(self):
         """
-        Loads the hash of the persisted value for this task, if it exists.
+        Loads the hash of the cached artifact for this task, if one exists.
 
-        If the persisted value is available in the cache, this object's `is_cached`
+        If the artifact is available in the cache, this object's `is_cached`
         property will become True. Otherwise, nothing will happen.
         """
         assert self.is_initialized
         assert not self.is_cached
 
-        if not self.should_persist:
+        if not self.yields_artifact:
             return
         if not self._cache_accessor.can_load():
             return
@@ -531,7 +526,7 @@ class TaskState:
 
         # If this task state is not initialized or not persisted, there's nothing to
         # refresh.
-        if not self.is_initialized or not self.should_persist:
+        if not self.is_initialized or not self.yields_artifact:
             return
 
         self.refresh_cache_accessor(context)
@@ -560,7 +555,7 @@ class TaskState:
         if not self.is_initialized:
             return
 
-        assert self.should_persist
+        assert self.yields_artifact
 
         # First, let's flush the stored entries in our cache accessor. Since we just
         # computed this entry in a subprocess, there should be a new cache entry that
@@ -598,7 +593,7 @@ class TaskState:
         )
 
         # Lastly, set up cache accessors.
-        if self.should_persist:
+        if self.yields_artifact:
             self.refresh_cache_accessor(context)
 
         self.is_initialized = True
@@ -638,9 +633,9 @@ class TaskState:
             # If we have a nominal match but not an exact match, that means the
             # user must changed a function's bytecode but not its version. To report
             # this, we first need to figure out which function changed. It could be
-            # the one for this task, or it could be any immediate non-persisted
+            # the one for this task, or it could be any immediate non-artifact
             # ancestor of this one. Fortunately, each provenance contains links to each of
-            # its dependency digests, and a digest of non-persisted value contains that
+            # its dependency digests, and a digest of non-artifact value contains that
             # value's provenance, so we can recursively search through our ancestor
             # provenances until we find which one caused the mismatch.
             def locate_mismatched_provenances_and_raise(old_prov, new_prov):
@@ -677,7 +672,7 @@ class TaskState:
                         continue
 
                     # Not all digests have provenances, but these should. Digests of
-                    # non-persisted values have provenances, and if these were persisted
+                    # non-artifact values have provenances, and if these were artifacts
                     # then their exact hashes would be the same as their nominal hashes,
                     # so they would have matched above.
                     old_dep_prov = old_dep_digest.provenance
@@ -722,91 +717,12 @@ class TaskState:
         self._result_value_hash = artifact.content_hash
 
     def _get_digest(self):
-        if self.should_persist:
+        if self.yields_artifact:
             assert self._result_value_hash is not None
             return ProvenanceDigest.from_value_hash(self._result_value_hash)
         else:
             assert self._provenance is not None
             return ProvenanceDigest.from_provenance(self._provenance)
-
-    def _local_artifact_from_value(self, value, context):
-        protocol = self.desc_metadata.protocol
-
-        descriptor = self.task_key.dnode.to_descriptor()
-        # TODO This private access is awkward, but we'll fix it once we add file
-        # descriptors.
-        dir_path = self._cache_accessor._parent_cache.generate_unique_local_dir_path_for_descriptor(
-            descriptor
-        )
-        extension = protocol.file_extension_for_value(value)
-        # At least for now, we only serialize entity values, not other kinds of
-        # descriptors.
-        entity_name = self.task_key.dnode.assume_entity().name
-        value_filename = f"{entity_name}.{extension}"
-        value_path = dir_path / value_filename
-
-        ensure_parent_dir_exists(value_path)
-        try:
-            protocol.write(value, value_path)
-        except Exception as e:
-            # TODO Should we rename this to just SerializationError?
-            raise EntitySerializationError(
-                oneline(
-                    f"""
-                Value of descriptor {descriptor!r} could not be serialized to disk
-                """
-                )
-            ) from e
-
-        value_hash = self._generate_value_hash(value, value_path, context)
-        return Artifact(
-            url=url_from_path(value_path),
-            content_hash=value_hash,
-        )
-        return value_path
-
-    def _generate_value_hash(self, value, value_path, context):
-        protocol = self.desc_metadata.protocol
-        value_hash = protocol.tokenize_file(value_path)
-
-        code_versioning_policy = self.func_attrs.code_versioning_policy
-        code_version = code_versioning_policy.version
-        if not code_version.includes_bytecode:
-            return ""
-
-        protocol = self.desc_metadata.protocol
-        versioning_policy = context.core.versioning_policy
-        try:
-            extra_value_hash = protocol.get_extra_value_hash(
-                value,
-                code_versioning_policy.suppress_bytecode_warnings
-                or versioning_policy.ignore_bytecode_exceptions,
-            )
-        except Exception:
-            if not versioning_policy.ignore_bytecode_exceptions:
-                raise
-            extra_value_hash = ""
-
-        return hash_simple_obj_to_hex([value_hash, extra_value_hash])
-
-    def _value_from_local_artifact(self, local_artifact):
-        file_path = path_from_url(local_artifact.url)
-        protocol = self.desc_metadata.protocol
-        try:
-            return protocol.read(file_path)
-
-        except UnsupportedSerializedValueError:
-            raise
-        except Exception as e:
-            # TODO This private access is awkward, but we'll fix it once we add file
-            # descriptors.
-            self._cache_accessor._parent_cache.raise_state_error_with_explanation(
-                e,
-                preamble_message=f"""
-                Unable to read value of descriptor
-                {self.task_key.dnode.to_descriptor()!r} from file {str(file_path)}
-                """,
-            )
 
 
 class RemoteSubgraph:
@@ -814,20 +730,21 @@ class RemoteSubgraph:
     Represents a subset of a task graph to be computed remotely (i.e., in another
     process).
 
-    Given a target TaskState, this class identifies the minimal set of TaskStates that
-    should be run along with it. Task values can only be shared across
-    processes if they're persistable, so if we want to run a task remotely, we also
-    need to run all of its non-persistable dependencies (and their non-persistable
-    dependencies, and so on). Thus, this subgraph is constructed by starting from the
-    target TaskState and traversing outward through dependency and followup tasks,
-    stopping at any other persistable followup TaskStates. The final subgraph will
-    contain:
+    Given a target TaskState, this class identifies the minimal set of TaskStates
+    that should be run along with it. Task values can only be shared across processes
+    if they yield artifact values (i.e., they're persistable), so if we want to run a
+    task remotely, we also need to run all of its non-artifact dependencies (and
+    their non-artifact dependencies, and so on). Thus, this subgraph is constructed
+    by starting from the target TaskState and traversing outward through dependency
+    and followup tasks, stopping at any other persistable followup TaskStates. The
+    final subgraph will contain:
 
     - A collection of `target_states` -- the original TaskState and any other
-      persistable followup states which need to be computed as well.
-    - A set of `external_dependency_states` --  any persistable TaskStates that need to
-      already be completed and persisted before this graph can be run.
-    - Any non-persistable TaskStates in between, which will also need to be computed.
+      artifact-yielding followup states which need to be computed as well.
+    - A set of `external_dependency_states` -- any artifact-yielding TaskStates that
+    need to already be completed and persisted before this graph can be run.
+    - Any non-artifact-yielding TaskStates in between, which will also need to be
+    computed.
 
     This class also provides other fields and methods for determining if and how the
     subgraph can be run. In particular, the `strip_states` method will make return a
@@ -849,7 +766,7 @@ class RemoteSubgraph:
                 return
             self.all_states.add(state)
 
-            if state.should_persist:
+            if state.yields_artifact:
                 assert len(state.followup_states) == 0
                 if is_dependency:
                     self.external_dependency_states.add(state)

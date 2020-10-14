@@ -5,7 +5,7 @@ with Bionic's cache.
 
 from functools import total_ordering
 
-from .descriptors.parsing import entity_dnode_from_descriptor
+from .descriptors.parsing import dnode_from_descriptor
 from .utils.misc import oneline
 from .utils.urls import path_from_url, is_file_url
 
@@ -101,9 +101,12 @@ class CacheEntry:
 
     @property
     def entity(self):
+        artifact_dnode = dnode_from_descriptor(self._descriptor)
+        assert artifact_dnode.assume_generic().name == "artifact"
+
         try:
-            return entity_dnode_from_descriptor(self._descriptor).assume_entity().name
-        except ValueError:
+            return artifact_dnode.child.assume_entity().name
+        except TypeError:
             return None
 
     @property
