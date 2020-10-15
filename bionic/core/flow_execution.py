@@ -297,6 +297,15 @@ class TaskCompletionRunner:
                     new_task_completion_runner,
                     stripped_target_states,
                 )
+
+                def done_callback(callback_future):
+                    if not callback_future.cancelled():
+                        for target_entry in target_entries:
+                            self.task_key_logger.log_computed_aip(
+                                target_entry.state.task_key
+                            )
+
+                future.add_done_callback(done_callback)
             else:
                 future = self._bootstrap.process_executor.submit(
                     run_in_subprocess,
@@ -581,6 +590,9 @@ class TaskKeyLogger:
 
     def log_computed(self, task_key):
         self._log("Computed   %s", task_key)
+
+    def log_computed_aip(self, task_key):
+        self._log("Computed   %s using AIP", task_key)
 
 
 def dnode_without_drafts(dnode):
