@@ -14,8 +14,7 @@ import warnings
 from uuid import uuid4
 from pathlib import Path
 
-from bionic.exception import EntitySerializationError, UnsupportedSerializedValueError
-from .datatypes import CodeFingerprint, Artifact, Result
+from .datatypes import CodeFingerprint, Artifact
 from .gcs import get_gcs_fs_without_warnings
 from .utils.files import (
     ensure_dir_exists,
@@ -59,9 +58,9 @@ except AttributeError:
 class PersistentCache:
     """
     Provides a persistent mapping between Provenances (things we could compute) and
-    saved Results (computed Provenances).  You use it by getting a CacheAccessor
-    for your specific Provenance, and then performing load/save operations on the
-    accessor.
+    Artifacts (serialized values from those computations). You use it by getting a
+    CacheAccessor for your specific Provenance, and then performing load/save
+    operations on the accessor.
 
     When looking up a Provenance, the cache searches for a saved artifact with a
     matching Provenance. The match may not be exact: two Provenances can match at
@@ -92,8 +91,8 @@ class PersistentCache:
         self._local_store = local_store
         self._cloud_store = cloud_store
 
-    def get_accessor(self, task_key, provenance, protocol):
-        return CacheAccessor(self, task_key, provenance, protocol)
+    def get_accessor(self, task_key, provenance):
+        return CacheAccessor(self, task_key, provenance)
 
 
 class CacheAccessor:
@@ -103,11 +102,9 @@ class CacheAccessor:
     state for each provenance, saving redundant lookups.
     """
 
-    def __init__(self, parent_cache, task_key, provenance, protocol):
+    def __init__(self, parent_cache, task_key, provenance):
         self.task_key = task_key
         self.provenance = provenance
-        self.protocol = protocol
-        self.value_filename_stem = valid_filename_from_provenance(self.provenance) + "."
 
         self._local = parent_cache._local_store
         self._cloud = parent_cache._cloud_store
@@ -131,7 +128,7 @@ class CacheAccessor:
         try:
             return self._get_nearest_entry_with_artifact() is not None
         except InternalCacheStateError as e:
-            self._raise_state_error_with_explanation(e)
+            self.raise_state_error_with_explanation(e)
 
     def load_provenance(self):
         """
@@ -145,12 +142,11 @@ class CacheAccessor:
                 return None
             return entry.provenance
         except InternalCacheStateError as e:
-            self._raise_state_error_with_explanation(e)
+            self.raise_state_error_with_explanation(e)
 
-    def load_result(self):
+    def load_artifact(self):
         """
-        Returns a Result for the nearest cached artifact for this provenance, if one
-        exists.
+        Returns the nearest cached artifact for this provenance, if one exists.
         """
 
         try:
@@ -160,51 +156,26 @@ class CacheAccessor:
                 return None
 
             if entry.tier == "local":
-                local_artifact = entry.artifact
+                return entry.artifact
 
             elif entry.tier == "cloud":
-                local_artifact = self._local_artifact_from_cloud(entry.artifact)
+                return self._local_artifact_from_cloud(entry.artifact)
 
             else:
                 raise AssertionError("Unrecognized tier: " + entry.tier)
 
-            value = self._value_from_local_artifact(local_artifact)
-
-            return Result(
-                task_key=self.task_key,
-                provenance=self.provenance,
-                value=value,
-                local_artifact=local_artifact,
-            )
         except InternalCacheStateError as e:
-            self._raise_state_error_with_explanation(e)
+            self.raise_state_error_with_explanation(e)
 
-    def load_result_value_hash(self):
+    def save_artifact(self, artifact):
         """
-        Returns only the value hash for the nearest cached artifact for
-        this provenance, if one exists.
+        Saves an artifact in each cache layer that doesn't already have an exact match.
         """
 
         try:
-            entry = self._get_nearest_entry_with_artifact()
-
-            if entry is None:
-                return None
-
-            return entry.artifact.content_hash
+            self._save_or_reregister_artifact(artifact)
         except InternalCacheStateError as e:
-            self._raise_state_error_with_explanation(e)
-
-    def save_result(self, result):
-        """
-        Saves a Result in each cache layer that doesn't already have an exact
-        match.
-        """
-
-        try:
-            self._save_or_reregister_result(result)
-        except InternalCacheStateError as e:
-            self._raise_state_error_with_explanation(e)
+            self.raise_state_error_with_explanation(e)
 
     def update_provenance(self):
         """
@@ -214,38 +185,68 @@ class CacheAccessor:
         """
 
         try:
-            self._save_or_reregister_result(None)
+            self._save_or_reregister_artifact(None)
         except InternalCacheStateError as e:
-            self._raise_state_error_with_explanation(e)
+            self.raise_state_error_with_explanation(e)
 
-    def _save_or_reregister_result(self, result):
+    # TODO Exposing these two methods publicly is kind of awkward, but it feels too
+    # early to try to settle on a cleaner architecture. As we migrate more
+    # functionality out of this class, a better organization will hopefully become
+    # clearer.
+    def generate_unique_local_dir_path(self):
+        """
+        Generates a random directory path in our local file store, suitable for writing
+        an artifact into.
+        """
+        return self._local.generate_unique_dir_path(self.provenance)
+
+    def raise_state_error_with_explanation(self, source_exc, preamble_message=None):
+        """
+        Wraps an exception with a message explaining that the exception may originate
+        from cache corruption, and how to resolve the problem.
+        """
+        stores = [self._local]
+        if self._cloud:
+            stores.append(self._cloud)
+        inventory_root_urls = " and ".join(store.inventory.root_url for store in stores)
+
+        message = f"""
+        {preamble_message}
+        Cached data may be in an invalid state; this should be
+        impossible but could have resulted from either a bug or a
+        change to the cached files. You should be able to repair
+        the problem by removing all cached files under
+        {inventory_root_urls}."""
+        if preamble_message is None:
+            final_message = oneline(message)
+        else:
+            final_message = oneline(preamble_message) + "\n" + oneline(message)
+        raise InvalidCacheStateError(final_message) from source_exc
+
+    def _save_or_reregister_artifact(self, artifact):
+        """
+        If ``artifact`` is present, saves it in each cache layer that doesn't already
+        have an exact match. If not, locates the nearest exactly-matching artifact and
+        copies it to the other layers. (If no exactly-matching artifact exists, we
+        throw an assertion exception.)
+        """
+
         local_entry = self._get_local_entry()
         cloud_entry = self._get_cloud_entry()
         self.flush_stored_entries()
 
-        if result is not None:
-            value_wrapper = NullableWrapper(result.value)
-            if result.local_artifact is not None:
-                local_artifact = result.local_artifact
-            else:
-                local_artifact = None
-        else:
-            value_wrapper = None
-            local_artifact = None
-
+        local_artifact = artifact
         cloud_artifact = None
 
         if local_artifact is None:
             if local_entry.artifact is not None:
                 local_artifact = local_entry.artifact
-            elif value_wrapper is not None:
-                local_artifact = self._local_artifact_from_value(value_wrapper.value)
             else:
                 if cloud_entry is None or cloud_entry.artifact is None:
                     raise AssertionError(
                         oneline(
                             """
-                        Attempted to register metadata with no result
+                        Attempted to register metadata with no artifact
                         argument and no previously saved values;
                         this suggests we called update_provenance() without
                         previously finding a cached value, which shouldn't
@@ -341,61 +342,6 @@ class CacheAccessor:
             url=blob_url,
             content_hash=local_artifact.content_hash,
         )
-
-    def _local_artifact_from_value(self, value):
-        dir_path = self._local.generate_unique_dir_path(self.provenance)
-
-        extension = self.protocol.file_extension_for_value(value)
-        value_filename = self.value_filename_stem + extension
-        value_path = dir_path / value_filename
-
-        ensure_parent_dir_exists(value_path)
-        try:
-            self.protocol.write(value, value_path)
-        except Exception as e:
-            # TODO Should we rename this to just SerializationError?
-            raise EntitySerializationError(
-                oneline(
-                    f"""
-                Value of descriptor {self.task_key.dnode.to_descriptor()!r}
-                could not be serialized to disk
-                """
-                )
-            ) from e
-
-        value_hash = self.protocol.tokenize_file(value_path)
-        return Artifact(
-            url=url_from_path(value_path),
-            content_hash=value_hash,
-        )
-        return value_path
-
-    def _value_from_local_artifact(self, local_artifact):
-        file_path = path_from_url(local_artifact.url)
-        try:
-            return self.protocol.read(file_path)
-
-        except UnsupportedSerializedValueError:
-            raise
-        except Exception as e:
-            raise InternalCacheStateError.from_failure("artifact file", file_path, e)
-
-    def _raise_state_error_with_explanation(self, source_exc):
-        stores = [self._local]
-        if self._cloud:
-            stores.append(self._cloud)
-        inventory_root_urls = " and ".join(store.inventory.root_url for store in stores)
-
-        raise InvalidCacheStateError(
-            oneline(
-                f"""
-                    Cached data may be in an invalid state; this should be
-                    impossible but could have resulted from either a bug or a
-                    change to the cached files. You should be able to repair
-                    the problem by removing all cached files under
-                    {inventory_root_urls}."""
-            )
-        ) from source_exc
 
 
 @attr.s(frozen=True)

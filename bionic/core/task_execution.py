@@ -24,10 +24,16 @@ import logging
 
 from enum import auto, Enum, IntEnum
 
-from ..datatypes import Result
-from ..exception import CodeVersioningError
+from ..datatypes import Artifact, Result
+from ..exception import (
+    CodeVersioningError,
+    EntitySerializationError,
+    UnsupportedSerializedValueError,
+)
 from ..persistence import Provenance, ProvenanceDigest
+from ..utils.files import ensure_parent_dir_exists
 from ..utils.misc import oneline
+from ..utils.urls import path_from_url, url_from_path
 
 logger = logging.getLogger(__name__)
 
@@ -190,10 +196,9 @@ class TaskRunnerEntry:
         )
 
         if state.should_persist:
-            accessor = self.state._cache_accessor
-            accessor.save_result(result)
-            # We cache the hashed values eagerly since they are cheap to load.
-            state._result_value_hash = accessor.load_result_value_hash()
+            artifact = state._local_artifact_from_value(result.value)
+            state._cache_accessor.save_artifact(artifact)
+            state._result_value_hash = artifact.content_hash
 
         # If we're not persisting the result, this is our only chance to memoize it;
         # otherwise, we can memoize it later if/when we load it get_cached_result.
@@ -490,11 +495,19 @@ class TaskState:
             task_key_logger.log_accessed_from_memory(self.task_key)
             return self._result
 
-        result = self._cache_accessor.load_result()
+        local_artifact = self._cache_accessor.load_artifact()
+        value = self._value_from_local_artifact(local_artifact)
+        result = Result(
+            task_key=self.task_key,
+            provenance=self._provenance,
+            value=value,
+            local_artifact=local_artifact,
+        )
+
         task_key_logger.log_loaded_from_disk(result.task_key)
 
         # Make sure the result is saved in all caches under this exact provenance.
-        self._cache_accessor.save_result(result)
+        self._cache_accessor.save_artifact(result.local_artifact)
 
         if self.should_memoize:
             self._result = result
@@ -620,7 +633,6 @@ class TaskState:
         self._cache_accessor = bootstrap.persistent_cache.get_accessor(
             task_key=self.task_key,
             provenance=self._provenance,
-            protocol=self.desc_metadata.protocol,
         )
         if bootstrap.versioning_policy.check_for_bytecode_errors:
             self._check_accessor_for_version_problems()
@@ -712,8 +724,8 @@ class TaskState:
         Reads (from disk) and saves (in memory) this task's value hash.
         """
 
-        value_hash = self._cache_accessor.load_result_value_hash()
-        if value_hash is None:
+        artifact = self._cache_accessor.load_artifact()
+        if artifact is None or artifact.content_hash is None:
             raise AssertionError(
                 oneline(
                     f"""
@@ -724,7 +736,7 @@ class TaskState:
                 this should be impossible!"""
                 )
             )
-        self._result_value_hash = value_hash
+        self._result_value_hash = artifact.content_hash
 
     def _get_digest(self):
         if self.should_persist:
@@ -733,6 +745,55 @@ class TaskState:
         else:
             assert self._provenance is not None
             return ProvenanceDigest.from_provenance(self._provenance)
+
+    def _local_artifact_from_value(self, value):
+        protocol = self.desc_metadata.protocol
+
+        dir_path = self._cache_accessor.generate_unique_local_dir_path()
+        extension = protocol.file_extension_for_value(value)
+        # At least for now, we only serialize entity values, not other kinds of
+        # descriptors.
+        entity_name = self.task_key.dnode.assume_entity().name
+        value_filename = f"{entity_name}.{extension}"
+        value_path = dir_path / value_filename
+
+        ensure_parent_dir_exists(value_path)
+        try:
+            protocol.write(value, value_path)
+        except Exception as e:
+            # TODO Should we rename this to just SerializationError?
+            raise EntitySerializationError(
+                oneline(
+                    f"""
+                Value of descriptor {self.task_key.dnode.to_descriptor()!r}
+                could not be serialized to disk
+                """
+                )
+            ) from e
+
+        value_hash = protocol.tokenize_file(value_path)
+        return Artifact(
+            url=url_from_path(value_path),
+            content_hash=value_hash,
+        )
+        return value_path
+
+    def _value_from_local_artifact(self, local_artifact):
+        file_path = path_from_url(local_artifact.url)
+        protocol = self.desc_metadata.protocol
+        try:
+            return protocol.read(file_path)
+
+        except UnsupportedSerializedValueError:
+            raise
+        except Exception as e:
+            self._cache_accessor.raise_state_error_with_explanation(
+                e,
+                preamble_message=f"""
+                Unable to read value of descriptor
+                {self.task_key.dnode.to_descriptor()!r} from file {str(file_path)}
+                """,
+            )
 
 
 class RemoteSubgraph:
