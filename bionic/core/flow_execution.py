@@ -301,6 +301,10 @@ class TaskCompletionRunner:
                 def done_callback(callback_future):
                     if not callback_future.cancelled():
                         for target_entry in target_entries:
+                            # This does not log non-persistable ancestor
+                            # entities which are computed together with the
+                            # target entities.
+                            # TODO: fix this
                             self.task_key_logger.log_computed_aip(
                                 target_entry.state.task_key
                             )

@@ -1,5 +1,7 @@
 import getpass
+import logging
 import random
+import re
 from multiprocessing.managers import SyncManager
 
 import pytest
@@ -33,6 +35,11 @@ def parallel_execution_enabled(request):
     return request.param == "parallel"
 
 
+@pytest.fixture
+def persistent_cache_dir(tmp_path):
+    return str(tmp_path / "BNTESTDATA")
+
+
 # This allows tests that depend on GCS and/or AIP to be run locally using fake
 # GCP, and again using real GCP if the correct command line parameters are
 # provided.
@@ -42,9 +49,9 @@ def parallel_execution_enabled(request):
         pytest.param("real-gcp", marks=pytest.mark.real_gcp),
     ],
 )
-def use_fake_gcp(request, fake_gcs_fs, caplog):
+def use_fake_gcp(request, fake_gcs_fs, caplog, persistent_cache_dir):
     if request.param == "fake-gcp":
-        with run_in_fake_gcp(fake_gcs_fs, caplog):
+        with run_in_fake_gcp(fake_gcs_fs, caplog, persistent_cache_dir):
             yield True
     else:
         yield False
@@ -53,9 +60,9 @@ def use_fake_gcp(request, fake_gcs_fs, caplog):
 # We provide this at the top level because we want everyone using FlowBuilder
 # to use a temporary directory rather than the default one.
 @pytest.fixture
-def builder(parallel_execution_enabled, tmp_path):
+def builder(parallel_execution_enabled, persistent_cache_dir):
     builder = bn.FlowBuilder("test")
-    builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
+    builder.set("core__persistent_cache__flow_dir", persistent_cache_dir)
     builder.set("core__parallel_execution__enabled", parallel_execution_enabled)
     return builder
 
@@ -190,3 +197,31 @@ def tmp_gcs_url_prefix(session_tmp_gcs_url_prefix, request):
     # gcsfs seems to have the same problem.
     node_name = request.node.name.replace("[", "_").replace("]", "")
     return session_tmp_gcs_url_prefix + node_name + "/"
+
+
+class LogChecker:
+    def __init__(self, caplog):
+        self._caplog = caplog
+
+    def expect_exact(self, *expected_messages):
+        actual_messages = self._pop_messages()
+        assert len(actual_messages) == len(expected_messages)
+        assert set(actual_messages) == set(expected_messages)
+        self._caplog.clear()
+
+    def expect_regex(self, *expected_patterns):
+        actual_messages = self._pop_messages()
+        assert len(actual_messages) == len(expected_patterns)
+        for pattern in expected_patterns:
+            assert any(re.fullmatch(pattern, message) for message in actual_messages)
+
+    def _pop_messages(self):
+        messages = [record.getMessage() for record in self._caplog.records]
+        self._caplog.clear()
+        return messages
+
+
+@pytest.fixture
+def log_checker(caplog):
+    caplog.set_level(logging.INFO)
+    return LogChecker(caplog)

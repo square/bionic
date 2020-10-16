@@ -144,7 +144,29 @@ class CacheAccessor:
         except InternalCacheStateError as e:
             self.raise_state_error_with_explanation(e)
 
-    def load_artifact(self):
+    def sync_after_remote_computation(self):
+        """
+        After remote computation, the artifact is stored somewhere, either in
+        disk or in the cloud. Load the artifact and save it at every cache
+        layer.
+        """
+
+        self.flush_stored_entries()
+        artifact = self.load_artifact()
+        if artifact is None or artifact.content_hash is None:
+            raise AssertionError(
+                oneline(
+                    f"""
+                Failed to load cached value (hash) for descriptor
+                {self._cache_accessor.provenance.descriptor!r}.
+                This suggests we did not successfully compute the task
+                in a subprocess, or the entity wasn't cached;
+                this should be impossible!"""
+                )
+            )
+        self.save_artifact(artifact)
+
+    def load_artifact(self) -> Artifact:
         """
         Returns the nearest cached artifact for this provenance, if one exists.
         """

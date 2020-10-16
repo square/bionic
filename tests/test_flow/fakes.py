@@ -1,8 +1,11 @@
 import io
 import logging
+import os
+import shutil
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -167,7 +170,25 @@ class FakeGcsFs:
 
 
 @contextmanager
-def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs, caplog):
+def temporarily_clean_dir(target_dir):
+    """
+    Temporarily backs up a directory for the duration of a context. Once the
+    context ends, the directory is restored to its original state.
+    """
+    assert not target_dir.endswith("/")
+    with TemporaryDirectory() as tmp_backup_dir:
+        try:
+            shutil.move(target_dir, tmp_backup_dir)
+            yield
+        finally:
+            shutil.rmtree(target_dir)
+            shutil.move(
+                os.path.join(tmp_backup_dir, os.path.basename(target_dir)), target_dir
+            )
+
+
+@contextmanager
+def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs, caplog, persistent_cache_dir):
     """
     Use fake GCP by mocking out GCS and AIP.
     """
@@ -177,7 +198,15 @@ def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs, caplog):
         # Emulate this behavior by setting the log level; this should filter out
         # all (or almost all) the logs. Tests that check the log output will
         # only test against logs which are printed locally.
-        with caplog.at_level(logging.CRITICAL):
+        #
+        # Additionally, AIP executions run in an isolated environment and do not
+        # have access to disk cache from local bionic instance. It must retrieve
+        # the data from GCS. Emulate this behavior by temporarily removing all
+        # files in the tmp_path directory. The files are restored after the
+        # AIP computation is completed.
+        with caplog.at_level(logging.CRITICAL), temporarily_clean_dir(
+            persistent_cache_dir
+        ):
             run_aip(body["trainingInput"]["args"][3])
         return Mock()
 
