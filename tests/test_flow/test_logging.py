@@ -5,6 +5,7 @@ import pytest
 import logging
 import threading
 import bionic as bn
+from bionic.aip.client import get_aip_client
 
 
 class LogChecker:
@@ -13,11 +14,13 @@ class LogChecker:
 
     def expect_all(self, *expected_messages):
         actual_messages = self._pop_messages()
+        assert len(actual_messages) == len(expected_messages)
         assert set(actual_messages) == set(expected_messages)
         self._caplog.clear()
 
     def expect_regex(self, *expected_patterns):
         actual_messages = self._pop_messages()
+        assert len(actual_messages) == len(expected_patterns)
         for pattern in expected_patterns:
             assert any(re.fullmatch(pattern, message) for message in actual_messages)
 
@@ -135,7 +138,13 @@ def test_log_unpickleable_value(builder, log_checker):
 
 @pytest.mark.no_parallel
 @pytest.mark.needs_aip
-def test_log_aip(aip_builder, log_checker):
+def test_log_aip(aip_builder, log_checker, caplog):
+    # For simplicity, ignore checking for the log message "Initializing AIP client ..."
+    # which may or may not happen depending on whether the AIP client has been
+    # loaded.
+    with caplog.at_level(logging.CRITICAL):
+        get_aip_client()
+
     builder = aip_builder
 
     builder.assign("x", 1)
@@ -161,6 +170,7 @@ def test_log_aip(aip_builder, log_checker):
         r"Submitting .*x_plus_one.*",
         r"Started task on AI Platform: https://console.cloud.google.com/ai-platform/jobs/.*",
         r"Computed   x_plus_one\(x=1\) using AIP",
+        r"Downloading x_plus_one\(x=1\) from GCS ...",
     )
 
     assert flow.get("x_plus_two") == 3
@@ -173,4 +183,5 @@ def test_log_aip(aip_builder, log_checker):
         r"Submitting .*x_plus_two.*",
         r"Started task on AI Platform: https://console.cloud.google.com/ai-platform/jobs/.*",
         r"Computed   x_plus_two\(x=1\) using AIP",
+        r"Downloading x_plus_two\(x=1\) from GCS ...",
     )

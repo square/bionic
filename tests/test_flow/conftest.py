@@ -42,9 +42,9 @@ def parallel_execution_enabled(request):
         pytest.param("real-gcp", marks=pytest.mark.real_gcp),
     ],
 )
-def use_fake_gcp(request, fake_gcs_fs, caplog):
+def use_fake_gcp(request, fake_gcs_fs, caplog, tmp_path):
     if request.param == "fake-gcp":
-        with run_in_fake_gcp(fake_gcs_fs, caplog):
+        with run_in_fake_gcp(fake_gcs_fs, caplog, tmp_path):
             yield True
     else:
         yield False

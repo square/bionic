@@ -446,8 +446,9 @@ class TaskState:
         self._provenance = None
         self._cache_accessor = None
 
-        # This can be set by compute(), _load_value_hash(), or
-        # attempt_to_access_persistent_cached_value().
+        # This can be set by compute(), _load_value_hash(),
+        # attempt_to_access_persistent_cached_value(), or
+        # sync_after_remote_computation()
         # This will be present only if should_persist is True.
         self._result_value_hash = None
 
@@ -580,9 +581,9 @@ class TaskState:
         # do anything if it fails now.)
         self._cache_accessor.flush_stored_entries()
 
-        # Then, populate the value hashes.
-        if self._result_value_hash is None:
-            self._load_value_hash()
+        artifact = self._get_artifact()
+        self._cache_accessor.save_artifact(artifact)
+        self._result_value_hash = artifact.content_hash
 
     def initialize(self, bootstrap, flow_instance_uuid):
         "Initializes the task state to get it ready for completion."
@@ -721,9 +722,13 @@ class TaskState:
 
     def _load_value_hash(self):
         """
-        Reads (from disk) and saves (in memory) this task's value hash.
+        Reads (from disk or cloud) and saves (in memory) this task's value hash.
         """
 
+        artifact = self._get_artifact()
+        self._result_value_hash = artifact.content_hash
+
+    def _get_artifact(self):
         artifact = self._cache_accessor.load_artifact()
         if artifact is None or artifact.content_hash is None:
             raise AssertionError(
@@ -736,7 +741,7 @@ class TaskState:
                 this should be impossible!"""
                 )
             )
-        self._result_value_hash = artifact.content_hash
+        return artifact
 
     def _get_digest(self):
         if self.should_persist:
