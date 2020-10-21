@@ -41,17 +41,23 @@ jobs:
         # This prints out all installed package versions, which may help for debugging
         # build failures.
         pip freeze
+    - name: Set up gcloud
+      uses: GoogleCloudPlatform/github-actions/setup-gcloud@master
+      with:
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        export_default_credentials: true
     - name: Lint with flake8 and black
       run: |
         flake8
         black --check .
     - name: Run baseline tests
+      # Running GCS tests in CI costs less than a dollar per day on average.
       run: |
-        pytest
+        pytest --bucket=${{ secrets.GCP_BUCKET }}
     - name: Run extra tests (sharded)
       # Running each test on each Python version is expensive, so we compromise: we run
       # the baseline tests above on each version, since they're fast and hopefully
       # comprehensive enough to shake out any version-specific bugs; and we run each of
       # the other tests on just one Python version, reducing the total build time.
       run: |
-        pytest --parallel --slow -m 'not baseline' --num-shards 3 --shard-id ${{matrix.shard-id}}
+        pytest --bucket=${{ secrets.GCP_BUCKET }} --parallel --slow -m 'not baseline' --num-shards 3 --shard-id ${{matrix.shard-id}}
