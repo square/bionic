@@ -1,36 +1,9 @@
-import re
+import logging
+import threading
 
 import pytest
 
-import logging
-import threading
 import bionic as bn
-
-
-class LogChecker:
-    def __init__(self, caplog):
-        self._caplog = caplog
-
-    def expect_all(self, *expected_messages):
-        actual_messages = self._pop_messages()
-        assert set(actual_messages) == set(expected_messages)
-        self._caplog.clear()
-
-    def expect_regex(self, *expected_patterns):
-        actual_messages = self._pop_messages()
-        for pattern in expected_patterns:
-            assert any(re.fullmatch(pattern, message) for message in actual_messages)
-
-    def _pop_messages(self):
-        messages = [record.getMessage() for record in self._caplog.records]
-        self._caplog.clear()
-        return messages
-
-
-@pytest.fixture(scope="function")
-def log_checker(caplog):
-    caplog.set_level(logging.INFO)
-    return LogChecker(caplog)
 
 
 @pytest.mark.allows_parallel

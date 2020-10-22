@@ -1,69 +1,20 @@
 import io
 import logging
 import re
+from concurrent.futures import Future
+from concurrent.futures.thread import ThreadPoolExecutor
 from contextlib import contextmanager
-from functools import partial
 from pathlib import Path
+from tempfile import mkdtemp
+from typing import Dict
 from unittest.mock import Mock
-from uuid import uuid4
 
-from bionic.aip.future import Future as AipFuture
+import cloudpickle
+
 from bionic.aip.main import _run as run_aip
-from bionic.aip.task import Task as AipTask
+from bionic.persistence import LocalStore
 from bionic.utils.files import ensure_parent_dir_exists
 from bionic.utils.urls import path_from_url
-
-
-class FakeAipFuture(AipFuture):
-    """
-    A mock implementation of Future that finished successfully.
-    """
-
-    def __init__(self, project_name: str, job_id: str, output: str):
-        self.project_name = project_name
-        self.job_id = job_id
-        self.output = output
-
-    def _get_state_and_error(self):
-        from bionic.aip.future import State
-
-        return State.SUCCEEDED, ""
-
-
-class FakeAipTask(AipTask):
-    """
-    A mock implementation of Task that runs the job locally using a
-    subprocess instead of running it on AIP.
-    """
-
-    def submit(self) -> AipFuture:
-        self._stage()
-        spec = self._ai_platform_job_spec()
-
-        logging.info(f"Submitting test {self.config.project_name}: {self}")
-        import subprocess
-
-        subprocess.check_call(spec["trainingInput"]["args"])
-        return FakeAipFuture(self.config.project_name, self.job_id(), self.output_uri())
-
-
-class FakeAipExecutor:
-    """
-    A mock version of AipExecutor to submit FakeTasks that uses
-    subprocess to execute the tasks instead of using AIP. Useful for
-    running tests locally without using AIP.
-    """
-
-    def __init__(self, aip_config):
-        self._aip_config = aip_config
-
-    def submit(self, task_config, fn, *args, **kwargs):
-        return FakeAipTask(
-            name="a" + str(uuid4()).replace("-", ""),
-            config=self._aip_config,
-            task_config=task_config,
-            function=partial(fn, *args, **kwargs),
-        ).submit()
 
 
 # TODO It would be nice to use a different fsspec implementation here instead
@@ -78,8 +29,8 @@ class FakeAipExecutor:
 # We can override 1) but we need to get 2) fixed in fsspec before we can replace
 # this implementation.
 class FakeGcsFs:
-    def __init__(self, make_dict):
-        self._files_by_url: dict = make_dict()
+    def __init__(self, shared_dict):
+        self._files_by_url: dict = shared_dict
 
     def cat_file(self, url):
         with self.open(url, "rb") as f:
@@ -171,28 +122,90 @@ class FakeGcsFs:
             f.write(content_bytes)
 
 
-def fake_aip_client(gcs_fs, caplog):
-    def create_aip_job(body, parent):
-        # AIP executions do not transmit logs to local instance of bionic.
-        # Emulate this behavior by setting the log level; this should filter out
-        # all (or almost all) the logs. Tests that check the log output will
-        # only test against logs which are printed locally.
-        with caplog.at_level(logging.CRITICAL):
-            assert body["trainingInput"]["args"][:3] == [
-                "python",
-                "-m",
-                "bionic.aip.main",
-            ]
-            run_aip(body["trainingInput"]["args"][3], gcs_fs)
+@contextmanager
+def temporarily_filter_all_logs():
+    class FilterAllLogs(logging.Filter):
+        def filter(self, rec):
+            return 0
+
+    logger = logging.getLogger()
+    filter_all_logs = FilterAllLogs()
+    try:
+        logger.addFilter(filter_all_logs)
+        yield
+    finally:
+        logger.removeFilter(filter_all_logs)
+
+
+class FakeAipClient:
+    def __init__(self, gcs_fs, tmp_path):
+        self._gcs_fs = gcs_fs
+        self._tmp_path = tmp_path
+        self._jobs: Dict[str, Future] = {}
+
+    def _create_aip_job(self, body, parent):
+        assert body["trainingInput"]["args"][:3] == [
+            "python",
+            "-m",
+            "bionic.aip.main",
+        ]
+
+        self._jobs[body["jobId"]] = ThreadPoolExecutor(max_workers=1).submit(
+            self._run_aip_job, body
+        )
+
         return Mock()
 
-    mock_aip_client = Mock()
-    mock_aip_client.projects().jobs().create = create_aip_job
-    mock_aip_client.projects().jobs().get().execute.return_value = {
-        "state": "SUCCEEDED"
-    }
+    def _run_aip_job(self, body):
+        input_uri = body["trainingInput"]["args"][3]
 
-    return mock_aip_client
+        # AIP execution does not have access to the disk cache of the local
+        # bionic instance. In order to emulate disk filesystem isolation, we can
+        # change location of disk cache for the AIP job.
+        self._modify_disk_cache_location(input_uri)
+
+        # AIP execution does not send back logs to local bionic instance. Hence,
+        # all logs are filtered here.
+        with temporarily_filter_all_logs():
+            try:
+                run_aip(input_uri, self._gcs_fs)
+                return "SUCCEEDED", None
+            except Exception as e:
+                return "FAILED", str(e)
+
+    def _modify_disk_cache_location(self, input_uri):
+        assert self._gcs_fs.exists(input_uri)
+        with self._gcs_fs.open(input_uri, "rb") as f:
+            task = cloudpickle.load(f)
+
+        task.function.args[0]._context.core.persistent_cache._local_store = LocalStore(
+            mkdtemp(dir=self._tmp_path)
+        )
+
+        with self._gcs_fs.open(input_uri, "wb") as f:
+            cloudpickle.dump(task, f)
+
+    def _get_aip_job(self, name):
+        job_id = name.split("/")[-1]
+
+        assert job_id in self._jobs
+        future = self._jobs[job_id]
+
+        if future.done():
+            state, error_message = future.result()
+        else:
+            state, error_message = "RUNNING", None
+
+        job = Mock()
+        job.execute.return_value = {"state": state, "errorMessage": error_message}
+        return job
+
+    def projects(self):
+        # TODO: check that aip_task_config tasks were actually sent to AIP.
+        projects = Mock()
+        projects.jobs().create = self._create_aip_job
+        projects.jobs().get = self._get_aip_job
+        return projects
 
 
 class InstrumentedFilesystem:

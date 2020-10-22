@@ -16,6 +16,7 @@ import pandas as pd
 
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
+from .aip.client import get_aip_client
 from .aip.task import Config as AipConfig
 from .cache_api import Cache
 from .datatypes import (
@@ -1943,21 +1944,32 @@ def create_default_flow_config():
 
     @builder
     @decorators.immediate
+    def core__aip_client(
+        core__aip_execution__enabled,
+    ):
+        """
+        An AIP client if AIP is enabled, or None.
+
+        This entity exists so that the AIP client can be replaced for testing.
+        """
+
+        if not core__aip_execution__enabled:
+            return None
+        return get_aip_client()
+
+    @builder
+    @decorators.immediate
     def core__aip_executor(
-        core__parallel_execution__enabled,
+        core__persistent_cache__gcs__fs,
+        core__aip_client,
         core__aip_execution__enabled,
         core__aip_execution__config,
-        core__persistent_cache__gcs__fs,
     ):
         if not core__aip_execution__enabled:
             return None
-        # TODO: Remove this restriction once we unify the wait logic
-        # for aip and process futures in flow execution.
-        if core__parallel_execution__enabled:
+        if core__aip_client is None:
             error_message = """
-                Both core__aip_execution__enabled and
-                core__parallel_execution__enabled, but only one can be
-                enabled.
+                core__aip_client is None, but needs a value.
             """
             raise AssertionError(oneline(error_message))
         if core__persistent_cache__gcs__fs is None:
@@ -1969,6 +1981,10 @@ def create_default_flow_config():
         # TODO: Add checks that all the AIP libraries are installed. Otherwise,
         # users have to wait till job submission to get the error back that the
         # required libraries are not installed.
-        return AipExecutor(core__aip_execution__config, core__persistent_cache__gcs__fs)
+        return AipExecutor(
+            gcs_fs=core__persistent_cache__gcs__fs,
+            aip_client=core__aip_client,
+            aip_config=core__aip_execution__config,
+        )
 
     return builder._config.mark_all_entities_default()

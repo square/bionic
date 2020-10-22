@@ -6,13 +6,14 @@ work in a parallel setting.
 """
 
 import copy
-from functools import partial
 import logging
-from multiprocessing.managers import SyncManager
 import queue
 import sys
 import threading
 import traceback
+from concurrent.futures.thread import ThreadPoolExecutor
+from functools import partial
+from multiprocessing.managers import SyncManager
 from uuid import uuid4
 
 from .aip.task import Task
@@ -26,12 +27,13 @@ class AipExecutor:
     in one place.
     """
 
-    def __init__(self, aip_config, gcs_fs):
-        self._aip_config = aip_config
+    def __init__(self, gcs_fs, aip_client, aip_config):
         self._gcs_fs = gcs_fs
+        self._aip_client = aip_client
+        self._aip_config = aip_config
 
     def submit(self, task_config, fn, *args, **kwargs):
-        return Task(
+        task = Task(
             # TODO: Use a better identifiable name, maybe a combination
             # of entity name and case key.
             # This is a temporary workaround. We are changing the random
@@ -39,11 +41,14 @@ class AipExecutor:
             # a letter and only accepts alphanumeric and underscore
             # characters.
             name="a" + str(uuid4()).replace("-", ""),
-            gcs_fs=self._gcs_fs,
             config=self._aip_config,
             task_config=task_config,
             function=partial(fn, *args, **kwargs),
-        ).submit()
+        )
+        task.submit(gcs_fs=self._gcs_fs, aip_client=self._aip_client)
+        return ThreadPoolExecutor(max_workers=1).submit(
+            task.wait_for_results, self._gcs_fs, self._aip_client
+        )
 
 
 class ProcessExecutor:

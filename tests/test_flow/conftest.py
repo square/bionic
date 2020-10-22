@@ -1,13 +1,15 @@
 import getpass
 import random
+import re
 from multiprocessing.managers import SyncManager
 from typing import Optional
 
+import logging
 import pytest
 
 import bionic as bn
 from bionic.gcs import get_gcs_fs_without_warnings
-from .fakes import FakeGcsFs, fake_aip_client
+from .fakes import FakeGcsFs, FakeAipClient
 from ..helpers import (
     SimpleCounter,
     ResettingCallCounter,
@@ -53,10 +55,9 @@ def builder(parallel_execution_enabled, tmp_path):
 
 # This is a different multiprocessing manager than the one we use in
 # ExternalProcessLoggingManager. This one is responsible for sharing test
-# objects between processes. It's only used in make_counter, make_list and
-# make_dict fixtures. The purpose here is to not pollute the manager that bionic
-# uses. I also don't want to replace the manager that bionic creates with a test
-# one.
+# objects between processes. It's only used in the make_counter and make_list
+# fixtures. The purpose here is to not pollute the manager that bionic uses. I
+# also don't want to replace the manager that bionic creates with a test one.
 class PytestManager(SyncManager):
     pass
 
@@ -103,20 +104,14 @@ def make_list(process_manager):
 
 
 @pytest.fixture
-def make_dict(process_manager):
-    def _make_dict():
-        if process_manager is None:
-            return {}
-        else:
-            return process_manager.dict()
-
-    return _make_dict
-
-
-@pytest.fixture
-def gcs_fs(use_fake_gcp, make_dict):
+def gcs_fs(use_fake_gcp, multiprocessing_manager):
     if use_fake_gcp:
-        return FakeGcsFs(make_dict)
+        # When running an AIP job, the GCS filesystem is serialized and then
+        # deserialized. Any data written to the deserialized instance needs to
+        # be readable by the original instance. Hence, a proxy object is used to
+        # store the fake GCS data. This is independent of whether parallel
+        # processing has been enabled.
+        return FakeGcsFs(multiprocessing_manager.dict())
     else:
         return get_gcs_fs_without_warnings()
 
@@ -147,14 +142,12 @@ def gcs_builder(builder, tmp_gcs_url_prefix, use_fake_gcp, gcs_fs):
 
 
 @pytest.fixture
-def aip_builder(gcs_builder, gcp_project, use_fake_gcp, gcs_fs, caplog, monkeypatch):
+def aip_builder(gcs_builder, gcp_project, use_fake_gcp, gcs_fs, tmp_path):
     gcs_builder.set("core__aip_execution__enabled", True)
     gcs_builder.set("core__aip_execution__gcp_project_name", gcp_project)
 
     if use_fake_gcp:
-        monkeypatch.setattr(
-            "bionic.aip.client._cached_aip_client", fake_aip_client(gcs_fs, caplog)
-        )
+        gcs_builder.set("core__aip_client", FakeAipClient(gcs_fs, tmp_path))
 
     return gcs_builder
 
@@ -233,3 +226,29 @@ def clear_test_gcs_data(tmp_gcs_url_prefix, gcs_fs):
         gcs_fs.rm(tmp_gcs_url_prefix, recursive=True)
 
     return _clear_test_gcs_data
+
+
+class LogChecker:
+    def __init__(self, caplog):
+        self._caplog = caplog
+
+    def expect_all(self, *expected_messages):
+        actual_messages = self._pop_messages()
+        assert set(actual_messages) == set(expected_messages)
+        self._caplog.clear()
+
+    def expect_regex(self, *expected_patterns):
+        actual_messages = self._pop_messages()
+        for pattern in expected_patterns:
+            assert any(re.fullmatch(pattern, message) for message in actual_messages)
+
+    def _pop_messages(self):
+        messages = [record.getMessage() for record in self._caplog.records]
+        self._caplog.clear()
+        return messages
+
+
+@pytest.fixture
+def log_checker(caplog) -> LogChecker:
+    caplog.set_level(logging.INFO)
+    return LogChecker(caplog)

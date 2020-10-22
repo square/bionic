@@ -18,12 +18,12 @@ def _run(ipath, gcs_fs):
         task = cloudpickle.load(f)
 
     # Now that we have the task, set up logging.
-    _set_up_logging(task.job_id(), task.config.project_name)
+    _set_up_logging(task.job_id, task.config.project_name)
     logging.info(f"Read task from {ipath}")
 
     result = task.function()
 
-    opath = task.output_uri()
+    opath = task.output_uri
     logging.info(f"Uploading result to {opath}")
     with gcs_fs.open(opath, "wb") as f:
         pickle.dump(result, f)

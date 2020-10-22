@@ -41,6 +41,7 @@ def pytest_configure(config):
         "allows_parallel",
         "can run with parallel execution even when that's not explicitly enabled",
     )
+    add_mark("fake_gcp_only", "runs on fake GCP only")
 
     # These markers are added automatically based on parametric fixtures.
     add_mark("serial", "will run using serial execution")
@@ -76,6 +77,9 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(skip_slow)
 
         if "real_gcp" in item.keywords:
+            if "fake_gcp_only" in item.keywords:
+                continue
+
             if "needs_gcs" in item.keywords:
                 item_is_baseline = False
                 if not has_gcs:
