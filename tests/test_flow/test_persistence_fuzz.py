@@ -5,7 +5,6 @@ from textwrap import dedent
 from random import Random
 
 from bionic.exception import CodeVersioningError
-from bionic.persistence import FakeCloudStore
 from bionic import interpret
 import bionic as bn
 
@@ -386,10 +385,8 @@ class Fuzzer:
 
 
 @pytest.fixture(scope="function")
-def fuzzer(builder, make_list, tmp_path):
-    fake_cloud_store = FakeCloudStore(str(tmp_path / "BNTESTDATA_FAKE_CLOUD"))
-    builder.set("core__persistent_cache__cloud_store", fake_cloud_store)
-    return Fuzzer(builder, make_list)
+def fuzzer(fake_gcs_builder, make_list, tmp_path):
+    return Fuzzer(fake_gcs_builder, make_list)
 
 
 foreach_mode = pytest.mark.parametrize("versioning_mode", ["manual", "assist", "auto"])
