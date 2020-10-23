@@ -3,6 +3,7 @@ import logging
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
+import re
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -196,3 +197,74 @@ def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs, caplog):
     finally:
         gcs._cached_gcs_fs = cached_gcs_fs
         aip_client._cached_aip_client = cached_aip_client
+
+
+class InstrumentedFilesystem:
+    """
+    Wraps an fsspec filesystem and counts the number of upload ("put") and download
+    ("get") operations.
+    """
+
+    def __init__(self, wrapped_fs, make_list):
+        self._wrapped_fs = wrapped_fs
+        self._downloaded_urls = make_list()
+        self._uploaded_urls = make_list()
+
+    def get_file(self, url, path):
+        self._downloaded_urls.append(url)
+        return self._wrapped_fs.get_file(url, path)
+
+    def get_dir(self, url, path):
+        self._downloaded_urls.append(url)
+        return self._wrapped_fs.get_dir(url, path)
+
+    def put_file(self, path, url):
+        self._uploaded_urls.append(url)
+        return self._wrapped_fs.put_file(path, url)
+
+    def put_dir(self, path, url):
+        self._uploaded_urls.append(url)
+        return self._wrapped_fs.put_dir(path, url)
+
+    def __getattr__(self, attr):
+        return getattr(self._wrapped_fs, attr)
+
+    def matching_urls_downloaded(self, url_regex):
+        """
+        Returns the number of times a URL matching the provided regex has been
+        downloaded since the last time this method was called.
+        """
+        return self._count_and_delete_matches(self._downloaded_urls, url_regex)
+
+    def matching_urls_uploaded(self, url_regex):
+        """
+        Returns the number of times a URL matching the provided regex has been
+        uploaded since the last time this method was called.
+        """
+        return self._count_and_delete_matches(self._uploaded_urls, url_regex)
+
+    def _count_and_delete_matches(self, items, regex):
+        pattern = re.compile(regex)
+        non_matching_items = [item for item in items if not pattern.match(item)]
+        match_count = len(items) - len(non_matching_items)
+        items[:] = non_matching_items
+        return match_count
+
+
+# TODO It would be nice if the GCS filesystem (and indeed all filesystems) were
+# injected rather than accessed (and patched) globally.
+@contextmanager
+def instrument_gcs_fs(make_list):
+    """
+    Context manager that temporarily globally patches the
+    ``gcs.get_gcs_fs_without_warnings`` function, replacing the usual filesystem with
+    an instrumented version that tracks all upload and download operations.
+    """
+    orig_gcs_fs = gcs._cached_gcs_fs
+    inst_gcs_fs = InstrumentedFilesystem(orig_gcs_fs, make_list)
+    gcs._cached_gcs_fs = inst_gcs_fs
+
+    try:
+        yield inst_gcs_fs
+    finally:
+        gcs._cached_gcs_fs = orig_gcs_fs

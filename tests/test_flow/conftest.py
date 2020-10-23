@@ -5,7 +5,7 @@ from multiprocessing.managers import SyncManager
 import pytest
 
 import bionic as bn
-from .fakes import run_in_fake_gcp, FakeGcsFs
+from .fakes import FakeGcsFs, instrument_gcs_fs, run_in_fake_gcp
 from ..helpers import (
     SimpleCounter,
     ResettingCallCounter,
@@ -48,6 +48,15 @@ def use_fake_gcp(request, fake_gcs_fs, caplog):
             yield True
     else:
         yield False
+
+
+# This replaces the global GCS filesystem with an instrumented version. Note that we
+# depend on `use_fake_gcp`, so we can end up wrapping either the real or the fake
+# filesystem.
+@pytest.fixture
+def instrumented_gcs_fs(use_fake_gcp, make_list):
+    with instrument_gcs_fs(make_list) as inst_gcs_fs:
+        yield inst_gcs_fs
 
 
 # We provide this at the top level because we want everyone using FlowBuilder

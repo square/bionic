@@ -41,7 +41,9 @@ def preset_gcs_builder(gcs_builder):
     return builder
 
 
-def test_gcs_caching(preset_gcs_builder, make_counter):
+def test_gcs_caching(
+    preset_gcs_builder, make_counter, instrumented_gcs_fs, parallel_execution_enabled
+):
     call_counter = make_counter()
     builder = preset_gcs_builder
 
@@ -50,6 +52,14 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     def xy(x, y):
         return x * y
 
+    artifact_regex = "^.*/xy\\.json$"
+
+    def times_artifact_uploaded():
+        return instrumented_gcs_fs.matching_urls_uploaded(artifact_regex)
+
+    def times_artifact_downloaded():
+        return instrumented_gcs_fs.matching_urls_downloaded(artifact_regex)
+
     flow = builder.build()
     local_cache_path_str = flow.get("core__persistent_cache__flow_dir")
     gcs_cache_url = flow.get("core__persistent_cache__gcs__url")
@@ -57,12 +67,23 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     assert flow.get("xy") == 6
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 2
+    # TODO These assertions fail when parallel execution is enabled. I'm pretty sure
+    # this is because our global patching of the GCS filesystem doesn't get properly
+    # carried over to the other processes. In order to get the fix associated with
+    # these tests merged, I'm going to leave this gross hack in place and then look into
+    # injecting the filesystem instead of making it global.
+    if not parallel_execution_enabled:
+        assert times_artifact_uploaded() == 2
+        assert times_artifact_downloaded() == 0
 
     flow = builder.build()
 
     assert flow.get("xy") == 6
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 0
+    if not parallel_execution_enabled:
+        assert times_artifact_uploaded() == 0
+        assert times_artifact_downloaded() == 0
 
     gcs_fs_wipe_path(gcs_cache_url)
     flow = builder.build()
@@ -70,6 +91,9 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     assert flow.get("xy") == 6
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 0
+    if not parallel_execution_enabled:
+        assert times_artifact_uploaded() == 2
+        assert times_artifact_downloaded() == 0
 
     local_wipe_path(local_cache_path_str)
     flow = builder.build()
@@ -77,6 +101,9 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     assert flow.get("xy") == 6
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 0
+    if not parallel_execution_enabled:
+        assert times_artifact_uploaded() == 0
+        assert times_artifact_downloaded() == 2
 
     gcs_fs_wipe_path(gcs_cache_url)
     local_wipe_path(local_cache_path_str)
@@ -85,6 +112,9 @@ def test_gcs_caching(preset_gcs_builder, make_counter):
     assert flow.get("xy") == 6
     assert flow.setting("x", 4).get("xy") == 12
     assert call_counter.times_called() == 2
+    if not parallel_execution_enabled:
+        assert times_artifact_uploaded() == 2
+        assert times_artifact_downloaded() == 0
 
 
 def test_versioning(preset_gcs_builder, make_counter):
