@@ -74,6 +74,12 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
+Bug Fixes
+.........
+
+- The previous release introduced a bug where files were downloaded from GCS more often
+  than necessary; this is fixed.
+
 Development Changes
 ...................
 
@@ -81,6 +87,12 @@ Development Changes
 
 0.9.1 (Oct 15, 2020)
 --------------------
+
+New Bugs
+........
+
+- This release downloaded files from GCS more frequently than necessary (i.e., even when
+  a local copy was already present).
 
 Improvements
 ............

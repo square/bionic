@@ -155,21 +155,42 @@ class CacheAccessor:
             if entry is None:
                 return None
 
-            if entry.tier == "local":
-                return entry.artifact
-
-            elif entry.tier == "cloud":
-                return self._local_artifact_from_cloud(entry.artifact)
-
-            else:
-                raise AssertionError("Unrecognized tier: " + entry.tier)
+            return entry.artifact
 
         except InternalCacheStateError as e:
             self.raise_state_error_with_explanation(e)
 
-    def save_artifact(self, artifact):
+    def replicate_and_load_local_artifact(self):
         """
-        Saves an artifact in each cache layer that doesn't already have an exact match.
+        If any cached artifact exists, replicates it to each cache layer and returns
+        the local copy; otherwise returns None.
+        """
+
+        try:
+            entry = self._get_nearest_entry_with_artifact()
+
+            if entry is None:
+                return None
+
+            if entry.tier == "local":
+                local_artifact = entry.artifact
+
+            elif entry.tier == "cloud":
+                local_artifact = self._local_artifact_from_cloud(entry.artifact)
+
+            else:
+                raise AssertionError("Unrecognized tier: " + entry.tier)
+
+            self._save_or_reregister_artifact(local_artifact)
+            return local_artifact
+
+        except InternalCacheStateError as e:
+            self.raise_state_error_with_explanation(e)
+
+    def save_local_artifact(self, artifact):
+        """
+        Saves a local artifact in each cache layer that doesn't already have an exact
+        match.
         """
 
         try:
