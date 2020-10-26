@@ -1,13 +1,11 @@
-# Minimal makefile for Sphinx documentation
-#
-
-# You can set these variables from the command line.
-SPHINXOPTS    =
-SPHINXBUILD   = sphinx-build
+# You can set these variables from the command line, and also from the environment for
+# the first two.
+SPHINXOPTS    ?=
+SPHINXBUILD   ?= sphinx-build
 SOURCEDIR     = .
 BUILDDIR      = _build
 
-# Put it first so that "make" without argument is like "make help".
+# Put this first so that "make" without argument is like "make help".
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
@@ -15,7 +13,7 @@ open: html
 	open _build/html/index.html
 
 livehtml:
-	sphinx-autobuild -i '*.swp' -i 'tutorials/bndata/*' -i 'tutorials/.ipynb_checkpoints/*' -b html $(ALLSPHINXOPTS) . $(BUILDDIR)/html
+	sphinx-autobuild --ignore '*.swp' --ignore 'tutorials/bndata/**/*' --ignore 'tutorials/.ipynb_checkpoints/**/*' -b html $(ALLSPHINXOPTS) . $(BUILDDIR)/html
 
 .PHONY: help Makefile
 
