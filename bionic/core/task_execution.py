@@ -197,7 +197,7 @@ class TaskRunnerEntry:
 
         if state.should_persist:
             artifact = state._local_artifact_from_value(result.value)
-            state._cache_accessor.save_artifact(artifact)
+            state._cache_accessor.save_local_artifact(artifact)
             state._result_value_hash = artifact.content_hash
 
         # If we're not persisting the result, this is our only chance to memoize it;
@@ -495,7 +495,7 @@ class TaskState:
             task_key_logger.log_accessed_from_memory(self.task_key)
             return self._result
 
-        local_artifact = self._cache_accessor.load_artifact()
+        local_artifact = self._cache_accessor.replicate_and_load_local_artifact()
         value = self._value_from_local_artifact(local_artifact)
         result = Result(
             task_key=self.task_key,
@@ -505,9 +505,6 @@ class TaskState:
         )
 
         task_key_logger.log_loaded_from_disk(result.task_key)
-
-        # Make sure the result is saved in all caches under this exact provenance.
-        self._cache_accessor.save_artifact(result.local_artifact)
 
         if self.should_memoize:
             self._result = result
@@ -721,7 +718,7 @@ class TaskState:
 
     def _load_value_hash(self):
         """
-        Reads (from disk) and saves (in memory) this task's value hash.
+        Reads (from disk or cloud) and saves (in memory) this task's value hash.
         """
 
         artifact = self._cache_accessor.load_artifact()
