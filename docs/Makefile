@@ -15,7 +15,7 @@ open: html
 	open _build/html/index.html
 
 livehtml:
-	sphinx-autobuild -i '*.swp' -i 'tutorials/bndata/*' -i 'tutorials/.ipynb_checkpoints/*' -b html $(ALLSPHINXOPTS) . $(BUILDDIR)/html
+	sphinx-autobuild --ignore '*.swp' --ignore 'tutorials/bndata/**/*' --ignore 'tutorials/.ipynb_checkpoints/**/*' -b html $(ALLSPHINXOPTS) . $(BUILDDIR)/html
 
 .PHONY: help Makefile
 
