@@ -44,17 +44,10 @@ def get_gcs_fs_without_warnings(cache_value=True):
 def upload_to_gcs(path, url):
     """
     Copy a local path to GCS URL.
-
-    This method is a proxy for _upload_to_gcs which does the actual work.
-    The proxy exists so that _upload_to_gcs can be replaced for testing.
     """
-    _upload_to_gcs(path, url)
-
-
-def _upload_to_gcs(path, url):
-    fs = get_gcs_fs_without_warnings()
+    gcs_fs = get_gcs_fs_without_warnings()
     if path.is_dir():
-        fs.put(str(path), url, recursive=True)
+        gcs_fs.put(str(path), url, recursive=True)
     else:
         # If the GCS URL is a folder, we want to write the file in the folder.
         # There seems to be a bug in fsspec due to which, the file is uploaded
@@ -68,4 +61,4 @@ def _upload_to_gcs(path, url):
         # details and tracking this issue.
         if url.endswith("/"):
             url = url + path.name
-        fs.put_file(str(path), url)
+        gcs_fs.put_file(str(path), url)

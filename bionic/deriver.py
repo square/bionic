@@ -317,6 +317,7 @@ class EntityDeriver:
             versioning_policy=self._compute_core_entity("core__versioning_policy"),
             aip_executor=self._compute_core_entity("core__aip_executor"),
             process_executor=self._compute_core_entity("core__process_executor"),
+            gcs_fs=self._compute_core_entity("core__persistent_cache__gcs__fs"),
             should_memoize_default=self._compute_core_entity(
                 "core__memoize_by_default"
             ),
@@ -693,8 +694,9 @@ class ExecutionCore:
     versioning_policy = attr.ib()
     aip_executor = attr.ib()
     process_executor = attr.ib()
-    should_memoize_default = attr.ib()
-    should_persist_default = attr.ib()
+    gcs_fs = attr.ib()
+    should_memoize_default = attr.ib(type=bool)
+    should_persist_default = attr.ib(type=bool)
     task_key_logging_level = attr.ib()
 
     def evolve(self, **kwargs):
@@ -709,6 +711,7 @@ BOOTSTRAP_CORE = ExecutionCore(
     ),
     aip_executor=None,
     process_executor=None,
+    gcs_fs=None,
     should_memoize_default=True,
     should_persist_default=False,
     task_key_logging_level=logging.DEBUG,

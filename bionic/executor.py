@@ -26,8 +26,9 @@ class AipExecutor:
     in one place.
     """
 
-    def __init__(self, aip_config):
+    def __init__(self, aip_config, gcs_fs):
         self._aip_config = aip_config
+        self._gcs_fs = gcs_fs
 
     def submit(self, task_config, fn, *args, **kwargs):
         return Task(
@@ -38,6 +39,7 @@ class AipExecutor:
             # a letter and only accepts alphanumeric and underscore
             # characters.
             name="a" + str(uuid4()).replace("-", ""),
+            gcs_fs=self._gcs_fs,
             config=self._aip_config,
             task_config=task_config,
             function=partial(fn, *args, **kwargs),

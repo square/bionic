@@ -7,33 +7,36 @@ then clean it up after the tests finish.
 These tests are pretty slow -- they take about 60 seconds for me.
 """
 
-import pytest
-
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import dask.dataframe as dd
+import pytest
 
+import bionic as bn
+from bionic.exception import CodeVersioningError
+from .fakes import InstrumentedFilesystem
 from ..helpers import (
     df_from_csv_str,
     equal_frame_and_index_content,
     local_wipe_path,
-    gcs_fs_wipe_path,
 )
-from bionic.exception import CodeVersioningError
-
-import bionic as bn
-
 
 # This is detected by pytest and applied to all the tests in this module.
 pytestmark = pytest.mark.needs_gcs
 
 
-@pytest.fixture(scope="function")
-def preset_gcs_builder(gcs_builder):
+@pytest.fixture
+def instrumented_gcs_fs(gcs_fs, make_list):
+    return InstrumentedFilesystem(gcs_fs, make_list)
+
+
+@pytest.fixture
+def preset_gcs_builder(gcs_builder, instrumented_gcs_fs):
     builder = gcs_builder
 
     builder.set("core__versioning_mode", "assist")
+    builder.set("core__persistent_cache__gcs__fs", instrumented_gcs_fs)
 
     builder.assign("x", 2)
     builder.assign("y", 3)
@@ -42,7 +45,11 @@ def preset_gcs_builder(gcs_builder):
 
 
 def test_gcs_caching(
-    preset_gcs_builder, make_counter, instrumented_gcs_fs, parallel_execution_enabled
+    preset_gcs_builder,
+    make_counter,
+    instrumented_gcs_fs,
+    parallel_execution_enabled,
+    clear_test_gcs_data,
 ):
     call_counter = make_counter()
     builder = preset_gcs_builder
@@ -62,7 +69,6 @@ def test_gcs_caching(
 
     flow = builder.build()
     local_cache_path_str = flow.get("core__persistent_cache__flow_dir")
-    gcs_cache_url = flow.get("core__persistent_cache__gcs__url")
 
     assert flow.get("xy") == 6
     assert flow.setting("x", 4).get("xy") == 12
@@ -85,7 +91,7 @@ def test_gcs_caching(
         assert times_artifact_uploaded() == 0
         assert times_artifact_downloaded() == 0
 
-    gcs_fs_wipe_path(gcs_cache_url)
+    clear_test_gcs_data()
     flow = builder.build()
 
     assert flow.get("xy") == 6
@@ -105,7 +111,7 @@ def test_gcs_caching(
         assert times_artifact_uploaded() == 0
         assert times_artifact_downloaded() == 2
 
-    gcs_fs_wipe_path(gcs_cache_url)
+    clear_test_gcs_data()
     local_wipe_path(local_cache_path_str)
     flow = builder.build()
 
