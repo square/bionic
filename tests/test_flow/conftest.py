@@ -64,7 +64,7 @@ def instrumented_gcs_fs(use_fake_gcp, make_list):
 @pytest.fixture
 def builder(parallel_execution_enabled, tmp_path):
     builder = bn.FlowBuilder("test")
-    builder.set("core__persistent_cache__flow_dir", str(tmp_path / "BNTESTDATA"))
+    builder.set("core__persistent_cache__global_dir", str(tmp_path / "BNTESTDATA"))
     builder.set("core__parallel_execution__enabled", parallel_execution_enabled)
     return builder
 

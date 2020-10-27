@@ -1,4 +1,6 @@
+import os
 import pytest
+import time
 
 from bionic.executor import get_singleton_manager, logging_initializer
 from bionic.deps.optdep import import_optional_dependency
@@ -16,38 +18,48 @@ def loky_executor():
 
 @pytest.mark.needs_parallel
 def test_executor_resizes(builder, loky_executor):
-    builder.assign("a", 1)
+    @builder
+    def f1():
+        # Sleep for a little while so that it doesn't finish before all jobs are
+        # submitted. Otherwise, by the time flow execution code submits another
+        # job, this job finishes and the executor reuses the process (same as the)
+        # one that ran this job.
+        # We can use Barrier objects here, but then, the test would be controlled
+        # by the number of parties in the barrier. If we set barrier parties to
+        # two, we won't know if the executor used only two processes because the
+        # executor size was two. The executor size can be higher but still use
+        # less than max size. Hence, we can't be sure that the executor was
+        # resized correctly with barrier.
+        time.sleep(0.1)
+        return os.getpid()
 
     @builder
-    def b(a):
-        return a
+    def f2():
+        time.sleep(0.1)
+        return os.getpid()
 
     @builder
-    def c(b):
-        return b
+    def f3():
+        return os.getpid()
 
     @builder
-    def d(c):
-        return c
+    def all(f1, f2, f3):
+        return [f1, f2, f3]
 
-    builder.set("core__parallel_execution__worker_count", 2)
+    builder.set("core__flow_name", "flow1")
+    builder.set("core__parallel_execution__worker_count", 1)
     flow1 = builder.build()
 
-    builder.set("core__parallel_execution__worker_count", 3)
+    builder.set("core__flow_name", "flow2")
+    builder.set("core__parallel_execution__worker_count", 2)
     flow2 = builder.build()
 
-    assert flow1.get("b") == 1
-    # It's gross to check a private variable of the executor but this is
-    # the best way to check that it was resized correctly.
-    # TODO: Return PIDs in functions and assert that PIDs are different.
-    assert loky_executor._max_workers == 2
+    builder.set("core__flow_name", "flow3")
+    builder.set("core__parallel_execution__worker_count", 3)
+    flow3 = builder.build()
 
-    # Call a non-cached entity so that a task is submitted to executor
-    # and it resizes.
-    assert flow2.get("c") == 1
-    assert loky_executor._max_workers == 3
+    assert len(set(flow3.get("all"))) == 3
 
-    # Call a non-cached entity so that a task is submitted to executor
-    # and it resizes.
-    assert flow1.get("d") == 1
-    assert loky_executor._max_workers == 2
+    assert len(set(flow2.get("all"))) == 2
+
+    assert len(set(flow1.get("all"))) == 1
