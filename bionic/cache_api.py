@@ -43,7 +43,7 @@ class Cache:
         # These private accesses are a bit gross, but I'm not sure it's worth adding
         # more layers of APIs to avoid them.
         self._deriver.get_ready()
-        persistent_cache = self._deriver._bootstrap.persistent_cache
+        persistent_cache = self._deriver._core.persistent_cache
 
         stores = [
             store

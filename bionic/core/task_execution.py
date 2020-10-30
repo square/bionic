@@ -528,7 +528,7 @@ class TaskState:
 
         self._load_value_hash()
 
-    def refresh_all_persistent_cache_state(self, bootstrap):
+    def refresh_all_persistent_cache_state(self, core):
         """
         Refreshes all state that depends on the persistent cache.
 
@@ -541,7 +541,7 @@ class TaskState:
         if not self.is_initialized or not self.should_persist:
             return
 
-        self.refresh_cache_accessor(bootstrap)
+        self.refresh_cache_accessor(core)
 
         # If we haven't loaded anything from the cache, we can stop here.
         if self._result_value_hash is None:
@@ -581,20 +581,20 @@ class TaskState:
         if self._result_value_hash is None:
             self._load_value_hash()
 
-    def initialize(self, bootstrap, flow_instance_uuid):
+    def initialize(self, core, flow_instance_uuid):
         "Initializes the task state to get it ready for completion."
 
         if self.is_initialized:
             return
 
         # First,  set up the provenance.
-        if bootstrap is None:
+        if core is None:
             # If we're still in the bootstrap resolution phase, we don't have
             # any versioning policy, so we don't attempt anything fancy.
             treat_bytecode_as_functional = False
         else:
             treat_bytecode_as_functional = (
-                bootstrap.versioning_policy.treat_bytecode_as_functional
+                core.versioning_policy.treat_bytecode_as_functional
             )
 
         dep_provenance_digests_by_task_key = {
@@ -613,11 +613,11 @@ class TaskState:
 
         # Lastly, set up cache accessors.
         if self.should_persist:
-            self.refresh_cache_accessor(bootstrap)
+            self.refresh_cache_accessor(core)
 
         self.is_initialized = True
 
-    def refresh_cache_accessor(self, bootstrap):
+    def refresh_cache_accessor(self, core):
         """
         Initializes the cache acessor for this task state.
 
@@ -627,11 +627,11 @@ class TaskState:
         in order to wipe this state and allow it get back in sync with the real world.
         """
 
-        self._cache_accessor = bootstrap.persistent_cache.get_accessor(
+        self._cache_accessor = core.persistent_cache.get_accessor(
             task_key=self.task_key,
             provenance=self._provenance,
         )
-        if bootstrap.versioning_policy.check_for_bytecode_errors:
+        if core.versioning_policy.check_for_bytecode_errors:
             self._check_accessor_for_version_problems()
 
     def _check_accessor_for_version_problems(self):
@@ -807,8 +807,8 @@ class RemoteSubgraph:
     the other process.
     """
 
-    def __init__(self, target_state, bootstrap):
-        self._bootstrap = bootstrap
+    def __init__(self, target_state, core):
+        self._core = core
 
         self._stripped_states_by_task_key = {}
         self.persistable_but_not_persisted_states = set()

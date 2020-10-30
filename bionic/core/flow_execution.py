@@ -54,9 +54,9 @@ class TaskCompletionRunner:
     enum, indicating whether we need to and/or can do more work on it.
     """
 
-    def __init__(self, bootstrap, flow_instance_uuid, task_key_logger):
+    def __init__(self, core, flow_instance_uuid, task_key_logger):
         # These are needed to complete entries.
-        self._bootstrap = bootstrap
+        self._core = core
         self._flow_instance_uuid = flow_instance_uuid
         self.task_key_logger = task_key_logger
 
@@ -68,20 +68,20 @@ class TaskCompletionRunner:
 
     @property
     def _parallel_execution_enabled(self):
-        if self._bootstrap is None:
+        if self._core is None:
             return False
-        return self._bootstrap.process_executor is not None
+        return self._core.process_executor is not None
 
     @property
     def _aip_execution_enabled(self):
-        if self._bootstrap is None:
+        if self._core is None:
             return False
-        return self._bootstrap.aip_executor is not None
+        return self._core.aip_executor is not None
 
     def run(self, states):
         try:
             if self._parallel_execution_enabled:
-                self._bootstrap.process_executor.start_logging()
+                self._core.process_executor.start_logging()
 
             for state in states:
                 entry = self._get_or_create_entry_for_state(state)
@@ -108,7 +108,7 @@ class TaskCompletionRunner:
 
         finally:
             if self._parallel_execution_enabled:
-                self._bootstrap.process_executor.stop_logging()
+                self._core.process_executor.stop_logging()
 
     def _process_active_entry(self, entry):
         """
@@ -138,7 +138,7 @@ class TaskCompletionRunner:
             return
 
         # Now that we have the dependency digests, we can initialize our task state.
-        entry.state.initialize(self._bootstrap, self._flow_instance_uuid)
+        entry.state.initialize(self._core, self._flow_instance_uuid)
 
         # If that was all we needed, we're done.
         if self._mark_entry_completed_if_possible(entry):
@@ -166,7 +166,7 @@ class TaskCompletionRunner:
             self._aip_execution_enabled or self._parallel_execution_enabled
         ) and entry.state.should_persist
         if entry_may_be_computable_remotely:
-            remote_subgraph = RemoteSubgraph(entry.state, self._bootstrap)
+            remote_subgraph = RemoteSubgraph(entry.state, self._core)
             if self._aip_execution_enabled:
                 aip_task_configs = remote_subgraph.distinct_aip_task_configs
             else:
@@ -282,16 +282,14 @@ class TaskCompletionRunner:
                 remote_subgraph.get_stripped_state(target_entry.state)
                 for target_entry in target_entries
             ]
-            new_bootstrap = self._bootstrap.evolve(
-                aip_executor=None, process_executor=None
-            )
+            new_core = self._core.evolve(aip_executor=None, process_executor=None)
             new_task_completion_runner = TaskCompletionRunner(
-                bootstrap=new_bootstrap,
+                core=new_core,
                 flow_instance_uuid=self._flow_instance_uuid,
                 task_key_logger=self.task_key_logger,
             )
             if aip_task_config is not None:
-                future = self._bootstrap.aip_executor.submit(
+                future = self._core.aip_executor.submit(
                     aip_task_config,
                     run_in_subprocess,
                     new_task_completion_runner,
@@ -307,7 +305,7 @@ class TaskCompletionRunner:
 
                 future.add_done_callback(done_callback)
             else:
-                future = self._bootstrap.process_executor.submit(
+                future = self._core.process_executor.submit(
                     run_in_subprocess,
                     new_task_completion_runner,
                     stripped_target_states,
@@ -370,7 +368,7 @@ class TaskCompletionRunner:
             return self._entries_by_task_key[task_key]
         # Before doing anything with this task state, we should make sure its
         # cache state is up to date.
-        state.refresh_all_persistent_cache_state(self._bootstrap)
+        state.refresh_all_persistent_cache_state(self._core)
         entry = TaskRunnerEntry(state)
         self._entries_by_task_key[task_key] = entry
         return entry
@@ -526,10 +524,10 @@ class TaskKeyLogger:
     of a computation.)
     """
 
-    def __init__(self, bootstrap):
-        self._level = logging.INFO if bootstrap is not None else logging.DEBUG
+    def __init__(self, core):
+        self._level = logging.INFO if core is not None else logging.DEBUG
 
-        executor = bootstrap.process_executor if bootstrap is not None else None
+        executor = core.process_executor if core is not None else None
         if executor is not None:
             self._already_logged_entity_case_key_pairs = (
                 executor.create_synchronized_set()

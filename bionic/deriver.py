@@ -63,9 +63,9 @@ class EntityDeriver:
         # Tracks whether we've pre-validated the base descriptors in this flow.
         self._base_prevalidation_is_complete = False
 
-        # The "bootstrap state" needs to be complete before we can compute user-defined
+        # The "core state" needs to be complete before we can compute user-defined
         # entities.
-        self._bootstrap = None
+        self._core = None
 
     # TODO We should adjust the wording of the docstring below or refactor this a
     # little. It's not necessary for *the user* to call this method, but it is necessary
@@ -77,7 +77,7 @@ class EntityDeriver:
         necessary but allows errors to surface earlier.
         """
         self._register_static_providers()
-        self._set_up_bootstrap()
+        self._set_up_core()
         self._prevalidate_base_dnodes()
 
     def derive(self, dnode):
@@ -301,25 +301,23 @@ class EntityDeriver:
         # behavior downstream.
         self._followup_dnode_lists_by_dnode = dict(followup_dnode_lists_by_dnode)
 
-    def _set_up_bootstrap(self):
+    def _set_up_core(self):
         """
         Initializes some key objects needed to compute user-defined entities.
         """
 
-        if self._bootstrap is not None:
+        if self._core is not None:
             return
 
-        self._bootstrap = Bootstrap(
-            persistent_cache=self._bootstrap_singleton_entity("core__persistent_cache"),
-            versioning_policy=self._bootstrap_singleton_entity(
-                "core__versioning_policy"
-            ),
-            aip_executor=self._bootstrap_singleton_entity("core__aip_executor"),
-            process_executor=self._bootstrap_singleton_entity("core__process_executor"),
-            should_memoize_default=self._bootstrap_singleton_entity(
+        self._core = ExecutionCore(
+            persistent_cache=self._compute_core_entity("core__persistent_cache"),
+            versioning_policy=self._compute_core_entity("core__versioning_policy"),
+            aip_executor=self._compute_core_entity("core__aip_executor"),
+            process_executor=self._compute_core_entity("core__process_executor"),
+            should_memoize_default=self._compute_core_entity(
                 "core__memoize_by_default"
             ),
-            should_persist_default=self._bootstrap_singleton_entity(
+            should_persist_default=self._compute_core_entity(
                 "core__persist_by_default"
             ),
         )
@@ -409,15 +407,15 @@ class EntityDeriver:
             entity_def = self._flow_config.get_entity_def(dnode.to_descriptor())
 
             # TODO It's a little gross that our metadata object depends on whether
-            # it's requested before or after we construct the bootstrap. It might be
+            # it's requested before or after we construct the core. It might be
             # nice if we could explicitly mark each entity with whether it's supposed
-            # to be configured before or after the bootstrap. However, that's
+            # to be configured before or after the core. However, that's
             # somewhat complicated by the fact that defining an entity with @builder
             # resets its entity configuration (which was probably a bad design choice
             # that we should change at some point).
-            if self._bootstrap is not None:
-                should_memoize_default = self._bootstrap.should_memoize_default
-                should_persist_default = self._bootstrap.should_persist_default
+            if self._core is not None:
+                should_memoize_default = self._core.should_memoize_default
+                should_persist_default = self._core.should_persist_default
             else:
                 should_memoize_default = True
                 should_persist_default = False
@@ -454,11 +452,11 @@ class EntityDeriver:
                 should_persist = entity_def.optional_should_persist
             else:
                 should_persist = should_persist_default
-            if should_persist and self._bootstrap is None:
+            if should_persist and self._core is None:
                 descriptor = dnode.to_descriptor()
                 message = f"""
                 Descriptor {descriptor!r} is set to be persisted, but it can't be
-                because core bootstrap entities depend on it.
+                because core entities depend on it.
                 The corresponding value will not be serialized and deserialized,
                 which may cause that value to be subtly different. To avoid this
                 warning, disable persistence by applying `@persist(False)` or
@@ -621,11 +619,11 @@ class EntityDeriver:
         self._saved_task_states_by_key[task.key] = task_state
         return task_state
 
-    def _bootstrap_singleton_entity(self, entity_name):
+    def _compute_core_entity(self, entity_name):
         """
-        Computes the value of a 'bootstrap' entity -- i.e., a fundamental
-        internal entity needed to compute user-defined entities. Assumes the entity
-        has a single value.
+        Computes the value of a 'core' entity -- i.e., a fundamental internal entity
+        needed to compute user-defined entities. Assumes the entity has a single
+        value.
         """
 
         dnode = entity_dnode_from_descriptor(entity_name)
@@ -634,8 +632,7 @@ class EntityDeriver:
             raise ValueError(
                 oneline(
                     f"""
-                No values were defined for internal bootstrap entity
-                {entity_name!r}"""
+                No values were defined for core entity {entity_name!r}"""
                 )
             )
         if len(result_group) > 1:
@@ -643,7 +640,7 @@ class EntityDeriver:
             raise ValueError(
                 oneline(
                     f"""
-                Bootstrap entity {entity_name!r} must have exactly one
+                Core entity {entity_name!r} must have exactly one
                 value; got {len(values)} ({values!r})"""
                 )
             )
@@ -652,7 +649,7 @@ class EntityDeriver:
             raise ValueError(
                 oneline(
                     f"""
-                Bootstrap entity {entity_name!r} could not be computed because
+                Core entity {entity_name!r} could not be computed because
                 the following entities are declared but not set:
                 {", ".join(result.task_key.case_key.missing_names)}
                 """
@@ -671,9 +668,9 @@ class EntityDeriver:
             self._get_or_create_task_state_for_key(task.key) for task in dinfo.tasks
         ]
 
-        task_key_logger = TaskKeyLogger(self._bootstrap)
+        task_key_logger = TaskKeyLogger(self._core)
         task_runner = TaskCompletionRunner(
-            bootstrap=self._bootstrap,
+            core=self._core,
             flow_instance_uuid=self._flow_instance_uuid,
             task_key_logger=task_key_logger,
         )
@@ -684,9 +681,13 @@ class EntityDeriver:
 
 
 @attr.s(frozen=True)
-class Bootstrap:
+class ExecutionCore:
     """
-    Set of entity values needed to compute / load other entities.
+    A collection of parameters and services used to compute entity values.
+
+    These components are themselves defined as Bionic entities; those entities are
+    computed during a special "bootstrapping" phase, in which these components are each
+    replaced with a default value.
     """
 
     persistent_cache = attr.ib()
