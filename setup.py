@@ -17,7 +17,10 @@ with open("README.md") as readme_file:
 
 requirements = [
     "attrs>=20.1",
-    "cattrs",
+    # Version 1.1.0 of cattrs dropped support for Python 3.6, so if we're on that
+    # version of Python, we also need an earlier version of cattrs.
+    "cattrs < 1.1.0; python_version <  '3.7'",
+    "cattrs;         python_version >= '3.7'",
     "PyYAML",
     "numpy",
     "pandas",
