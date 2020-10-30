@@ -67,19 +67,19 @@ DEFAULT_PROTOCOL = protos.CombinedProtocol(
 )
 
 
-# We use an immutable persistent data structure to represent our state.  This
+# We use an immutable persistent data structure to represent our configuration.  This
 # has several advantages:
 # 1. We can provide both a mutable (FlowBuilder) and immutable (Flow) interface
-# to the state without worrying about the mutable interface breaking the
+# to the underlying config without worrying about the mutable interface breaking the
 # immutable one.
 # 2. It's easy to provide exception safety: when FlowBuilder is performing an
-# update, it only adopts the new state at the very end.  If something fails
-# and throws an exception partway through, the state remains unchanged.
-# 3. We can maintain a single "blessed" state object that's eligible for
+# update, it only adopts the new config at the very end.  If something fails
+# and throws an exception partway through, the config remains unchanged.
+# 3. We can maintain a single "blessed" config object that's eligible for
 # reloading.
-class FlowState(pyrs.PClass):
+class FlowConfig(pyrs.PClass):
     """
-    Contains the state for a Flow or FlowBuilder object.  This is a
+    Contains the configuration for a Flow or FlowBuilder object.  This is a
     "pyrsistent" class, which means it's immutable, but a modified copy can be
     efficiently created with the set() method.
     """
@@ -89,7 +89,7 @@ class FlowState(pyrs.PClass):
     default_entity_names = pyrs.field(initial=pyrs.pset())
     last_added_case_key = pyrs.field(initial=None)
 
-    # These are used to keep track of whether a flow state is safe to reload.
+    # These are used to keep track of whether a flow config is safe to reload.
     # To keep things sane, we try to ensure that there is at most one flow
     # with a given name that's eligible for reload.  This is the first flow
     # created by a builder, and it's marked as "blessed".  Any modified
@@ -134,14 +134,14 @@ class FlowState(pyrs.PClass):
         return self._set_entity_def(entity_def).touch()
 
     def delete_entity_defs(self, names):
-        state = self
+        config = self
 
         for name in names:
             if name not in self.entity_defs_by_name:
                 continue
-            state = state._erase_entity_def(name).touch()
+            config = config._erase_entity_def(name).touch()
 
-        return state.touch()
+        return config.touch()
 
     def get_entity_def(self, name):
         if name not in self.entity_defs_by_name:
@@ -260,28 +260,28 @@ class FlowState(pyrs.PClass):
         return self._set_provider(provider).touch()
 
     def clear_providers(self, names):
-        state = self
+        config = self
 
         # Delete the providers (or fail if not possible).
-        state = state.delete_providers(names)
+        config = config.delete_providers(names)
 
         # Recreate an empty version of each provider.
-        entity_names = [name for name in names if name in state.entity_defs_by_name]
+        entity_names = [name for name in names if name in config.entity_defs_by_name]
         for name in entity_names:
-            state = state.create_provider(name)
+            config = config.create_provider(name)
 
-        return state.touch()
+        return config.touch()
 
         # TODO Consider checking downstream entity providers too.
 
     def delete_providers(self, names):
-        state = self
+        config = self
 
         for name in names:
             # Make sure the name is safe to delete.
-            if not state.has_provider(name):
+            if not config.has_provider(name):
                 continue
-            provider = state.get_provider(name)
+            provider = config.get_provider(name)
 
             joint_names = provider.entity_names
             for related_name in joint_names:
@@ -295,9 +295,9 @@ class FlowState(pyrs.PClass):
                     )
 
             # Delete it.
-            state = state._erase_provider(name)
+            config = config._erase_provider(name)
 
-        return state.touch()
+        return config.touch()
 
     def mark_all_entities_default(self):
         new_default_names = pyrs.pset(self.entity_defs_by_name.keys())
@@ -306,23 +306,23 @@ class FlowState(pyrs.PClass):
     def _erase_entity_def(self, name):
         assert name not in self.providers_by_name
 
-        state = self
-        state = state.set(
-            entity_defs_by_name=state.entity_defs_by_name.remove(name),
+        config = self
+        config = config.set(
+            entity_defs_by_name=config.entity_defs_by_name.remove(name),
         )
-        return state
+        return config
 
     def _erase_provider(self, name):
-        state = self
-        if name in state.providers_by_name:
-            state = state.set(
-                providers_by_name=state.providers_by_name.remove(name),
+        config = self
+        if name in config.providers_by_name:
+            config = config.set(
+                providers_by_name=config.providers_by_name.remove(name),
             )
-        if name in state.default_entity_names:
-            state = state.set(
-                default_entity_names=(state.default_entity_names.remove(name))
+        if name in config.default_entity_names:
+            config = config.set(
+                default_entity_names=(config.default_entity_names.remove(name))
             )
-        return state
+        return config
 
     def _set_entity_def(self, entity_def):
         return self.set(
@@ -335,13 +335,13 @@ class FlowState(pyrs.PClass):
         for name in provider.entity_names:
             assert name in self.entity_defs_by_name
 
-        state = self
+        config = self
         for name in provider.entity_names:
-            state = state._erase_provider(name)
-            state = state.set(
-                providers_by_name=state.providers_by_name.set(name, provider),
+            config = config._erase_provider(name)
+            config = config.set(
+                providers_by_name=config.providers_by_name.set(name, provider),
             )
-        return state
+        return config
 
 
 class FlowBuilder:
@@ -361,34 +361,34 @@ class FlowBuilder:
 
     # --- Public API.
 
-    def __init__(self, name, _state=None):
-        if _state is None:
+    def __init__(self, name, _config=None):
+        if _config is None:
             if name is None:
                 raise ValueError("A name must be provided")
 
-            self._state = create_default_flow_state()
+            self._config = create_default_flow_config()
             self._set_name(name)
 
         else:
             assert name is None
-            self._state = _state
+            self._config = _config
 
     def build(self):
         """
-        Constructs a ``Flow`` object from this builder's state.
+        Constructs a ``Flow`` object from this builder's configuration.
 
         The returned flow is immutable and will not be affected by future
-        changes to this builder's state.
+        changes to this builder's configuration.
         """
 
-        state = self._state
-        if state.can_be_blessed:
-            state = state.bless()
+        config = self._config
+        if config.can_be_blessed:
+            config = config.bless()
 
-        flow = Flow._from_state(state)
+        flow = Flow._from_config(config)
         flow._deriver.get_ready()
 
-        self._state = state.touch()
+        self._config = config.touch()
         return flow
 
     def declare(self, name, protocol=None, doc=None, docstring=None, persist=None):
@@ -428,7 +428,7 @@ class FlowBuilder:
             )
             doc = docstring
 
-        self._state = self._state.define_entity(
+        self._config = self._config.define_entity(
             EntityDefinition(
                 name=name,
                 protocol=protocol,
@@ -493,9 +493,9 @@ class FlowBuilder:
             )
             doc = docstring
 
-        state = self._state
+        config = self._config
 
-        state = state.define_entity(
+        config = config.define_entity(
             EntityDefinition(
                 name=name,
                 protocol=protocol,
@@ -504,12 +504,12 @@ class FlowBuilder:
                 optional_should_memoize=True,
             )
         )
-        state = state.create_provider(name)
+        config = config.create_provider(name)
         for value in values:
             case_key = CaseKey([(name, protocol.tokenize(value))])
-            state = state.add_case(case_key, [name], [value])
+            config = config.add_case(case_key, [name], [value])
 
-        self._state = state
+        self._config = config
 
     def set(self, name, value=None, values=None):
         """
@@ -534,17 +534,17 @@ class FlowBuilder:
         if values is None:
             values = [value]
 
-        state = self._state
+        config = self._config
 
-        state = state.clear_providers([name])
+        config = config.clear_providers([name])
 
-        protocol = state.get_entity_def(name).protocol
+        protocol = config.get_entity_def(name).protocol
 
         for value in values:
             case_key = CaseKey([(name, protocol.tokenize(value))])
-            state = state.add_case(case_key, [name], [value])
+            config = config.add_case(case_key, [name], [value])
 
-        self._state = state
+        self._config = config
 
     # TODO Should we allow undeclared names?  Having to declare them first is
     # basically always clunky and annoying, but should we allow add_case to
@@ -619,17 +619,17 @@ class FlowBuilder:
 
         name_value_pairs = group_pairs(name_values)
 
-        state = self._state
+        config = self._config
 
         names = [name for name, value in name_value_pairs]
-        state = state.group_names_together(names)
+        config = config.group_names_together(names)
 
         values = []
         name_token_pairs = []
         for name, value in name_value_pairs:
-            protocol = state.get_entity_def(name).protocol
+            protocol = config.get_entity_def(name).protocol
             # TODO Both the validation and tokenization are also happening in
-            # state.add_case below; maybe we can remove some duplicate work.
+            # config.add_case below; maybe we can remove some duplicate work.
             protocol.validate_for_entity(name, value)
             token = protocol.tokenize(value)
 
@@ -638,12 +638,12 @@ class FlowBuilder:
 
         case_key = CaseKey(name_token_pairs)
 
-        state = state.add_case(case_key, names, values)
+        config = config.add_case(case_key, names, values)
 
         case = FlowCase(self, case_key)
-        state = state.set(last_added_case_key=case.key)
+        config = config.set(last_added_case_key=case.key)
 
-        self._state = state
+        self._config = config
 
         return case
 
@@ -662,7 +662,7 @@ class FlowBuilder:
             The entities whose values should be cleared.
         """
 
-        self._state = self._state.clear_providers(names)
+        self._config = self._config.clear_providers(names)
 
     def delete(self, *names):
         """
@@ -678,7 +678,7 @@ class FlowBuilder:
             The entities to be deleted.
         """
 
-        self._state = self._state.delete_providers(names).delete_entity_defs(names)
+        self._config = self._config.delete_providers(names).delete_entity_defs(names)
 
     def merge(self, flow, keep="error", allow_name_match=False):
         """
@@ -716,9 +716,9 @@ class FlowBuilder:
             flows, but it's generally not good practice.)
         """
 
-        # These are the two states we're going to merge.
-        new_state = flow._state
-        old_state = self._state
+        # These are the two configs we're going to merge.
+        new_config = flow._config
+        old_config = self._config
 
         # Check that the flows don't have the same name.
         # TODO The mechanics of this check really suck, since this builder's
@@ -727,7 +727,7 @@ class FlowBuilder:
         # guess it's not a huge deal.  But overall, the way we store a flow's
         # name might deserve to be revisited later.
         if not allow_name_match:
-            old_name_provider = old_state.providers_by_name.get("core__flow_name")
+            old_name_provider = old_config.providers_by_name.get("core__flow_name")
             if (
                 old_name_provider is not None
                 and isinstance(old_name_provider, ValueProvider)
@@ -752,11 +752,11 @@ class FlowBuilder:
 
         # Identify all the names that could appear in the merged flow, and
         # associate each one with a potential conflict.
-        all_names = set(old_state.providers_by_name.keys()).union(
-            new_state.providers_by_name.keys()
+        all_names = set(old_config.providers_by_name.keys()).union(
+            new_config.providers_by_name.keys()
         )
         conflicts_by_name = {
-            name: MergeConflict(old_state=old_state, new_state=new_state, name=name)
+            name: MergeConflict(old_config=old_config, new_config=new_config, name=name)
             for name in all_names
         }
 
@@ -827,13 +827,13 @@ class FlowBuilder:
                 f"got {keep!r}"
             )
 
-        # For both states, check that each jointly-defined name group is kept
+        # For both configs, check that each jointly-defined name group is kept
         # or discarded as a whole.
-        for state_name, state in [
-            ("old", old_state),
-            ("new", new_state),
+        for config_name, config in [
+            ("old", old_config),
+            ("new", new_config),
         ]:
-            for provider in state.providers_by_name.values():
+            for provider in config.providers_by_name.values():
                 names = provider.entity_names
                 if len(names) == 1:
                     continue
@@ -842,12 +842,12 @@ class FlowBuilder:
                 kept_conflicts = [
                     conflict
                     for conflict in conflicts
-                    if conflict.resolution == state_name
+                    if conflict.resolution == config_name
                 ]
                 discarded_conflicts = [
                     conflict
                     for conflict in conflicts
-                    if conflict.resolution != state_name
+                    if conflict.resolution != config_name
                 ]
                 if kept_conflicts and discarded_conflicts:
                     kept = ", ".join(f"{c.name} ({c.reason})" for c in kept_conflicts)
@@ -857,7 +857,7 @@ class FlowBuilder:
                     raise IncompatibleEntityError(
                         oneline(
                             f"""
-                        Merge failure: Names {names!r} in {state_name} state
+                        Merge failure: Names {names!r} in {config_name} config
                         are defined jointly and must be kept or discarded
                         together,
                         but merge logic dictates that we keep [{kept}] and
@@ -867,8 +867,8 @@ class FlowBuilder:
                         )
                     )
 
-        # Now we start building up our final, merged state.
-        cur_state = old_state
+        # Now we start building up our final, merged config.
+        cur_config = old_config
 
         conflicts_keeping_new = [
             conflict
@@ -879,8 +879,8 @@ class FlowBuilder:
         # First, delete all old providers that collide with our incoming ones.
         names_to_delete = [conflict.name for conflict in conflicts_keeping_new]
         try:
-            cur_state = cur_state.delete_providers(names_to_delete)
-            cur_state = cur_state.delete_entity_defs(names_to_delete)
+            cur_config = cur_config.delete_providers(names_to_delete)
+            cur_config = cur_config.delete_entity_defs(names_to_delete)
         except IncompatibleEntityError as e:
             raise IncompatibleEntityError("Merge failure: " + e)
 
@@ -901,11 +901,11 @@ class FlowBuilder:
             ):
                 provider = AttrUpdateProvider(provider, "orig_flow_name", new_flow_name)
             for name in provider.entity_names:
-                new_entity_def = new_state.get_entity_def(name)
-                cur_state = cur_state.define_entity(new_entity_def)
-            cur_state = cur_state.install_provider(provider)
+                new_entity_def = new_config.get_entity_def(name)
+                cur_config = cur_config.define_entity(new_entity_def)
+            cur_config = cur_config.install_provider(provider)
 
-        self._state = cur_state
+        self._config = cur_config
 
     def __call__(self, func):
         """
@@ -968,15 +968,15 @@ class FlowBuilder:
             {len(docs)} docs {tuple(docs)!r}"""
             raise ValueError(oneline(message))
 
-        state = self._state
+        config = self._config
 
         # Delete the original definitions.
         # TODO Deleting the original entity definition is a little counterintuitive. It
         # would probably make more sense to keep the original definition, although
         # that would be a breaking change at this point. We need to think through the
         # relationship between APIs for fixed and derived entities.
-        state = state.delete_providers(provider.entity_names)
-        state = state.delete_entity_defs(provider.entity_names)
+        config = config.delete_providers(provider.entity_names)
+        config = config.delete_entity_defs(provider.entity_names)
 
         # Create the new definitions.
         for name, doc in zip(names, docs):
@@ -990,10 +990,10 @@ class FlowBuilder:
                 # remind us to check and make sure it actually gets cached somehow.
                 needs_caching=provider.attrs.changes_per_run,
             )
-            state = state.define_entity(entity_def)
-        state = state.install_provider(provider)
+            config = config.define_entity(entity_def)
+        config = config.install_provider(provider)
 
-        self._state = state
+        self._config = config
 
         return provider.get_source_func()
 
@@ -1012,21 +1012,21 @@ class FlowBuilder:
     # --- Private helpers.
 
     @classmethod
-    def _from_state(cls, state):
-        return cls(name=None, _state=state)
+    def _from_config(cls, config):
+        return cls(name=None, _config=config)
 
     @classmethod
-    def _with_empty_state(cls):
-        return cls(name=None, _state=FlowState())
+    def _with_empty_config(cls):
+        return cls(name=None, _config=FlowConfig())
 
     def _set_name(self, name):
         self.set("core__flow_name", name)
 
     def _set_for_case_key(self, case_key, name, value):
-        self._state = self._state.add_case(case_key, [name], [value])
+        self._config = self._config.add_case(case_key, [name], [value])
 
     def _set_for_last_case(self, name, value):
-        last_case_key = self._state.last_added_case_key
+        last_case_key = self._config.last_added_case_key
         if last_case_key is None:
             raise ValueError("A case must have been added before calling this method")
 
@@ -1034,14 +1034,14 @@ class FlowBuilder:
 
 
 class MergeConflict:
-    def __init__(self, old_state, new_state, name):
+    def __init__(self, old_config, new_config, name):
         self.name = name
-        self.old_provider = old_state.providers_by_name.get(name)
-        self.new_provider = new_state.providers_by_name.get(name)
-        self.old_is_default = name in old_state.default_entity_names
-        self.new_is_default = name in new_state.default_entity_names
-        self.old_entity_def = old_state.entity_defs_by_name.get(name)
-        self.new_entity_def = new_state.entity_defs_by_name.get(name)
+        self.old_provider = old_config.providers_by_name.get(name)
+        self.new_provider = new_config.providers_by_name.get(name)
+        self.old_is_default = name in old_config.default_entity_names
+        self.new_is_default = name in new_config.default_entity_names
+        self.old_entity_def = old_config.entity_defs_by_name.get(name)
+        self.new_entity_def = new_config.entity_defs_by_name.get(name)
 
     @property
     def old_is_only_declaration(self):
@@ -1098,7 +1098,7 @@ class Flow:
         """
         return [
             name
-            for name in self._state.providers_by_name.keys()
+            for name in self._config.providers_by_name.keys()
             if include_core or not entity_is_internal(name)
         ]
 
@@ -1113,7 +1113,7 @@ class Flow:
             The name of an entity.
         """
 
-        return self._state.get_entity_def(name).protocol
+        return self._config.get_entity_def(name).protocol
 
     def entity_doc(self, name):
         """
@@ -1126,7 +1126,7 @@ class Flow:
         name: String
             The name of an entity.
         """
-        return self._state.get_entity_def(name).doc
+        return self._config.get_entity_def(name).doc
 
     def entity_docstring(self, name):
         """
@@ -1147,13 +1147,13 @@ class Flow:
 
     def to_builder(self):
         """
-        Returns a ``FlowBuilder`` with a copy of this ``Flow``'s state.
+        Returns a ``FlowBuilder`` with a copy of this ``Flow``'s configuration.
 
         Since this flow is immutable, it won't be affected by any changes to
         the returned builder.
         """
 
-        return FlowBuilder._from_state(self._state)
+        return FlowBuilder._from_config(self._config)
 
     def get(self, name, collection=None, fmt=None, mode=object):
         """
@@ -1515,7 +1515,7 @@ class Flow:
         will be recomputed.
         """
         flow = self.reloading()
-        self._set_state(flow._state)
+        self._set_config(flow._config)
         return self
 
     def reloading(self):
@@ -1537,9 +1537,9 @@ class Flow:
 
         from sys import modules as module_registry
 
-        state = self._state
+        config = self._config
 
-        if not state.is_blessed:
+        if not config.is_blessed:
             raise ValueError(
                 "A flow can only be reloaded if it's the first flow built "
                 "from its builder and it hasn't been modified"
@@ -1549,7 +1549,7 @@ class Flow:
 
         # Find the module that contains the flow.
         candidate_flow_modules = set()
-        for provider in state.providers_by_name.values():
+        for provider in config.providers_by_name.values():
             source_func = provider.get_source_func()
             if source_func is None:
                 continue
@@ -1576,7 +1576,7 @@ class Flow:
         blessed_candidate_flows = []
         unblessed_candidate_flows = []
         for flow in flows:
-            if not flow._state.is_blessed:
+            if not flow._config.is_blessed:
                 unblessed_candidate_flows.append(flow)
             else:
                 blessed_candidate_flows.append(flow)
@@ -1614,17 +1614,17 @@ class Flow:
     # --- Private helpers.
 
     @classmethod
-    def _from_state(self, state):
-        return Flow(_official=True, state=state)
+    def _from_config(self, config):
+        return Flow(_official=True, config=config)
 
-    def __init__(self, state, _official=False):
+    def __init__(self, config, _official=False):
         if not _official:
             raise ValueError(
                 "Don't construct this class directly; "
                 "use one of the classmethod constructors"
             )
 
-        self._set_state(state)
+        self._set_config(config)
 
         # We replace the `get` and `setting` methods with wrapper classes
         # that have an attribute for each entity.  This allows a convenient,
@@ -1661,16 +1661,16 @@ class Flow:
 
         self.setting = SettingMethod()
 
-    def _set_state(self, state):
-        self._state = state
+    def _set_config(self, config):
+        self._config = config
         self._uuid = str(uuid4())
-        self._deriver = EntityDeriver(self._state, self._uuid)
+        self._deriver = EntityDeriver(self._config, self._uuid)
         self.cache = Cache(self._deriver)
 
     def _updating(self, builder_update_func):
-        builder = FlowBuilder._from_state(self._state)
+        builder = FlowBuilder._from_config(self._config)
         builder_update_func(builder)
-        return Flow._from_state(builder._state)
+        return Flow._from_config(builder._config)
 
     def _get_flows_from_module(self, module):
         flows = []
@@ -1748,9 +1748,9 @@ class ShortcutProxy:
         return partial
 
 
-# Construct a default state object.
-def create_default_flow_state():
-    builder = FlowBuilder._with_empty_state()
+# Construct a default config object.
+def create_default_flow_config():
+    builder = FlowBuilder._with_empty_config()
 
     builder.declare("core__flow_name", persist=False)
 
@@ -1941,4 +1941,4 @@ def create_default_flow_state():
         # required libraries are not installed.
         return AipExecutor(core__aip_execution__config)
 
-    return builder._state.mark_all_entities_default()
+    return builder._config.mark_all_entities_default()
