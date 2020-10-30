@@ -588,15 +588,6 @@ class TaskState:
             return
 
         # First,  set up the provenance.
-        if core is None:
-            # If we're still in the bootstrap resolution phase, we don't have
-            # any versioning policy, so we don't attempt anything fancy.
-            treat_bytecode_as_functional = False
-        else:
-            treat_bytecode_as_functional = (
-                core.versioning_policy.treat_bytecode_as_functional
-            )
-
         dep_provenance_digests_by_task_key = {
             dep_key: dep_state._get_digest()
             for dep_key, dep_state in zip(self.task.dep_keys, self.dep_states)
@@ -606,7 +597,9 @@ class TaskState:
             task_key=self.task_key,
             code_fingerprint=self.func_attrs.code_fingerprint,
             dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
-            treat_bytecode_as_functional=treat_bytecode_as_functional,
+            treat_bytecode_as_functional=(
+                core.versioning_policy.treat_bytecode_as_functional
+            ),
             can_functionally_change_per_run=self.func_attrs.changes_per_run,
             flow_instance_uuid=flow_instance_uuid,
         )

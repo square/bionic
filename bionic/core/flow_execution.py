@@ -68,14 +68,10 @@ class TaskCompletionRunner:
 
     @property
     def _parallel_execution_enabled(self):
-        if self._core is None:
-            return False
         return self._core.process_executor is not None
 
     @property
     def _aip_execution_enabled(self):
-        if self._core is None:
-            return False
         return self._core.aip_executor is not None
 
     def run(self, states):
@@ -525,12 +521,11 @@ class TaskKeyLogger:
     """
 
     def __init__(self, core):
-        self._level = logging.INFO if core is not None else logging.DEBUG
+        self._level = core.task_key_logging_level
 
-        executor = core.process_executor if core is not None else None
-        if executor is not None:
+        if core.process_executor is not None:
             self._already_logged_entity_case_key_pairs = (
-                executor.create_synchronized_set()
+                core.process_executor.create_synchronized_set()
             )
         else:
             # TODO: When AIP execution is enabled, we will send this

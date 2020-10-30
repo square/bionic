@@ -8,7 +8,7 @@ import warnings
 
 import attr
 
-from .datatypes import ResultGroup, DescriptorMetadata, TaskKey
+from .datatypes import ResultGroup, DescriptorMetadata, TaskKey, VersioningPolicy
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .deps.optdep import import_optional_dependency
@@ -63,9 +63,12 @@ class EntityDeriver:
         # Tracks whether we've pre-validated the base descriptors in this flow.
         self._base_prevalidation_is_complete = False
 
-        # The "core state" needs to be complete before we can compute user-defined
-        # entities.
-        self._core = None
+        # We need an ExecutionCore object to do any derivation, but creating the core
+        # itself requires derivation. We'll use this default core to get us through the
+        # initial bootstrapping phase, and then replace it with a properly configured
+        # core.
+        self._core_is_final = False
+        self._core = BOOTSTRAP_CORE
 
     # TODO We should adjust the wording of the docstring below or refactor this a
     # little. It's not necessary for *the user* to call this method, but it is necessary
@@ -77,7 +80,7 @@ class EntityDeriver:
         necessary but allows errors to surface earlier.
         """
         self._register_static_providers()
-        self._set_up_core()
+        self._set_up_final_core()
         self._prevalidate_base_dnodes()
 
     def derive(self, dnode):
@@ -301,12 +304,12 @@ class EntityDeriver:
         # behavior downstream.
         self._followup_dnode_lists_by_dnode = dict(followup_dnode_lists_by_dnode)
 
-    def _set_up_core(self):
+    def _set_up_final_core(self):
         """
         Initializes some key objects needed to compute user-defined entities.
         """
 
-        if self._core is not None:
+        if self._core_is_final:
             return
 
         self._core = ExecutionCore(
@@ -320,7 +323,9 @@ class EntityDeriver:
             should_persist_default=self._compute_core_entity(
                 "core__persist_by_default"
             ),
+            task_key_logging_level=logging.INFO,
         )
+        self._core_is_final = True
 
     def _prevalidate_base_dnodes(self):
         """
@@ -406,31 +411,25 @@ class EntityDeriver:
         if dnode.is_entity():
             entity_def = self._flow_config.get_entity_def(dnode.to_descriptor())
 
-            # TODO It's a little gross that our metadata object depends on whether
-            # it's requested before or after we construct the core. It might be
-            # nice if we could explicitly mark each entity with whether it's supposed
-            # to be configured before or after the core. However, that's
+            # TODO It's a little gross that our metadata object depends on self._core,
+            # which is different depending on whether we're in the bootstrapping phase.
+            # It might be nice if we could explicitly mark each entity with whether
+            # it's supposed to be configured before or after the core. However, that's
             # somewhat complicated by the fact that defining an entity with @builder
             # resets its entity configuration (which was probably a bad design choice
             # that we should change at some point).
-            if self._core is not None:
-                should_memoize_default = self._core.should_memoize_default
-                should_persist_default = self._core.should_persist_default
-            else:
-                should_memoize_default = True
-                should_persist_default = False
 
             if entity_def.optional_should_memoize is not None:
                 should_memoize = entity_def.optional_should_memoize
             else:
-                should_memoize = should_memoize_default
+                should_memoize = self._core.should_memoize_default
             if entity_def.needs_caching and not should_memoize:
                 # TODO Here we require that all non-deterministic values be memoized,
                 # but it would probably also be okay if they were persisted instead; we
                 # could change this check to only trigger if persistence is not
                 # enabled.
                 descriptor = dnode.to_descriptor()
-                if should_memoize_default:
+                if self._core.should_memoize_default:
                     fix_message = (
                         "removing `memoize(False)` from the corresponding function"
                     )
@@ -451,8 +450,8 @@ class EntityDeriver:
             if entity_def.optional_should_persist is not None:
                 should_persist = entity_def.optional_should_persist
             else:
-                should_persist = should_persist_default
-            if should_persist and self._core is None:
+                should_persist = self._core.should_persist_default
+            if should_persist and self._core.persistent_cache is None:
                 descriptor = dnode.to_descriptor()
                 message = f"""
                 Descriptor {descriptor!r} is set to be persisted, but it can't be
@@ -685,7 +684,7 @@ class ExecutionCore:
     """
     A collection of parameters and services used to compute entity values.
 
-    These components are themselves defined as Bionic entities; those entities are
+    Most of components are themselves defined as Bionic entities; those entities are
     computed during a special "bootstrapping" phase, in which these components are each
     replaced with a default value.
     """
@@ -696,9 +695,24 @@ class ExecutionCore:
     process_executor = attr.ib()
     should_memoize_default = attr.ib()
     should_persist_default = attr.ib()
+    task_key_logging_level = attr.ib()
 
     def evolve(self, **kwargs):
         return attr.evolve(self, **kwargs)
+
+
+BOOTSTRAP_CORE = ExecutionCore(
+    persistent_cache=None,
+    versioning_policy=VersioningPolicy(
+        check_for_bytecode_errors=False,
+        treat_bytecode_as_functional=False,
+    ),
+    aip_executor=None,
+    process_executor=None,
+    should_memoize_default=True,
+    should_persist_default=False,
+    task_key_logging_level=logging.DEBUG,
+)
 
 
 @attr.s(frozen=True)
