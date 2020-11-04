@@ -45,8 +45,8 @@ class EntityDeriver:
 
     # --- Public API.
 
-    def __init__(self, flow_state, flow_instance_uuid):
-        self._flow_state = flow_state
+    def __init__(self, flow_config, flow_instance_uuid):
+        self._flow_config = flow_config
         self._flow_instance_uuid = flow_instance_uuid
 
         # For many dnodes, we can precompute the appropriate provider ahead of time.
@@ -293,7 +293,7 @@ class EntityDeriver:
             else:
                 dnode.fail_match()
 
-        for provider in set(self._flow_state.providers_by_name.values()):
+        for provider in set(self._flow_config.providers_by_name.values()):
             register_provider(provider)
 
         self._static_providers_by_dnode = static_providers_by_dnode
@@ -362,7 +362,7 @@ class EntityDeriver:
 
         return [
             entity_dnode_from_descriptor(entity_name)
-            for entity_name in self._flow_state.entity_defs_by_name.keys()
+            for entity_name in self._flow_config.entity_defs_by_name.keys()
         ]
 
     def _obtain_provider_for_dnode(self, dnode):
@@ -377,7 +377,7 @@ class EntityDeriver:
 
         if dnode.is_entity():
             entity_name = dnode.assume_entity().name
-            if entity_name in self._flow_state.entity_defs_by_name:
+            if entity_name in self._flow_config.entity_defs_by_name:
                 message = f"""
                 Unexpected failed to find a static provider for defined entity
                 {entity_name!r};
@@ -406,7 +406,7 @@ class EntityDeriver:
         """
 
         if dnode.is_entity():
-            entity_def = self._flow_state.get_entity_def(dnode.to_descriptor())
+            entity_def = self._flow_config.get_entity_def(dnode.to_descriptor())
 
             # TODO It's a little gross that our metadata object depends on whether
             # it's requested before or after we construct the bootstrap. It might be
