@@ -15,7 +15,6 @@ from uuid import uuid4
 from pathlib import Path
 
 from .datatypes import CodeFingerprint, Artifact
-from .gcs import get_gcs_fs_without_warnings
 from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
@@ -707,8 +706,8 @@ class GcsCloudStore:
     those blobs).
     """
 
-    def __init__(self, url):
-        self._fs = GcsFilesystem(url, "/inventory")
+    def __init__(self, gcs_fs, url):
+        self._fs = GcsFilesystem(gcs_fs, url, "/inventory")
 
         self.inventory = Inventory("GCS", "cloud", self._fs)
         self._artifact_root_url_prefix = url + "/artifacts"
@@ -833,7 +832,7 @@ class GcsFilesystem:
     LocalFilesystem.
     """
 
-    def __init__(self, url, object_prefix_extension):
+    def __init__(self, gcs_fs, url, object_prefix_extension):
         if url.endswith("/"):
             url = url[:-1]
         self.root_url = url + object_prefix_extension
@@ -841,25 +840,7 @@ class GcsFilesystem:
         bucket_name, object_prefix = bucket_and_object_names_from_gs_url(url)
         self._bucket_name = bucket_name
         self._object_prefix = object_prefix
-        self._init_fs()
-
-    def __getstate__(self):
-        # Copy the object's state from self.__dict__ which contains
-        # all our instance attributes. Always use the dict.copy()
-        # method to avoid modifying the original state.
-        state = self.__dict__.copy()
-        # Remove the unpicklable entries.
-        del state["_fs"]
-        return state
-
-    def __setstate__(self, state):
-        # Restore instance attributes.
-        self.__dict__.update(state)
-        # Restore the fs.
-        self._init_fs()
-
-    def _init_fs(self):
-        self._fs = get_gcs_fs_without_warnings()
+        self._fs = gcs_fs
 
     def exists(self, url):
         self._validate_object_name_from_url(url)
@@ -876,8 +857,7 @@ class GcsFilesystem:
 
     def write_bytes(self, content_bytes, url):
         self._validate_object_name_from_url(url)
-        with self._fs.open(url, "wb") as f:
-            f.write(content_bytes)
+        self._fs.pipe(url, content_bytes)
 
     def read_bytes(self, url):
         self._validate_object_name_from_url(url)

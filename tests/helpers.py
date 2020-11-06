@@ -8,7 +8,6 @@ import pandas as pd
 from pandas import testing as pdt
 
 import bionic as bn
-from bionic.gcs import get_gcs_fs_without_warnings
 
 
 # TODO This name is cumbersome; maybe one of these shorter names?
@@ -230,25 +229,6 @@ def longest_regex_prefix_match(regex, string, flags=0):
     match = re.search(regex[:max_succ_ix], string, flags=flags)
     assert match is not None
     return match
-
-
-def gcs_fs_wipe_path(url):
-    assert "BNTESTDATA" in url
-    fs = get_gcs_fs_without_warnings()
-    fs.rm(url, recursive=True)
-
-
-def gcs_fs_path_exists(url):
-    fs = get_gcs_fs_without_warnings()
-    return fs.exists(url)
-
-
-def gcs_fs_download(url, path):
-    fs = get_gcs_fs_without_warnings()
-    if fs.isdir(url):
-        fs.get(url, str(path), recursive=True)
-    else:
-        fs.get_file(url, str(path))
 
 
 def local_wipe_path(path_str):

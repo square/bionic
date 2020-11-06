@@ -5,7 +5,6 @@ from concurrent.futures import Future as ConcurrentFuture, TimeoutError, Cancell
 from enum import Enum, auto
 
 from bionic.aip.client import get_aip_client
-from bionic.gcs import get_gcs_fs_without_warnings
 
 
 class AipError(Exception):
@@ -51,7 +50,8 @@ class Future(ConcurrentFuture):
 
     """
 
-    def __init__(self, project_name: str, job_id: str, output: str):
+    def __init__(self, gcs_fs, project_name: str, job_id: str, output: str):
+        self.gcs_fs = gcs_fs
         self.project_name = project_name
         self.job_id = job_id
         self.output = output
@@ -111,8 +111,7 @@ class Future(ConcurrentFuture):
             raise exc
 
         try:
-            gcs_fs = get_gcs_fs_without_warnings()
-            with gcs_fs.open(self.output, "rb") as f:
+            with self.gcs_fs.open(self.output, "rb") as f:
                 return pickle.load(f)
         except:  # NOQA
             logging.warning(

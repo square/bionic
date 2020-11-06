@@ -1,14 +1,12 @@
 import io
 import logging
+import re
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-import re
 from unittest.mock import Mock
 from uuid import uuid4
 
-from bionic import gcs
-from bionic.aip import client as aip_client
 from bionic.aip.future import Future as AipFuture
 from bionic.aip.main import _run as run_aip
 from bionic.aip.task import Task as AipTask
@@ -80,8 +78,8 @@ class FakeAipExecutor:
 # We can override 1) but we need to get 2) fixed in fsspec before we can replace
 # this implementation.
 class FakeGcsFs:
-    def __init__(self):
-        self._files_by_url = {}
+    def __init__(self, make_dict):
+        self._files_by_url: dict = make_dict()
 
     def cat_file(self, url):
         with self.open(url, "rb") as f:
@@ -118,7 +116,7 @@ class FakeGcsFs:
         url = url[:-4]
         # Glob doesn't return the protocol, so we strip "gs://".
         urls = []
-        for file_url in self._files_by_url:
+        for file_url in self._files_by_url.keys():
             assert file_url.startswith("gs://")
             if url in file_url:
                 urls.append(file_url[5:])
@@ -127,10 +125,12 @@ class FakeGcsFs:
     def isdir(self, url):
         if not url.endswith("/"):
             url = url + "/"
-        return any(key for key in self._files_by_url if key.startswith(url))
+        return any(key for key in self._files_by_url.keys() if key.startswith(url))
 
     @contextmanager
     def open(self, url, mode):
+        assert url.startswith("gs://")
+
         assert mode in ("rb", "wb")
         if mode == "rb" and url not in self._files_by_url:
             raise FileNotFoundError(f"no file found for url {url}")
@@ -166,20 +166,24 @@ class FakeGcsFs:
         else:
             del self._files_by_url[url]
 
+    def pipe(self, url, content_bytes):
+        with self.open(url, "wb") as f:
+            f.write(content_bytes)
 
-@contextmanager
-def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs, caplog):
-    """
-    Use fake GCP by mocking out GCS and AIP.
-    """
 
+def fake_aip_client(gcs_fs, caplog):
     def create_aip_job(body, parent):
         # AIP executions do not transmit logs to local instance of bionic.
         # Emulate this behavior by setting the log level; this should filter out
         # all (or almost all) the logs. Tests that check the log output will
         # only test against logs which are printed locally.
         with caplog.at_level(logging.CRITICAL):
-            run_aip(body["trainingInput"]["args"][3])
+            assert body["trainingInput"]["args"][:3] == [
+                "python",
+                "-m",
+                "bionic.aip.main",
+            ]
+            run_aip(body["trainingInput"]["args"][3], gcs_fs)
         return Mock()
 
     mock_aip_client = Mock()
@@ -188,15 +192,7 @@ def run_in_fake_gcp(fake_gcs_fs: FakeGcsFs, caplog):
         "state": "SUCCEEDED"
     }
 
-    cached_gcs_fs = gcs._cached_gcs_fs
-    cached_aip_client = aip_client._cached_aip_client
-    try:
-        gcs._cached_gcs_fs = fake_gcs_fs
-        aip_client._cached_aip_client = mock_aip_client
-        yield
-    finally:
-        gcs._cached_gcs_fs = cached_gcs_fs
-        aip_client._cached_aip_client = cached_aip_client
+    return mock_aip_client
 
 
 class InstrumentedFilesystem:
@@ -207,26 +203,20 @@ class InstrumentedFilesystem:
 
     def __init__(self, wrapped_fs, make_list):
         self._wrapped_fs = wrapped_fs
-        self._downloaded_urls = make_list()
-        self._uploaded_urls = make_list()
+        self._downloaded_urls: list = make_list()
+        self._uploaded_urls: list = make_list()
 
     def get_file(self, url, path):
         self._downloaded_urls.append(url)
         return self._wrapped_fs.get_file(url, path)
 
-    def get_dir(self, url, path):
-        self._downloaded_urls.append(url)
-        return self._wrapped_fs.get_dir(url, path)
-
     def put_file(self, path, url):
         self._uploaded_urls.append(url)
         return self._wrapped_fs.put_file(path, url)
 
-    def put_dir(self, path, url):
-        self._uploaded_urls.append(url)
-        return self._wrapped_fs.put_dir(path, url)
-
     def __getattr__(self, attr):
+        if "_wrapped_fs" not in vars(self):
+            raise AttributeError
         return getattr(self._wrapped_fs, attr)
 
     def matching_urls_downloaded(self, url_regex):
@@ -249,22 +239,3 @@ class InstrumentedFilesystem:
         match_count = len(items) - len(non_matching_items)
         items[:] = non_matching_items
         return match_count
-
-
-# TODO It would be nice if the GCS filesystem (and indeed all filesystems) were
-# injected rather than accessed (and patched) globally.
-@contextmanager
-def instrument_gcs_fs(make_list):
-    """
-    Context manager that temporarily globally patches the
-    ``gcs.get_gcs_fs_without_warnings`` function, replacing the usual filesystem with
-    an instrumented version that tracks all upload and download operations.
-    """
-    orig_gcs_fs = gcs._cached_gcs_fs
-    inst_gcs_fs = InstrumentedFilesystem(orig_gcs_fs, make_list)
-    gcs._cached_gcs_fs = inst_gcs_fs
-
-    try:
-        yield inst_gcs_fs
-    finally:
-        gcs._cached_gcs_fs = orig_gcs_fs

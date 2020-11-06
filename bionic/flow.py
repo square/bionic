@@ -42,7 +42,7 @@ from .deriver import EntityDeriver, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .filecopier import FileCopier
-from .gcs import upload_to_gcs
+from .gcs import upload_to_gcs, get_gcs_fs_without_warnings
 from .utils.misc import (
     group_pairs,
     check_exactly_one_present,
@@ -1829,18 +1829,41 @@ def create_default_flow_config():
 
     @builder
     @decorators.immediate
+    def core__persistent_cache__gcs__fs(
+        core__persistent_cache__gcs__enabled,
+    ):
+        """
+        An fsspec filesystem corresponding to GCS, or None.
+
+        This entity exists so that the GCS filesystem can be replaced for testing.
+        """
+
+        gcs_enabled = core__persistent_cache__gcs__enabled
+        if gcs_enabled:
+            return get_gcs_fs_without_warnings()
+        else:
+            return None
+
+    @builder
+    @decorators.immediate
     def core__persistent_cache__cloud_store(
+        core__persistent_cache__gcs__fs,
         core__persistent_cache__gcs__url,
         core__persistent_cache__gcs__enabled,
     ):
         gcs_url = core__persistent_cache__gcs__url
         gcs_enabled = core__persistent_cache__gcs__enabled
+        gcs_fs = core__persistent_cache__gcs__fs
         if gcs_enabled:
             if gcs_url is None:
                 raise AssertionError(
                     "core__persistent_cache__gcs__url is None, but needs a value"
                 )
-            return GcsCloudStore(gcs_url)
+            if gcs_fs is None:
+                raise AssertionError(
+                    "core__persistent_cache__gcs__fs is None, but needs a value"
+                )
+            return GcsCloudStore(gcs_fs, gcs_url)
         else:
             return None
 
@@ -1924,6 +1947,7 @@ def create_default_flow_config():
         core__parallel_execution__enabled,
         core__aip_execution__enabled,
         core__aip_execution__config,
+        core__persistent_cache__gcs__fs,
     ):
         if not core__aip_execution__enabled:
             return None
@@ -1932,13 +1956,19 @@ def create_default_flow_config():
         if core__parallel_execution__enabled:
             error_message = """
                 Both core__aip_execution__enabled and
-                core__aip_execution__enabled, but only one can be
+                core__parallel_execution__enabled, but only one can be
                 enabled.
+            """
+            raise AssertionError(oneline(error_message))
+        if core__persistent_cache__gcs__fs is None:
+            error_message = """
+                core__aip_execution__enabled is enabled, but
+                core__persistent_cache__gcs__fs is None.
             """
             raise AssertionError(oneline(error_message))
         # TODO: Add checks that all the AIP libraries are installed. Otherwise,
         # users have to wait till job submission to get the error back that the
         # required libraries are not installed.
-        return AipExecutor(core__aip_execution__config)
+        return AipExecutor(core__aip_execution__config, core__persistent_cache__gcs__fs)
 
     return builder._config.mark_all_entities_default()

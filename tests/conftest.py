@@ -93,9 +93,6 @@ def pytest_collection_modifyitems(config, items):
                 if "no_parallel" in item.keywords or not also_run_parallel:
                     continue
 
-            if "fake_gcp" in item.keywords:
-                continue
-
         elif "needs_parallel" in item.keywords:
             continue
 

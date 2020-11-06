@@ -2,13 +2,13 @@
 Data model for task running on AI platform
 """
 import logging
+from typing import Callable, Optional, Any
+
 import attr
-from typing import Callable, Optional
 
 from bionic.aip.client import get_aip_client
 from bionic.aip.future import Future
 from bionic.deps.optdep import import_optional_dependency
-from bionic.gcs import get_gcs_fs_without_warnings
 
 
 @attr.s(auto_attribs=True, frozen=True)
@@ -53,6 +53,7 @@ class Task:
     function: Callable
     config: Config
     task_config: TaskConfig
+    gcs_fs: Any  # AbstractFileSystem-like object, not necessarily a subclass.
 
     def job_id(self):
         return f"{self.config.uuid}_{self.name}"
@@ -106,8 +107,7 @@ class Task:
         path = self.inputs_uri()
         logging.info(f"Staging task {self.name} at {path}")
 
-        gcs_fs = get_gcs_fs_without_warnings()
-        with gcs_fs.open(path, "wb") as f:
+        with self.gcs_fs.open(path, "wb") as f:
             cloudpickle.dump(self, f)
 
     def submit(self) -> Future:
@@ -126,4 +126,6 @@ class Task:
         request.execute()
         url = f'https://console.cloud.google.com/ai-platform/jobs/{spec["jobId"]}'
         logging.info(f"Started task on AI Platform: {url}")
-        return Future(self.config.project_name, self.job_id(), self.output_uri())
+        return Future(
+            self.gcs_fs, self.config.project_name, self.job_id(), self.output_uri()
+        )

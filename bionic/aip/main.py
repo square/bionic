@@ -11,10 +11,9 @@ from bionic.deps.optdep import import_optional_dependency
 from bionic.gcs import get_gcs_fs_without_warnings
 
 
-def _run(ipath):
+def _run(ipath, gcs_fs):
     cloudpickle = import_optional_dependency("cloudpickle")
 
-    gcs_fs = get_gcs_fs_without_warnings()
     with gcs_fs.open(ipath, "rb") as f:
         task = cloudpickle.load(f)
 
@@ -36,7 +35,7 @@ def run():
     This method is a proxy to _run which does the actual work. The proxy exists
     so that _run can be replaced for testing.
     """
-    _run(sys.argv[-1])
+    _run(sys.argv[-1], get_gcs_fs_without_warnings())
 
 
 def _set_up_logging(job_id, project_id):
