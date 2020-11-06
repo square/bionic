@@ -136,6 +136,7 @@ class Result:
     """
 
     task_key = attr.ib()
+    # TODO It looks like this field is unused; can we remove it?
     provenance = attr.ib()
     value = attr.ib()
     local_artifact = attr.ib()

@@ -279,9 +279,13 @@ class TaskCompletionRunner:
                 for target_entry in target_entries
             ]
             new_core = self._context.core.evolve(
-                aip_executor=None, process_executor=None
+                aip_executor=None,
+                process_executor=None,
             )
-            new_context = self._context.evolve(core=new_core)
+            new_context = self._context.evolve(
+                core=new_core,
+                temp_result_cache=MemoryResultCache(),
+            )
             new_task_completion_runner = TaskCompletionRunner(new_context)
             if aip_task_config is not None:
                 future = self._context.core.aip_executor.submit(
@@ -364,7 +368,7 @@ class TaskCompletionRunner:
         # Before doing anything with this task state, we should make sure its
         # cache state is up to date.
         state.refresh_all_persistent_cache_state(self._context)
-        entry = TaskRunnerEntry(state)
+        entry = TaskRunnerEntry(self._context, state)
         self._entries_by_task_key[task_key] = entry
         return entry
 
@@ -599,9 +603,31 @@ class ExecutionContext:
     flow_instance_uuid = attr.ib()
     core = attr.ib()
     task_key_logger = attr.ib()
+    # This is used for temporarily saving results for the duration of one execution.
+    # Currently we only do this for entities where both persistence and memoization are
+    # disabled.
+    temp_result_cache = attr.ib()
 
     def evolve(self, **kwargs):
         return attr.evolve(self, **kwargs)
+
+
+class MemoryResultCache:
+    """
+    A simple cache for storing computed Results by their TaskKeys.
+    """
+
+    def __init__(self):
+        self._results_by_task_key = {}
+
+    def contains(self, task_key):
+        return task_key in self._results_by_task_key
+
+    def save(self, result):
+        self._results_by_task_key[result.task_key] = result
+
+    def load(self, task_key):
+        return self._results_by_task_key.get(task_key)
 
 
 def dnode_without_drafts(dnode):

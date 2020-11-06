@@ -60,11 +60,10 @@ class TaskRunnerEntry:
         TaskCompletionRunner.
     """
 
-    def __init__(self, state):
+    def __init__(self, context, state):
+        self.context = context
         self.state = state
         self.future = None
-        self.result = None
-        self.is_vacated = False
         self._stage = None
         self.stage = EntryStage.COMPLETED
 
@@ -116,7 +115,10 @@ class TaskRunnerEntry:
 
     @property
     def _is_cached(self):
-        return self.result is not None or self.state.is_cached
+        return (
+            self.context.temp_result_cache.contains(self.state.task_key)
+            or self.state.is_cached
+        )
 
     @property
     def _is_primed(self):
@@ -201,31 +203,32 @@ class TaskRunnerEntry:
             state._result_value_hash = artifact.content_hash
 
         # If we're not persisting the result, this is our only chance to memoize it;
-        # otherwise, we can memoize it later if/when we load it get_cached_result.
+        # otherwise, we can memoize it later if/when we load it from get_cached_result.
         # (It's important to memoize the value we loaded, not the one we just computed,
         # because they may be subtly different and we want all downstream tasks to get
         # exactly the same value.)
         elif state.should_memoize:
             state._result = result
         else:
-            self.result = result
+            self.context.temp_result_cache.save(result)
 
     def get_cached_result(self, context):
         "Returns the result of an already-computed entry."
 
         assert self._is_cached
 
-        if self.is_vacated:
-            descriptor = self.state.task_key.dnode.to_descriptor()
-            message = f"""
-            Attempted to access a memoized value for {descriptor} after it was vacated;
-            this should never happen unless you're using an undocumented descriptor
-            feature; otherwise, this is probably a bug in Bionic.
-            """
-            raise AssertionError(oneline(message))
+        result = self.context.temp_result_cache.load(self.state.task_key)
+        if result is not None:
+            if isinstance(result, VacatedResult):
+                descriptor = self.state.task_key.dnode.to_descriptor()
+                message = f"""
+                Attempted to access a memoized value for {descriptor} after it was
+                vacated; this should never happen unless you're using an undocumented
+                descriptor feature; otherwise, this is probably a bug in Bionic.
+                """
+                raise AssertionError(oneline(message))
+            return result
 
-        if self.result is not None:
-            return self.result
         return self.state.get_cached_result(context)
 
     def vacate(self):
@@ -252,17 +255,10 @@ class TaskRunnerEntry:
         get recomputed again.
         """
 
-        if self.result is None:
+        if not self.context.temp_result_cache.contains(self.state.task_key):
             return
 
-        self.is_vacated = True
-        # Instead of setting this to None, we set it to a dummy string. If we just set
-        # it to None, then _is_cached would return False and it would look like this
-        # entry had become un-CACHED, which could cause confusing behavior. This way,
-        # the entry will continue be CACHED, but is_vacated will cause us to throw an
-        # exception if anyone tries to actually access the cached values (which should
-        # never happen).
-        self.result = "SHOULD NEVER BE ACCESSED"
+        self.context.temp_result_cache.save(VacatedResult(self.state.task_key))
 
     def __str__(self):
         return f"TaskRunnerEntry({self.state.task_key})"
@@ -452,6 +448,11 @@ class TaskState:
         self._result_value_hash = None
 
         # This can be set by get_cached_result() or compute().
+        # TODO It would be nice to move this to a central in-memory cache object, like
+        # context.temp_result_cache but with a longer lifetime. However, it would be
+        # a little weird to move this but still have self._result_value_hash here.
+        # Would it makes sense to remove the latter altogether and just retrieve it
+        # lazily from self._cache_accessor?
         self._result = None
 
     @property
@@ -873,3 +874,16 @@ class RemoteSubgraph:
             state.func_attrs.aip_task_config
             for state in self.stripped_states_with_aip_task_configs
         )
+
+
+@attr.s(frozen=True)
+class VacatedResult:
+    """
+    A fake Result.
+
+    We use this when we're confident a result will never be accessed again and we
+    want to remove its contents from memory. We use this class instead of None so that
+    if someone does try to access it, the error will be more obvious.
+    """
+
+    task_key = attr.ib()
