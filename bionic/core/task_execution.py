@@ -142,7 +142,6 @@ class TaskRunnerEntry:
 
         state = self.state
         task = state.task
-        provenance = state._provenance
         protocol = state.desc_metadata.protocol
 
         assert state.is_initialized
@@ -163,7 +162,6 @@ class TaskRunnerEntry:
         if state.output_would_be_missing():
             result = Result(
                 task_key=task.key,
-                provenance=provenance,
                 value=None,
                 local_artifact=None,
                 value_is_missing=True,
@@ -192,7 +190,6 @@ class TaskRunnerEntry:
         protocol.validate_for_dnode(task.key.dnode, value)
         result = Result(
             task_key=task.key,
-            provenance=provenance,
             value=value,
             local_artifact=None,
         )
@@ -500,7 +497,6 @@ class TaskState:
         value = self._value_from_local_artifact(local_artifact)
         result = Result(
             task_key=self.task_key,
-            provenance=self._provenance,
             value=value,
             local_artifact=local_artifact,
         )
