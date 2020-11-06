@@ -13,7 +13,7 @@ from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
 from .deps.optdep import import_optional_dependency
 from .exception import UndefinedEntityError
-from .core.flow_execution import TaskCompletionRunner, TaskKeyLogger
+from .core.flow_execution import ExecutionContext, TaskCompletionRunner, TaskKeyLogger
 from .core.task_execution import TaskState
 from .protocols import TupleProtocol, NonSerializableObjectProtocol
 from .provider import (
@@ -667,12 +667,12 @@ class EntityDeriver:
             self._get_or_create_task_state_for_key(task.key) for task in dinfo.tasks
         ]
 
-        task_key_logger = TaskKeyLogger(self._core)
-        task_runner = TaskCompletionRunner(
-            core=self._core,
+        exec_context = ExecutionContext(
             flow_instance_uuid=self._flow_instance_uuid,
-            task_key_logger=task_key_logger,
+            core=self._core,
+            task_key_logger=TaskKeyLogger(self._core),
         )
+        task_runner = TaskCompletionRunner(exec_context)
         results = task_runner.run(requested_task_states)
         assert len(results) == len(requested_task_states)
 

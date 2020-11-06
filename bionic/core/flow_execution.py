@@ -7,6 +7,8 @@ from concurrent.futures import wait, FIRST_COMPLETED
 import logging
 import time
 
+import attr
+
 from .task_execution import (
     EntryLevel,
     EntryPriority,
@@ -54,11 +56,9 @@ class TaskCompletionRunner:
     enum, indicating whether we need to and/or can do more work on it.
     """
 
-    def __init__(self, core, flow_instance_uuid, task_key_logger):
+    def __init__(self, context):
         # These are needed to complete entries.
-        self._core = core
-        self._flow_instance_uuid = flow_instance_uuid
-        self.task_key_logger = task_key_logger
+        self._context = context
 
         # These are used for caching and tracking.
         self._entries_by_task_key = {}
@@ -68,16 +68,16 @@ class TaskCompletionRunner:
 
     @property
     def _parallel_execution_enabled(self):
-        return self._core.process_executor is not None
+        return self._context.core.process_executor is not None
 
     @property
     def _aip_execution_enabled(self):
-        return self._core.aip_executor is not None
+        return self._context.core.aip_executor is not None
 
     def run(self, states):
         try:
             if self._parallel_execution_enabled:
-                self._core.process_executor.start_logging()
+                self._context.core.process_executor.start_logging()
 
             for state in states:
                 entry = self._get_or_create_entry_for_state(state)
@@ -98,13 +98,13 @@ class TaskCompletionRunner:
             for state in states:
                 task_key = state.task_key
                 entry = self._entries_by_task_key[task_key]
-                result = entry.get_cached_result(self.task_key_logger)
+                result = entry.get_cached_result(self._context)
                 results.append(result)
             return results
 
         finally:
             if self._parallel_execution_enabled:
-                self._core.process_executor.stop_logging()
+                self._context.core.process_executor.stop_logging()
 
     def _process_active_entry(self, entry):
         """
@@ -134,7 +134,7 @@ class TaskCompletionRunner:
             return
 
         # Now that we have the dependency digests, we can initialize our task state.
-        entry.state.initialize(self._core, self._flow_instance_uuid)
+        entry.state.initialize(self._context)
 
         # If that was all we needed, we're done.
         if self._mark_entry_completed_if_possible(entry):
@@ -162,7 +162,7 @@ class TaskCompletionRunner:
             self._aip_execution_enabled or self._parallel_execution_enabled
         ) and entry.state.should_persist
         if entry_may_be_computable_remotely:
-            remote_subgraph = RemoteSubgraph(entry.state, self._core)
+            remote_subgraph = RemoteSubgraph(entry.state, self._context)
             if self._aip_execution_enabled:
                 aip_task_configs = remote_subgraph.distinct_aip_task_configs
             else:
@@ -278,14 +278,13 @@ class TaskCompletionRunner:
                 remote_subgraph.get_stripped_state(target_entry.state)
                 for target_entry in target_entries
             ]
-            new_core = self._core.evolve(aip_executor=None, process_executor=None)
-            new_task_completion_runner = TaskCompletionRunner(
-                core=new_core,
-                flow_instance_uuid=self._flow_instance_uuid,
-                task_key_logger=self.task_key_logger,
+            new_core = self._context.core.evolve(
+                aip_executor=None, process_executor=None
             )
+            new_context = self._context.evolve(core=new_core)
+            new_task_completion_runner = TaskCompletionRunner(new_context)
             if aip_task_config is not None:
-                future = self._core.aip_executor.submit(
+                future = self._context.core.aip_executor.submit(
                     aip_task_config,
                     run_in_subprocess,
                     new_task_completion_runner,
@@ -295,13 +294,13 @@ class TaskCompletionRunner:
                 def done_callback(callback_future):
                     if not callback_future.cancelled():
                         for target_entry in target_entries:
-                            self.task_key_logger.log_computed_aip(
+                            self._context.task_key_logger.log_computed_aip(
                                 target_entry.state.task_key
                             )
 
                 future.add_done_callback(done_callback)
             else:
-                future = self._core.process_executor.submit(
+                future = self._context.core.process_executor.submit(
                     run_in_subprocess,
                     new_task_completion_runner,
                     stripped_target_states,
@@ -318,7 +317,7 @@ class TaskCompletionRunner:
         if self._mark_entry_blocked_if_necessary(entry):
             return
 
-        entry.compute(self.task_key_logger)
+        entry.compute(self._context)
         assert self._mark_entry_completed_if_possible(entry)
 
     def _set_up_entry_dependencies(self, entry):
@@ -364,7 +363,7 @@ class TaskCompletionRunner:
             return self._entries_by_task_key[task_key]
         # Before doing anything with this task state, we should make sure its
         # cache state is up to date.
-        state.refresh_all_persistent_cache_state(self._core)
+        state.refresh_all_persistent_cache_state(self._context)
         entry = TaskRunnerEntry(state)
         self._entries_by_task_key[task_key] = entry
         return entry
@@ -586,6 +585,23 @@ class TaskKeyLogger:
 
     def log_computed_aip(self, task_key):
         self._log("Computed   %s using AIP", task_key)
+
+
+# TODO Consider introducing the term "query" to refer to the scope of one get() call.
+@attr.s(frozen=True)
+class ExecutionContext:
+    """
+    Holds objects common to a specific "execution" -- i.e., a single ``flow.get()``
+    call. This is a convenience class to save the trouble of passing these objects
+    around individually.
+    """
+
+    flow_instance_uuid = attr.ib()
+    core = attr.ib()
+    task_key_logger = attr.ib()
+
+    def evolve(self, **kwargs):
+        return attr.evolve(self, **kwargs)
 
 
 def dnode_without_drafts(dnode):

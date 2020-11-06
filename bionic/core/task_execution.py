@@ -129,7 +129,7 @@ class TaskRunnerEntry:
     def _is_initialized(self):
         return self.state.is_initialized
 
-    def compute(self, task_key_logger):
+    def compute(self, context):
         """
         Computes the value of an entry by running its task. Requires that all
         the task's dependencies are already computed.
@@ -149,11 +149,11 @@ class TaskRunnerEntry:
         dep_results = []
         for dep_entry, dep_key in zip(self.dep_entries, task.dep_keys):
             assert dep_entry._is_cached
-            dep_result = dep_entry.get_cached_result(task_key_logger)
+            dep_result = dep_entry.get_cached_result(context)
             dep_results.append(dep_result)
 
         if not task.is_simple_lookup:
-            task_key_logger.log_computing(state.task_key)
+            context.task_key_logger.log_computing(state.task_key)
 
         dep_values = [dep_result.value for dep_result in dep_results]
 
@@ -183,9 +183,9 @@ class TaskRunnerEntry:
         value = task.compute(dep_values)
 
         if task.is_simple_lookup:
-            task_key_logger.log_accessed_from_definition(state.task_key)
+            context.task_key_logger.log_accessed_from_definition(state.task_key)
         else:
-            task_key_logger.log_computed(state.task_key)
+            context.task_key_logger.log_computed(state.task_key)
 
         protocol.validate_for_dnode(task.key.dnode, value)
         result = Result(
@@ -210,7 +210,7 @@ class TaskRunnerEntry:
         else:
             self.result = result
 
-    def get_cached_result(self, task_key_logger):
+    def get_cached_result(self, context):
         "Returns the result of an already-computed entry."
 
         assert self._is_cached
@@ -226,7 +226,7 @@ class TaskRunnerEntry:
 
         if self.result is not None:
             return self.result
-        return self.state.get_cached_result(task_key_logger)
+        return self.state.get_cached_result(context)
 
     def vacate(self):
         """
@@ -486,13 +486,13 @@ class TaskState:
     def __repr__(self):
         return f"TaskState({self.task!r})"
 
-    def get_cached_result(self, task_key_logger):
+    def get_cached_result(self, context):
         "Returns the result of an already-computed task state."
 
         assert self.is_cached
 
         if self._result is not None:
-            task_key_logger.log_accessed_from_memory(self.task_key)
+            context.task_key_logger.log_accessed_from_memory(self.task_key)
             return self._result
 
         local_artifact = self._cache_accessor.replicate_and_load_local_artifact()
@@ -504,7 +504,7 @@ class TaskState:
             local_artifact=local_artifact,
         )
 
-        task_key_logger.log_loaded_from_disk(result.task_key)
+        context.task_key_logger.log_loaded_from_disk(result.task_key)
 
         if self.should_memoize:
             self._result = result
@@ -528,7 +528,7 @@ class TaskState:
 
         self._load_value_hash()
 
-    def refresh_all_persistent_cache_state(self, core):
+    def refresh_all_persistent_cache_state(self, context):
         """
         Refreshes all state that depends on the persistent cache.
 
@@ -541,7 +541,7 @@ class TaskState:
         if not self.is_initialized or not self.should_persist:
             return
 
-        self.refresh_cache_accessor(core)
+        self.refresh_cache_accessor(context)
 
         # If we haven't loaded anything from the cache, we can stop here.
         if self._result_value_hash is None:
@@ -581,7 +581,7 @@ class TaskState:
         if self._result_value_hash is None:
             self._load_value_hash()
 
-    def initialize(self, core, flow_instance_uuid):
+    def initialize(self, context):
         "Initializes the task state to get it ready for completion."
 
         if self.is_initialized:
@@ -598,19 +598,19 @@ class TaskState:
             code_fingerprint=self.func_attrs.code_fingerprint,
             dep_provenance_digests_by_task_key=dep_provenance_digests_by_task_key,
             treat_bytecode_as_functional=(
-                core.versioning_policy.treat_bytecode_as_functional
+                context.core.versioning_policy.treat_bytecode_as_functional
             ),
             can_functionally_change_per_run=self.func_attrs.changes_per_run,
-            flow_instance_uuid=flow_instance_uuid,
+            flow_instance_uuid=context.flow_instance_uuid,
         )
 
         # Lastly, set up cache accessors.
         if self.should_persist:
-            self.refresh_cache_accessor(core)
+            self.refresh_cache_accessor(context)
 
         self.is_initialized = True
 
-    def refresh_cache_accessor(self, core):
+    def refresh_cache_accessor(self, context):
         """
         Initializes the cache acessor for this task state.
 
@@ -620,11 +620,11 @@ class TaskState:
         in order to wipe this state and allow it get back in sync with the real world.
         """
 
-        self._cache_accessor = core.persistent_cache.get_accessor(
+        self._cache_accessor = context.core.persistent_cache.get_accessor(
             task_key=self.task_key,
             provenance=self._provenance,
         )
-        if core.versioning_policy.check_for_bytecode_errors:
+        if context.core.versioning_policy.check_for_bytecode_errors:
             self._check_accessor_for_version_problems()
 
     def _check_accessor_for_version_problems(self):
@@ -800,8 +800,8 @@ class RemoteSubgraph:
     the other process.
     """
 
-    def __init__(self, target_state, core):
-        self._core = core
+    def __init__(self, target_state, context):
+        self._core = context.core
 
         self._stripped_states_by_task_key = {}
         self.persistable_but_not_persisted_states = set()
