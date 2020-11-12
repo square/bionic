@@ -50,6 +50,13 @@ class CodeContext:
     cells = attr.ib()
     varnames = attr.ib()
 
+    def copy(self):
+        return CodeContext(
+            globals=self.globals.copy(),
+            cells=self.cells.copy(),
+            varnames=self.varnames.copy(),
+        )
+
 
 def get_code_context(func) -> CodeContext:
     code = func.__code__
@@ -118,11 +125,7 @@ def get_referenced_objects(code, context):
     # context to not change the original context. The original context
     # can be shared between different code objects, like between an
     # outer and an inner function.
-    context = CodeContext(
-        globals=context.globals.copy(),
-        cells=context.cells.copy(),
-        varnames=context.varnames.copy(),
-    )
+    context = context.copy()
 
     # Top of the stack.
     tos = None

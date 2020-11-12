@@ -1,11 +1,21 @@
 import cmath
 import contextlib
+import logging
 import pytest
+from sklearn import linear_model
+from textwrap import dedent
 import threading
+import types
 
 from bionic.code_hasher import CodeHasher, TypePrefix
 
 
+global_var_10 = 10
+global_var_10_copy = 10
+global_var_20 = 20
+
+
+# TODO: Add tests for classes once we hash classes.
 def test_code_hasher():
     def barray(value):
         return bytearray(value, "utf8")
@@ -52,8 +62,6 @@ def test_code_hasher():
         return (s1, s2)
 
     def logistic_reg(train_frame, random_seed, hyperparams_dict):
-        from sklearn import linear_model
-
         m = linear_model.LogisticRegression(
             solver="liblinear", random_state=random_seed, **hyperparams_dict
         )
@@ -61,8 +69,6 @@ def test_code_hasher():
         return m
 
     def a_lot_of_consts(train_frame, random_seed, hyperparams_dict):
-        import logging
-
         docstring = """
         This function uses a few constants and demonstrates that Bionic
         can hash all of them without any issues.
@@ -94,6 +100,19 @@ def test_code_hasher():
     def f_docstring2():
         """Docstring2"""
         pass
+
+    def fib(n):
+        return fib(n - 1) + fib(n - 2)
+
+    def nested():
+        v = 1
+
+        def inner():
+            logging.info(v)
+            w = 5
+
+            def innermost():
+                logging.info(v, w)
 
     values = [
         b"",
@@ -160,6 +179,8 @@ def test_code_hasher():
         f_with_defaults3,
         f_docstring1,
         f_docstring2,
+        fib,
+        nested,
     ]
 
     values_with_complex_types = [
@@ -205,3 +226,147 @@ def test_same_func_different_names():
     assert CodeHasher.hash(f1) == CodeHasher.hash(f1)
     assert CodeHasher.hash(f2) == CodeHasher.hash(f2)
     assert CodeHasher.hash(f1) == CodeHasher.hash(f2)
+
+
+def test_global_variable_references():
+    def f1():
+        return global_var_10
+
+    def f2():
+        return global_var_10_copy
+
+    def f3():
+        return global_var_20
+
+    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
+    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
+    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
+
+    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
+    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+
+
+def test_free_variable_references():
+    free_var_10 = 10
+    free_var_10_copy = 10
+    free_var_20 = 20
+
+    def f1():
+        return free_var_10
+
+    def f2():
+        return free_var_10_copy
+
+    def f3():
+        return free_var_20
+
+    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
+    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
+    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
+
+    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
+    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+
+
+def test_function_references():
+    def ref10():
+        return 10
+
+    def ref10_copy():
+        return 10
+
+    def ref20():
+        return 20
+
+    def f1():
+        return ref10()
+
+    def f2():
+        return ref10_copy()
+
+    def f3():
+        return ref20()
+
+    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
+    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
+    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
+
+    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
+    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+
+
+def test_changes_in_references():
+    v = 10
+
+    def f():
+        return v
+
+    old_hash = CodeHasher.hash(f, True)
+    assert old_hash == CodeHasher.hash(f, True)
+
+    # Hash for f should change if we change v.
+    v = 20
+    new_hash = CodeHasher.hash(f, True)
+    assert new_hash == CodeHasher.hash(f, True)
+    assert old_hash != new_hash
+
+    def f1():
+        return 1
+
+    def count(v):
+        if v == 0:
+            return 0
+        return count(v - 1) + f1()
+
+    old_hash = CodeHasher.hash(count, True)
+    assert old_hash == CodeHasher.hash(count, True)
+
+    # Hash for count should change if we change f1.
+    def f1():  # noqa: F811
+        return 2
+
+    new_hash = CodeHasher.hash(count, True)
+    assert new_hash == CodeHasher.hash(count, True)
+    assert old_hash != new_hash
+
+
+@pytest.mark.parametrize("is_module_internal", [True, False])
+def test_changes_in_another_module(is_module_internal):
+    def import_code(code):
+        # Create a blank module.
+        if is_module_internal:
+            module = types.ModuleType("bionic.my_test_mod")
+            module.__file__ = "bionic/tests.py"
+        else:
+            module = types.ModuleType("my_test_mod")
+            module.__file__ = "my_file.py"
+        # Populate the module with code.
+        exec(code, module.__dict__)
+        return module
+
+    f_mod_code = """
+    def f_mod():
+        return 1
+    """
+    m = import_code(dedent(f_mod_code))
+
+    def f():
+        return m.f_mod()
+
+    old_hash = CodeHasher.hash(f, True)
+    assert old_hash == CodeHasher.hash(f, True)
+
+    # Hash for f should not change if we change f_mod when module is
+    # external.
+    f_mod_code = """
+    def f_mod():
+        return 2
+    """
+    m = import_code(dedent(f_mod_code))
+
+    new_hash = CodeHasher.hash(f, True)
+    assert new_hash == CodeHasher.hash(f, True)
+    if is_module_internal:
+        assert old_hash == new_hash
+    else:
+        assert old_hash != new_hash

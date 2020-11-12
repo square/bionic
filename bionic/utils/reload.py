@@ -39,7 +39,14 @@ def recursive_reload(module):
 
 
 def is_internal_module(module):
-    return not hasattr(module, "__file__") or any(
-        fnmatch(module.__file__, file_dir + "/*")
-        for file_dir in sysconfig_paths().values()
+    return not hasattr(module, "__file__") or is_internal_file(module.__file__)
+
+
+def is_internal_file(filename):
+    """
+    Helper method that determines whether the provided file is internal
+    to Python, i.e., it's in the Python installation paths.
+    """
+    return any(
+        fnmatch(filename, file_dir + "/*") for file_dir in sysconfig_paths().values()
     )
