@@ -477,6 +477,9 @@ class EntityDeriver:
                 protocol=entity_def.protocol,
                 doc=entity_def.doc,
                 should_memoize=should_memoize,
+                # If we don't have any other caching enabled for this entity, we memoize
+                # it for the lifetime of the current query.
+                should_memoize_for_query=(not (should_memoize or should_persist)),
                 should_persist=should_persist,
             )
 
@@ -496,6 +499,7 @@ class EntityDeriver:
             return DescriptorMetadata(
                 protocol=TupleProtocol(len(dnode.children)),
                 doc=f"A Python tuple with {len(dnode.children)} values.",
+                is_composite=True,
             )
 
         else:

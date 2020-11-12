@@ -18,7 +18,7 @@ from .task_execution import (
 )
 from ..exception import AttributeValidationError
 from ..utils.keyed_priority_stack import KeyedPriorityStack
-from ..utils.misc import oneline, SynchronizedSet
+from ..utils.misc import check_exactly_one_present, oneline, SynchronizedSet
 
 
 # TODO At some point it might be good to have the option of Bionic handling its
@@ -81,7 +81,9 @@ class TaskCompletionRunner:
             for state in states:
                 entry = self._get_or_create_entry_for_state(state)
                 self._add_requirement(
-                    src_entry=None, dst_entry=entry, level=EntryLevel.CACHED
+                    dst_entry=entry,
+                    level=EntryLevel.CACHED,
+                    is_transient=False,
                 )
 
             while self._has_pending_entries():
@@ -128,7 +130,9 @@ class TaskCompletionRunner:
         # so we'll need them to be primed.
         self._set_up_entry_dependencies(entry)
         for dep_entry in entry.dep_entries:
-            self._add_requirement(entry, dep_entry, EntryLevel.PRIMED)
+            self._add_requirement(
+                src_entry=entry, dst_entry=dep_entry, level=EntryLevel.PRIMED
+            )
         if self._mark_entry_blocked_if_necessary(entry):
             return
 
@@ -253,9 +257,9 @@ class TaskCompletionRunner:
                 # already be COMPLETED. However, we know it's not already CACHED,
                 # because it's `persistable_but_not_persisted`.)
                 self._add_requirement(
-                    src_entry=None,
                     dst_entry=target_entry,
                     level=EntryLevel.CACHED,
+                    is_transient=True,
                 )
                 if target_entry.stage == EntryStage.PENDING:
                     self._mark_entry_active(target_entry)
@@ -324,7 +328,9 @@ class TaskCompletionRunner:
         # Otherwise we'll compute this entry locally. In that case, it's not enough
         # for our dependencies to be primed; they also need to have cached values.
         for dep_entry in entry.dep_entries:
-            self._add_requirement(entry, dep_entry, EntryLevel.CACHED)
+            self._add_requirement(
+                src_entry=entry, dst_entry=dep_entry, level=EntryLevel.CACHED
+            )
         if self._mark_entry_blocked_if_necessary(entry):
             return
 
@@ -340,8 +346,23 @@ class TaskCompletionRunner:
             for dep_state in entry.state.dep_states
         ]
 
-    def _add_requirement(self, src_entry, dst_entry, level):
-        req = EntryRequirement(src_entry=src_entry, dst_entry=dst_entry, level=level)
+    def _add_requirement(
+        self,
+        dst_entry,
+        level,
+        src_entry=None,
+        is_transient=None,
+    ):
+        check_exactly_one_present(src_entry=src_entry, is_transient=is_transient)
+        if src_entry is not None:
+            is_transient = False
+
+        req = EntryRequirement(
+            dst_entry=dst_entry,
+            level=level,
+            src_entry=src_entry,
+            is_transient=is_transient,
+        )
         if req.src_entry is not None:
             req.src_entry.outgoing_reqs.add(req)
         req.dst_entry.incoming_reqs.add(req)
@@ -467,41 +488,112 @@ class TaskCompletionRunner:
             entry.future = None
             self._in_progress_entries.remove(entry)
 
+        entry.stage = EntryStage.COMPLETED
+
         if entry.level >= EntryLevel.CACHED:
             # If we have any followup tasks, we want to run them immediately.
             for followup_state in entry.state.followup_states:
                 followup_entry = self._get_or_create_entry_for_state(followup_state)
-                self._raise_entry_priority(followup_entry, EntryPriority.HIGH)
+                # If this entry's value is a collection of values, then we want to
+                # run its followups as soon as possible in order to get the
+                # (potentially large) object out of memory.
+                if entry.state.desc_metadata.is_composite:
+                    priority = EntryPriority.TOP
+                # Otherwise, we still want to make sure followups run before any
+                # non-followups.
+                else:
+                    priority = EntryPriority.HIGH
+                self._raise_entry_priority(followup_entry, priority)
                 self._add_requirement(
-                    src_entry=None,
                     dst_entry=followup_entry,
+                    level=EntryLevel.CACHED,
+                    is_transient=True,
+                )
+                # We also add a requirement from the followup back to its parent.
+                # This requirement will get generated anyway as soon as we start
+                # processing the followup, but we want to add it early so the
+                # requirement is visible when we start pruning requirements below;
+                # otherwise the current entry might think it has no more requirements
+                # and evict its value from memory.
+                #
+                # (Normally every entry we process was requested by one of its children,
+                # so when it completes it always has at least one active requirement.
+                # However, followups are requested by their parents and get processed
+                # before their children, so it's possible for a followup to complete
+                # with no active. That's why we need to add this requirement early.)
+                assert entry.state in followup_entry.state.dep_states
+                self._add_requirement(
+                    src_entry=followup_entry,
+                    dst_entry=entry,
                     level=EntryLevel.CACHED,
                 )
 
+            # Now this this entry has reached the final level of progress, some
+            # requirements may be ready to expire.
+            self._prune_requirements_for_cached_entry(entry)
+
+            # And now that some requirements have been removed, we may be able to
+            # evict some memoized values from memory.
             for dep_entry in entry.dep_entries:
-                self._vacate_completed_entry_if_possible(dep_entry)
-
-        entry.stage = EntryStage.COMPLETED
-
-        # TODO This might be a good place to prune old, already-met requirements.
+                # For each temporarily-memoized input value, we can try to evict it
+                # *unless* it has other high-priority (i.e., followup) entries waiting
+                # for it. (In general, we want these values to be recomputed each time
+                # they're needed, *except* for composite values like tuples, which need
+                # to stick around long enough to be broken up by their followup tassks.)
+                self._evict_temp_memoized_entry_value_if_possible(
+                    dep_entry, ignore_normal_priority_reqs=True
+                )
+            # We can also try to evict our own value if it has no active requirements
+            # at all. (This will generally happen if this entry was created as a
+            # followup but has no followups of its own. Otherwise, if we do have any
+            # requirements, we want the value to stick around long enough to actually
+            # get used by one of them!)
+            self._evict_temp_memoized_entry_value_if_possible(entry)
 
         return True
 
-    def _vacate_completed_entry_if_possible(self, entry):
-        assert entry.stage == EntryStage.COMPLETED
+    def _prune_requirements_for_cached_entry(self, entry):
+        assert entry.level >= EntryLevel.CACHED
 
-        # We only vacate an entry if it has followup entries.
-        if len(entry.state.followup_states) == 0:
+        # Once an entry is CACHED, we no longer care about any incoming transient
+        # requirements, or about any outgoing requirements at all.
+        transient_incoming_reqs = [
+            req for req in entry.incoming_reqs if req.is_transient
+        ]
+        reqs_to_discard = list(entry.outgoing_reqs) + transient_incoming_reqs
+
+        for req in reqs_to_discard:
+            req.dst_entry.incoming_reqs.discard(req)
+            if req.src_entry is not None:
+                req.src_entry.outgoing_reqs.discard(req)
+
+    def _evict_temp_memoized_entry_value_if_possible(
+        self, entry, ignore_normal_priority_reqs=False
+    ):
+        if not self._context.temp_result_cache.contains(entry.state.task_key):
             return
 
-        # We only vacate an entry once all its followups are cached; at that point,
-        # we know we won't need this one's value again.
-        for followup_state in entry.state.followup_states:
-            followup_entry = self._get_or_create_entry_for_state(followup_state)
-            if followup_entry.level != EntryLevel.CACHED:
-                return
+        # If this is enabled, the value should be saved until this query completes.
+        if entry.state.should_memoize_for_query:
+            return
 
-        entry.vacate()
+        remaining_reqs = [
+            req for req in entry.incoming_reqs if req.level >= EntryLevel.CACHED
+        ]
+        if ignore_normal_priority_reqs:
+            remaining_reqs = [
+                req
+                for req in remaining_reqs
+                if req.src_entry is not None
+                and req.src_entry.priority > EntryPriority.NORMAL
+            ]
+        if len(remaining_reqs) > 0:
+            return
+
+        self._context.temp_result_cache.delete(entry.state.task_key)
+
+        if entry.stage == EntryStage.COMPLETED and not entry.all_incoming_reqs_are_met:
+            self._mark_entry_pending(entry)
 
     def _mark_entry_blocked_if_necessary(self, entry):
         assert entry.stage == EntryStage.ACTIVE
@@ -642,6 +734,9 @@ class MemoryResultCache:
 
     def load(self, task_key):
         return self._results_by_task_key.get(task_key)
+
+    def delete(self, task_key):
+        del self._results_by_task_key[task_key]
 
 
 def dnode_without_drafts(dnode):

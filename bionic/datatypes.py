@@ -62,16 +62,23 @@ class DescriptorMetadata:
     doc: string
         A human-readable description of the descriptor.
     should_memoize: boolean
-        Whether the entity should be memoized.
+        Whether the value should be memoized for the lifetime of its Flow instance.
+    should_memoize_for_query: boolean
+        Whether the value should be memoized for the lifetime of a Flow.get() call.
+        (Only relevant if ``should_memoize`` is False.)
     should_persist: boolean
-        Whether the entity should be persisted.
-        used
+        Whether the value should be persisted.
+    is_composite: boolean
+        Whether the value contains other descriptor values. (If so, it's desirable to
+        get it out of memory quickly.)
     """
 
     protocol = attr.ib()
     doc = attr.ib()
     should_memoize = attr.ib(default=False)
+    should_memoize_for_query = attr.ib(default=False)
     should_persist = attr.ib(default=False)
+    is_composite = attr.ib(default=True)
 
 
 @attr.s(frozen=True)
