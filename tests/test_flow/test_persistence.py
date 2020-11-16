@@ -1361,6 +1361,11 @@ def make_tracked_class():
     """
     Creates a "tracked" class which keeps a count of how many of its instances are in
     memory.
+
+    The class also asserts that each instance in memory is has a unique value; this
+    guarantees that we don't (for example) read an instance from disk while the
+    original instance is still in memory.
+
     """
 
     def _make_tracked_class():
@@ -1378,14 +1383,22 @@ def make_tracked_class():
 
         class Tracked:
             n_instances_in_memory = 0
+            instance_values_in_memory = set()
             protocol = TrackedProtocol()
 
             def __init__(self, value):
+                assert value not in self.__class__.instance_values_in_memory
+
+                self.__class__.instance_values_in_memory.add(value)
                 self.__class__.n_instances_in_memory += 1
                 self.value = value
 
             def __del__(self):
-                self.__class__.n_instances_in_memory -= 1
+                # If our assertion in __init__ failed, we don't have a "value"
+                # attribute and don't need to update our trackers.
+                if hasattr(self, "value"):
+                    self.__class__.n_instances_in_memory -= 1
+                    self.__class__.instance_values_in_memory.remove(self.value)
 
         return Tracked
 
