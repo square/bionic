@@ -1458,3 +1458,39 @@ def test_non_memoized_complex_tuples_are_garbage_collected(builder, make_tracked
         return x_plus_one + 1
 
     assert builder.build().get("x_plus_two") == 3
+
+
+# When an entity has both persistence and memoization disabled, we memoize it just
+# for the duration of the get() call.
+def test_uncached_values_cached_for_query_duration(builder, make_counter):
+    x_counter = make_counter()
+
+    builder.set("core__persist_by_default", False)
+    builder.set("core__memoize_by_default", False)
+
+    builder.assign("y", 3)
+
+    @builder
+    @x_counter
+    def x():
+        return 2
+
+    @builder
+    def x_squared(x):
+        return x * x
+
+    @builder
+    def y_x_squared(y, x_squared):
+        return y * x_squared
+
+    @builder
+    def y_x_cubed(y_x_squared, x):
+        return y_x_squared * x
+
+    flow = builder.build()
+
+    assert flow.get("y_x_cubed") == 24
+    assert x_counter.times_called() == 1
+
+    assert flow.get("y_x_cubed") == 24
+    assert x_counter.times_called() == 1
