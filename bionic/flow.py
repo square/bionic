@@ -1757,6 +1757,7 @@ def create_default_flow_config():
 
     builder.assign("core__memoize_by_default", True, persist=False)
     builder.assign("core__persist_by_default", True, persist=False)
+    builder.assign("core__temp_memoize_if_uncached", True, persist=False)
     builder.assign("core__persistent_cache__global_dir", "bndata", persist=False)
     builder.assign("core__versioning_mode", "manual", persist=False)
 
