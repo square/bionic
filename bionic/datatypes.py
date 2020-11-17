@@ -136,7 +136,6 @@ class Result:
     """
 
     task_key = attr.ib()
-    provenance = attr.ib()
     value = attr.ib()
     local_artifact = attr.ib()
     value_is_missing = attr.ib(default=False)
