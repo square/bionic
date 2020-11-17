@@ -212,7 +212,10 @@ class ModelFlowHarness:
 
         if not binding.has_persisted_values:
             dep_values = [
-                self._compute_model_value(dep_entity_name)
+                self._compute_model_value(
+                    dep_entity_name,
+                    memoized_values_by_entity_name=memoized_values_by_entity_name,
+                )
                 for dep_entity_name in binding.dep_entity_names
             ]
             values_by_entity_name = binding.compute_and_save_values(dep_values)
