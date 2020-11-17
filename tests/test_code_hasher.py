@@ -324,11 +324,17 @@ def test_changes_in_references():
     assert old_hash != new_hash
 
 
-def test_changes_in_another_module():
+@pytest.mark.parametrize("is_module_internal", [True, False])
+def test_changes_in_another_module(is_module_internal):
     def import_code(code):
-        # create blank module
-        module = types.ModuleType("my_test_mod")
-        # populate the module with code
+        # Create a blank module.
+        if is_module_internal:
+            module = types.ModuleType("bionic.my_test_mod")
+            module.__file__ = "bionic/tests.py"
+        else:
+            module = types.ModuleType("my_test_mod")
+            module.__file__ = "my_file.py"
+        # Populate the module with code.
         exec(code, module.__dict__)
         return module
 
@@ -344,7 +350,8 @@ def test_changes_in_another_module():
     old_hash = CodeHasher.hash(f, True)
     assert old_hash == CodeHasher.hash(f, True)
 
-    # Hash for f should change if we change f_mod.
+    # Hash for f should not change if we change f_mod when module is
+    # external.
     f_mod_code = """
     def f_mod():
         return 2
@@ -353,4 +360,7 @@ def test_changes_in_another_module():
 
     new_hash = CodeHasher.hash(f, True)
     assert new_hash == CodeHasher.hash(f, True)
-    assert old_hash != new_hash
+    if is_module_internal:
+        assert old_hash == new_hash
+    else:
+        assert old_hash != new_hash

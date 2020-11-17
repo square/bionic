@@ -26,6 +26,7 @@ import warnings
 
 from .code_references import get_code_context, get_referenced_objects
 from .utils.misc import oneline
+from .utils.reload import is_internal_file
 
 
 PREFIX_SEPARATOR = b"$"
@@ -163,9 +164,17 @@ class CodeHasher:
         elif inspect.isroutine(obj):
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.ROUTINE)
 
-            code_context = get_code_context(obj)
-            self._check_and_ingest(obj.__defaults__, code_context)
-            self._ingest_code(obj.__code__, code_context)
+            # TODO: See if we can get the version of the module and
+            # hash the version as well.
+            if obj.__module__.startswith("bionic") or is_internal_file(
+                obj.__code__.co_filename
+            ):
+                routine_name = "%s.%s" % (obj.__module__, obj.__name__)
+                self._check_and_ingest(routine_name)
+            else:
+                code_context = get_code_context(obj)
+                self._check_and_ingest(obj.__defaults__, code_context)
+                self._ingest_code(obj.__code__, code_context)
 
         elif inspect.iscode(obj):
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.CODE)
@@ -197,11 +206,6 @@ class CodeHasher:
         ]
         self._check_and_ingest(consts)
 
-        # TODO: We don't need to hash all the references. Like the
-        # reload functionality, we should skip internal modules.
-        #
-        # This change can either be done here, or maybe inside the
-        # `inspect.isroutine` if conditional from `self._ingest`.
         if self._should_hash_refs:
             references = get_referenced_objects(code, code_context)
             self._check_and_ingest(references)
