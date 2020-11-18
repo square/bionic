@@ -531,10 +531,7 @@ class Inventory:
                 tier=self.tier,
                 provenance=metadata_record.provenance,
                 exactly_matches_provenance=(match.level == "exact"),
-                artifact=Artifact(
-                    url=metadata_record.artifact_url,
-                    content_hash=metadata_record.value_hash,
-                ),
+                artifact=metadata_record.artifact,
             )
 
     def list_items(self):
@@ -546,7 +543,7 @@ class Inventory:
             metadata_record = self._load_metadata_if_valid_else_delete(metadata_url)
             if metadata_record is None:
                 continue
-            artifact_url = metadata_record.artifact_url
+            artifact_url = metadata_record.artifact.url
             yield ExternalCacheItem(
                 inventory=self,
                 abs_artifact_url=derelativize_url(artifact_url, metadata_url),
@@ -627,13 +624,13 @@ class Inventory:
         except Exception as e:
             raise InternalCacheStateError.from_failure("metadata record", url, e)
 
-        if not self._fs.exists(metadata_record.artifact_url):
+        if not self._fs.exists(metadata_record.artifact.url):
             logger.info(
                 "Found invalid metadata record at %s, "
                 "referring to nonexistent artifact at %s; "
                 "deleting metadata record",
                 url,
-                metadata_record.artifact_url,
+                metadata_record.artifact.url,
             )
             self.delete_url(url)
             return None
@@ -645,10 +642,9 @@ class Inventory:
         metadata_url = self._exact_metadata_url_for_provenance(provenance)
 
         metadata_record = ArtifactMetadataRecord(
+            artifact=artifact,
             descriptor=provenance.descriptor,
-            artifact_url=artifact.url,
             provenance=provenance,
-            value_hash=artifact.content_hash,
         )
         metadata_yaml = metadata_record.to_relativized_yaml(metadata_url)
         self._fs.write_bytes(metadata_yaml.encode("utf8"), metadata_url)
@@ -901,9 +897,7 @@ def valid_filename_from_provenance(provenance):
     return provenance.descriptor.replace(" ", "-")
 
 
-# Next time we change this, it would be nice to also update ArtifactMetadataRecord to
-# contain an Artifact directly.
-CACHE_SCHEMA_VERSION = 10
+CACHE_SCHEMA_VERSION = 11
 
 
 class YamlRecordParsingError(Exception):
@@ -1111,17 +1105,16 @@ class ArtifactMetadataRecord:
     Describes a persisted artifact.  Intended to be stored as a YAML file.
     """
 
+    artifact: Artifact = attr.ib()
     descriptor: str = attr.ib()
-    artifact_url: str = attr.ib()
     provenance: Provenance = attr.ib()
-    value_hash: str = attr.ib()
 
     def to_relativized_yaml(self, metadata_url):
         """
         Serializes this object to a YAML string suitable for storage.
 
         The YAML representation directly maps to the structure of this class, except
-        that the ``artifact_url`` field will be converted to be relative to
+        that the ``artifact.url`` field will be converted to be relative to
         ``metadata_url``. This allows the artifact and metadata files to be moved
         around, as long as their relative position remains the same.
         """
@@ -1141,7 +1134,7 @@ class ArtifactMetadataRecord:
 
         This is the inverse operation to ``to_relativized_yaml``, and it correspondingly
         reverses the relativization of the artifact URL: the deserialized object will
-        have an absolute ``artifact_url`` field.
+        have an absolute ``artifact.url`` field.
         """
         try:
             body_dict = yaml.load(yaml_str, Loader=YamlLoader)
@@ -1159,11 +1152,15 @@ class ArtifactMetadataRecord:
     def _relativize(self, metadata_url):
         return attr.evolve(
             self,
-            artifact_url=relativize_url(self.artifact_url, metadata_url),
+            artifact=self.artifact.evolve(
+                url=relativize_url(self.artifact.url, metadata_url)
+            ),
         )
 
     def _derelativize(self, metadata_url):
         return attr.evolve(
             self,
-            artifact_url=derelativize_url(self.artifact_url, metadata_url),
+            artifact=self.artifact.evolve(
+                url=derelativize_url(self.artifact.url, metadata_url)
+            ),
         )
