@@ -28,6 +28,7 @@ class ModelFlowHarness:
     - testing the value of an entity and the set of (user-provided) functions computed
       in the process
     - persisted and non-persisted entities
+    - memoized and non-memoized entities
     - functions with multiple entity outputs
 
     This class is similar to the ``SimpleFlowModel`` ("SFM") in ``test_persisted_fuzz``,
@@ -37,7 +38,6 @@ class ModelFlowHarness:
     - this class does not support the following:
       - non-deterministic (``changes_per_run``) entities
       - non-functional updates
-      - alternative versioning modes
       - cloud caching
 
     This class has a more sophisticated implementation than SFM, so it should be
@@ -45,15 +45,26 @@ class ModelFlowHarness:
     the above features, we can remove SFM altogether.
     """
 
-    def __init__(self, builder, make_list, expect_exact_call_count_matches=False):
+    def __init__(
+        self,
+        builder,
+        make_list,
+        parallel_execution_enabled=False,
+        expect_exact_call_count_matches=False,
+    ):
         self._builder = builder
         self._versioning_mode = "manual"
+        self._parallel_execution_enabled = parallel_execution_enabled
         self._expect_exact_call_count_matches = expect_exact_call_count_matches
 
+        # TODO Would it make sense to factor all the model state into a single ModelFlow
+        # object?
         self._entities_by_name = {}
 
         self._descriptors_computed_by_flow = make_list()
         self._descriptors_computed_by_model = make_list()
+
+        self._clear_active_flow()
 
     def set_versioning_mode(self, mode):
         assert mode in ("manual", "assist", "auto")
@@ -63,14 +74,20 @@ class ModelFlowHarness:
     def get_all_entity_names(self):
         return list(self._entities_by_name.keys())
 
-    def create_entity(self, should_persist=True):
+    def create_entity(self, should_persist=True, should_memoize=True):
         name = f"e{len(self._entities_by_name) + 1}"
-        entity = ModelEntity(name=name, should_persist=should_persist)
+        entity = ModelEntity(
+            name=name,
+            should_persist=should_persist,
+            should_memoize=should_memoize,
+        )
         assert name not in self._entities_by_name
         self._entities_by_name[name] = entity
         return name
 
     def add_binding(self, out_descriptor, dep_entity_names, use_tuples_for_output=True):
+        self._clear_active_flow()
+
         out_dnode = dnode_from_descriptor(out_descriptor)
         out_entities = list(
             map(self._entities_by_name.get, out_dnode.all_entity_names())
@@ -100,6 +117,8 @@ class ModelFlowHarness:
         change_func_version=True,
         update_version_annotation=True,
     ):
+        self._clear_active_flow()
+
         entity = self._entities_by_name[entity_name]
         entity.binding.update(
             change_func=change_func_version,
@@ -113,17 +132,24 @@ class ModelFlowHarness:
         if expect_exact_call_count_matches is None:
             expect_exact_call_count_matches = self._expect_exact_call_count_matches
 
-        flow = self._builder.build()
+        self._build_active_flow_if_missing()
 
         flow_exception = None
         try:
-            flow_value = flow.get(entity_name)
+            flow_value = self._active_flow.get(entity_name)
         except CodeVersioningError as e:
             flow_exception = e
 
+        context = ModelExecutionContext(
+            parallel_execution_enabled=self._parallel_execution_enabled,
+            versioning_mode=self._versioning_mode,
+            memoized_flow_values_by_entity_name=self._active_model_memoized_values_by_entity_name,
+            memoized_query_values_by_entity_name={},
+            computed_descriptors=self._descriptors_computed_by_model,
+        )
         model_exception = None
         try:
-            model_value = self._compute_model_value(entity_name)
+            model_value = self._compute_model_value(entity_name, context)
         except CodeVersioningError as e:
             model_exception = e
 
@@ -182,6 +208,15 @@ class ModelFlowHarness:
     def save_dag(self, filename):
         self._builder.build().render_dag().save(filename)
 
+    def _clear_active_flow(self):
+        self._active_flow = None
+        self._active_model_memoized_values_by_entity_name = None
+
+    def _build_active_flow_if_missing(self):
+        if self._active_flow is None:
+            self._active_flow = self._builder.build()
+            self._active_model_memoized_values_by_entity_name = {}
+
     def _add_binding_to_flow(self, binding):
         out_entity_names = [entity.name for entity in binding.out_entities]
 
@@ -210,40 +245,56 @@ class ModelFlowHarness:
         {output_decorator_fragment}
         @bn.version({binding.annotated_func_version})
         @bn.persist({binding.should_persist})
+        @bn.memoize({binding.should_memoize})
         def _({joined_dep_entity_names}):
             record_call({binding.out_descriptor!r})
             return {output_value_fragment}
         """
         exec(dedent(raw_func_code), vars_dict)
 
-    def _compute_model_value(self, entity_name, memoized_values_by_entity_name=None):
-        if memoized_values_by_entity_name is None:
-            memoized_values_by_entity_name = {}
-        if entity_name in memoized_values_by_entity_name:
-            return memoized_values_by_entity_name[entity_name]
+    def _compute_model_value(
+        self,
+        entity_name,
+        context,
+    ):
+        if entity_name in context.memoized_query_values_by_entity_name:
+            return context.memoized_query_values_by_entity_name[entity_name]
+        if entity_name in context.memoized_flow_values_by_entity_name:
+            return context.memoized_flow_values_by_entity_name[entity_name]
 
         entity = self._entities_by_name[entity_name]
         binding = entity.binding
 
         if not binding.has_persisted_values:
-            dep_values = [
-                self._compute_model_value(
-                    dep_entity_name,
-                    memoized_values_by_entity_name=memoized_values_by_entity_name,
+            running_in_subprocess = (
+                context.parallel_execution_enabled and binding.should_persist
+            )
+            if running_in_subprocess:
+                dep_context = context.evolve(
+                    memoized_flow_values_by_entity_name={},
+                    memoized_query_values_by_entity_name={},
                 )
+            else:
+                dep_context = context
+            dep_values = [
+                self._compute_model_value(dep_entity_name, dep_context)
                 for dep_entity_name in binding.dep_entity_names
             ]
             values_by_entity_name = binding.compute_and_save_values(dep_values)
-            self._descriptors_computed_by_model.append(binding.out_descriptor)
+            context.computed_descriptors.append(binding.out_descriptor)
 
         else:
             if binding.persisted_values_stale_ancestor is not None:
-                assert self._versioning_mode == "assist"
+                assert context.versioning_mode == "assist"
                 stale_ancestor = binding.persisted_values_stale_ancestor
                 raise CodeVersioningError("Binding is stale", stale_ancestor)
             values_by_entity_name = binding.persisted_values_by_entity_name
 
-        memoized_values_by_entity_name.update(values_by_entity_name)
+        if binding.should_memoize:
+            context.memoized_flow_values_by_entity_name.update(values_by_entity_name)
+        elif not binding.should_persist:
+            context.memoized_query_values_by_entity_name.update(values_by_entity_name)
+
         return values_by_entity_name[entity_name]
 
     def _clear_called_descriptors(self):
@@ -252,11 +303,28 @@ class ModelFlowHarness:
 
 
 @attr.s
+class ModelExecutionContext:
+    """
+    Represents the state associated with a modeled ``flow.get()`` call.
+    """
+
+    parallel_execution_enabled = attr.ib()
+    versioning_mode = attr.ib()
+    memoized_flow_values_by_entity_name = attr.ib()
+    memoized_query_values_by_entity_name = attr.ib()
+    computed_descriptors = attr.ib()
+
+    def evolve(self, **kwargs):
+        return attr.evolve(self, **kwargs)
+
+
+@attr.s
 class ModelEntity:
     """Represents an entity in a Bionic flow."""
 
     name = attr.ib()
     should_persist = attr.ib()
+    should_memoize = attr.ib()
 
     binding = attr.ib(default=None)
     dependent_entities = attr.ib(default=attr.Factory(list))
@@ -396,6 +464,12 @@ class ModelBinding:
             entity.should_persist for entity in self.out_entities
         )
 
+    @property
+    def should_memoize(self):
+        return single_unique_element(
+            entity.should_memoize for entity in self.out_entities
+        )
+
 
 @attr.s
 class RandomFlowTestConfig:
@@ -411,6 +485,8 @@ class RandomFlowTestConfig:
         The number of update-and-query operations to perform on the flow.
     p_persist: float between 0 and 1
         The probability that any entity should be persistable.
+    p_memoize: float between 0 and 1
+        The probability that any entity should be memoizable.
     p_multi_out: float between 0 and 1
         The probability that any binding should output multiple entities.
     p_three_out_given_multi: float between 0 and 1
@@ -430,6 +506,7 @@ class RandomFlowTestConfig:
     n_bindings = attr.ib()
     n_iterations = attr.ib()
     p_persist = attr.ib(default=0.5)
+    p_memoize = attr.ib(default=0.5)
     p_multi_out = attr.ib(default=0.3)
     p_three_out_given_multi = attr.ib(default=0.3)
     p_update_version_annotation = attr.ib(default=1.0)
@@ -468,14 +545,22 @@ class RandomFlowTester:
             self.add_random_binding()
         for _ in range(self._config.n_iterations):
             self.update_random_entity()
-            self.query_and_check_random_entity()
+            # Randomly run 0, 1, or 2 queries. This means we average 1 query per update,
+            # but sometimes perform multiple queries in a row (which is the only way
+            # we'll get to exercise the flow's in-memory cache).
+            for _ in range(self._rng.integers(3)):
+                self.query_and_check_random_entity()
 
     def add_random_binding(self):
         dep_entity_names = self._random_dep_entity_names()
         for dep_entity_name in dep_entity_names:
             self._child_counts_by_entity_name[dep_entity_name] += 1
         should_persist = self._random_bool(p_true=self._config.p_persist)
-        descriptor = self._random_descriptor_of_new_entities(should_persist)
+        should_memoize = self._random_bool(p_true=self._config.p_memoize)
+        descriptor = self._random_descriptor_of_new_entities(
+            should_persist,
+            should_memoize,
+        )
         self._harness.add_binding(
             out_descriptor=descriptor,
             dep_entity_names=dep_entity_names,
@@ -534,9 +619,9 @@ class RandomFlowTester:
     def _random_existing_entity_name(self):
         return self._rng.choice(self._harness.get_all_entity_names())
 
-    def _random_descriptor_of_new_entities(self, should_persist):
+    def _random_descriptor_of_new_entities(self, should_persist, should_memoize):
         def new_entity_name():
-            entity_name = self._harness.create_entity(should_persist)
+            entity_name = self._harness.create_entity(should_persist, should_memoize)
             self._child_counts_by_entity_name[entity_name] = 0
             return entity_name
 
@@ -570,6 +655,7 @@ def harness(builder, make_list, parallel_execution_enabled):
     return ModelFlowHarness(
         builder,
         make_list,
+        parallel_execution_enabled=parallel_execution_enabled,
         # If parallel execution is enabled, some non-persistable entities may get
         # computed multiple times in different processes, which our model doesn't
         # account for.
@@ -603,14 +689,18 @@ def test_random_flow_small(harness):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("p_persist", [0.2, 0.5, 0.8])
+@pytest.mark.parametrize("p_persist", [0.3, 0.7])
+@pytest.mark.parametrize("p_memoize", [0.3, 0.7])
 @pytest.mark.parametrize("p_multi_out", [0.2, 0.6])
 @pytest.mark.parametrize("n_bindings, n_iterations", [(10, 20), (50, 50)])
-def test_random_flow_varied(harness, n_bindings, n_iterations, p_persist, p_multi_out):
+def test_random_flow_varied(
+    harness, n_bindings, n_iterations, p_persist, p_memoize, p_multi_out
+):
     config = RandomFlowTestConfig(
         n_bindings=n_bindings,
         n_iterations=n_iterations,
         p_persist=p_persist,
+        p_memoize=p_memoize,
         p_multi_out=p_multi_out,
     )
     RandomFlowTester(harness, config).run()
