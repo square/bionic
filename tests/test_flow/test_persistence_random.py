@@ -9,7 +9,7 @@ import re
 from bionic.descriptors.parsing import dnode_from_descriptor
 from bionic.exception import CodeVersioningError
 from bionic.utils.misc import single_element, single_unique_element
-import bionic as bn
+import bionic as bn  # noqa: F401
 
 
 class ModelFlowHarness:
@@ -200,7 +200,7 @@ class ModelFlowHarness:
             output_value_fragment = binding.value_code_fragment_for_outputs()
 
         vars_dict = {
-            "bn": bn,
+            **globals(),
             "builder": self._builder,
             "record_call": self._descriptors_computed_by_flow.append,
         }

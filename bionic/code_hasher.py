@@ -45,18 +45,14 @@ class CodeHasher:
     it doesn't actually achieve the ideal behavior we described above.
     """
 
-    def __init__(self, should_hash_refs):
+    def __init__(self):
         self._hash = hashlib.new("md5")
-        # This flag determines whether we hash the code references for
-        # passed in code objects. This is temporary and will be removed
-        # once we are happy with the state of Smart Caching work.
-        self._should_hash_refs = should_hash_refs
         # This is used to detect circular references.
         self._object_depths_by_id = {}
 
     @classmethod
-    def hash(cls, obj, should_hash_refs=False):
-        hasher = cls(should_hash_refs)
+    def hash(cls, obj):
+        hasher = cls()
         hasher._check_and_ingest(obj=obj)
         return hasher._hash.hexdigest()
 
@@ -161,13 +157,20 @@ class CodeHasher:
                 self._check_and_ingest(key, code_context)
                 self._check_and_ingest(elem, code_context)
 
+        elif inspect.isbuiltin(obj):
+            self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.BUILTIN)
+            builtin_name = "%s.%s" % (obj.__module__, obj.__name__)
+            self._check_and_ingest(builtin_name)
+
         elif inspect.isroutine(obj):
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.ROUTINE)
 
             # TODO: See if we can get the version of the module and
             # hash the version as well.
-            if obj.__module__.startswith("bionic") or is_internal_file(
-                obj.__code__.co_filename
+            if (
+                obj.__module__ is None
+                or obj.__module__.startswith("bionic")
+                or is_internal_file(obj.__code__.co_filename)
             ):
                 routine_name = "%s.%s" % (obj.__module__, obj.__name__)
                 self._check_and_ingest(routine_name)
@@ -180,15 +183,30 @@ class CodeHasher:
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.CODE)
             self._ingest_code(obj, code_context)
 
+        elif inspect.isclass(obj):
+            # TODO: Hashing classes is next on our roadmap. Let's hash
+            # the name for now.
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.CLASS,
+                obj_bytes=obj.__name__.encode(),
+            )
+
         else:
             # TODO: Verify that we hash all Python constant types.
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.DEFAULT)
+            # TODO: Provide a way for users to disable bytecode hashing
+            # for individual entities and add information on how to
+            # suppress this warning.
             message = oneline(
                 f"""
-                Found a constant {obj!r} of type {type(obj)!r} that
-                Bionic doesn't know how to hash. This is most likely a
-                bug in Bionic. Please raise a new issue at
-                https://github.com/square/bionic/issues to let us know.
+                Found a complex object {obj!r} of type {type(obj)!r}
+                while analyzing code for caching. Any changes to its
+                value won't be detected by Bionic, which may result in
+                Bionic using stale cache values. Consider making this
+                value a Bionic entity instead.
+
+                Check https://bionic.readthedocs.io/en/stable/warnings.html#avoid-global-state
+                for more information.
                 """
             )
             warnings.warn(message)
@@ -204,11 +222,10 @@ class CodeHasher:
             for const in code.co_consts
             if not (isinstance(const, str) and const.endswith(".<lambda>"))
         ]
-        self._check_and_ingest(consts)
+        self._check_and_ingest(consts, code_context)
 
-        if self._should_hash_refs:
-            references = get_referenced_objects(code, code_context)
-            self._check_and_ingest(references)
+        references = get_referenced_objects(code, code_context)
+        self._check_and_ingest(references)
 
 
 class TypePrefix(Enum):
@@ -237,6 +254,8 @@ class TypePrefix(Enum):
     ROUTINE = b"AL"
     CODE = b"AM"
     CIRCULAR_REF = b"AN"
+    BUILTIN = b"AO"
+    CLASS = b"AP"
     DEFAULT = b"ZZ"
 
 

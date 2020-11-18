@@ -14,8 +14,7 @@ global_var_20 = 20
 
 
 # TODO: Once we turn on the references flag, add more complicated cases
-# in this test, like references from another module, functions with
-# inner functions, recursive references, etc.
+# in this test, functions with inner functions etc.
 #
 # Also add tests for classes once we hash classes.
 def test_code_hasher():
@@ -51,11 +50,41 @@ def test_code_hasher():
     def f4():
         return "10"
 
+    def g1():
+        return global_var_10
+
+    def g2():
+        return global_var_20
+
+    free_var_10 = 10
+    free_var_20 = 20
+
+    def free1():
+        return free_var_10
+
+    def free2():
+        return free_var_20
+
+    def fref1():
+        return f1()
+
+    def fref2():
+        return f2()
+
     def inc(x):
         return x + 1
 
     def dec(x):
         return x - 1
+
+    def one():
+        return 1
+
+    def inc_with_one(x):
+        return x + one()
+
+    def dec_with_one(x):
+        return x - one()
 
     def quadratic_eq(a, b, c):
         d = b ** 2 - 4 * a * c
@@ -162,8 +191,16 @@ def test_code_hasher():
         f2,
         f3,
         f4,
+        g1,
+        g2,
+        free1,
+        free2,
+        fref1,
+        fref2,
         inc,
         dec,
+        inc_with_one,
+        dec_with_one,
         lambda x: x * 2,
         lambda x: x / 2,
         lambda: None,
@@ -185,7 +222,7 @@ def test_code_hasher():
     idx_by_hash_value = {}
     for idx, val in enumerate(values + values_with_complex_types):
         if idx >= len(values):
-            ctx_mgr = pytest.warns(UserWarning, match="Found a constant")
+            ctx_mgr = pytest.warns(UserWarning, match="Found a complex object")
         else:
             ctx_mgr = contextlib.suppress()
 
@@ -203,7 +240,7 @@ def test_complex_type_warning():
     val = threading.Lock()
     with pytest.warns(
         UserWarning,
-        match="Found a constant",
+        match="Found a complex object",
     ):
         assert CodeHasher.hash(val) == CodeHasher.hash(TypePrefix.DEFAULT)
 
@@ -232,12 +269,12 @@ def test_global_variable_references():
     def f3():
         return global_var_20
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
-    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
+    assert CodeHasher.hash(f1) == CodeHasher.hash(f1)
+    assert CodeHasher.hash(f2) == CodeHasher.hash(f2)
+    assert CodeHasher.hash(f3) == CodeHasher.hash(f3)
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+    assert CodeHasher.hash(f1) == CodeHasher.hash(f2)
+    assert CodeHasher.hash(f1) != CodeHasher.hash(f3)
 
 
 def test_free_variable_references():
@@ -254,12 +291,12 @@ def test_free_variable_references():
     def f3():
         return free_var_20
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
-    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
+    assert CodeHasher.hash(f1) == CodeHasher.hash(f1)
+    assert CodeHasher.hash(f2) == CodeHasher.hash(f2)
+    assert CodeHasher.hash(f3) == CodeHasher.hash(f3)
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+    assert CodeHasher.hash(f1) == CodeHasher.hash(f2)
+    assert CodeHasher.hash(f1) != CodeHasher.hash(f3)
 
 
 def test_function_references():
@@ -281,12 +318,12 @@ def test_function_references():
     def f3():
         return ref20()
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
-    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
+    assert CodeHasher.hash(f1) == CodeHasher.hash(f1)
+    assert CodeHasher.hash(f2) == CodeHasher.hash(f2)
+    assert CodeHasher.hash(f3) == CodeHasher.hash(f3)
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+    assert CodeHasher.hash(f1) == CodeHasher.hash(f2)
+    assert CodeHasher.hash(f1) != CodeHasher.hash(f3)
 
 
 def test_changes_in_references():
@@ -295,13 +332,13 @@ def test_changes_in_references():
     def f():
         return v
 
-    old_hash = CodeHasher.hash(f, True)
-    assert old_hash == CodeHasher.hash(f, True)
+    old_hash = CodeHasher.hash(f)
+    assert old_hash == CodeHasher.hash(f)
 
     # Hash for f should change if we change v.
     v = 20
-    new_hash = CodeHasher.hash(f, True)
-    assert new_hash == CodeHasher.hash(f, True)
+    new_hash = CodeHasher.hash(f)
+    assert new_hash == CodeHasher.hash(f)
     assert old_hash != new_hash
 
     def f1():
@@ -312,15 +349,15 @@ def test_changes_in_references():
             return 0
         return count(v - 1) + f1()
 
-    old_hash = CodeHasher.hash(count, True)
-    assert old_hash == CodeHasher.hash(count, True)
+    old_hash = CodeHasher.hash(count)
+    assert old_hash == CodeHasher.hash(count)
 
     # Hash for count should change if we change f1.
     def f1():  # noqa: F811
         return 2
 
-    new_hash = CodeHasher.hash(count, True)
-    assert new_hash == CodeHasher.hash(count, True)
+    new_hash = CodeHasher.hash(count)
+    assert new_hash == CodeHasher.hash(count)
     assert old_hash != new_hash
 
 
@@ -347,8 +384,8 @@ def test_changes_in_another_module(is_module_internal):
     def f():
         return m.f_mod()
 
-    old_hash = CodeHasher.hash(f, True)
-    assert old_hash == CodeHasher.hash(f, True)
+    old_hash = CodeHasher.hash(f)
+    assert old_hash == CodeHasher.hash(f)
 
     # Hash for f should not change if we change f_mod when module is
     # external.
@@ -358,8 +395,8 @@ def test_changes_in_another_module(is_module_internal):
     """
     m = import_code(dedent(f_mod_code))
 
-    new_hash = CodeHasher.hash(f, True)
-    assert new_hash == CodeHasher.hash(f, True)
+    new_hash = CodeHasher.hash(f)
+    assert new_hash == CodeHasher.hash(f)
     if is_module_internal:
         assert old_hash == new_hash
     else:
