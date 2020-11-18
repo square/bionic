@@ -132,6 +132,16 @@ class ModelFlowHarness:
         if model_exception is None:
             assert flow_value == model_value
 
+            if expect_exact_call_count_matches:
+                assert sorted(self._descriptors_computed_by_flow) == sorted(
+                    self._descriptors_computed_by_model
+                )
+            else:
+                assert set(self._descriptors_computed_by_flow) == set(
+                    self._descriptors_computed_by_model
+                )
+            self._clear_called_descriptors()
+
         else:
             assert flow_exception.__class__ == model_exception.__class__
 
@@ -167,18 +177,6 @@ class ModelFlowHarness:
                 # up exactly.
                 expect_exact_call_count_matches=False,
             )
-            # Note that after the above call, the call counts have been cleared, so the
-            # check below will do nothing.
-
-        if expect_exact_call_count_matches:
-            assert sorted(self._descriptors_computed_by_flow) == sorted(
-                self._descriptors_computed_by_model
-            )
-        else:
-            assert set(self._descriptors_computed_by_flow) == set(
-                self._descriptors_computed_by_model
-            )
-        self._clear_called_descriptors()
 
     # This is just used for debugging.
     def save_dag(self, filename):
