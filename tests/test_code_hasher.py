@@ -49,11 +49,41 @@ def test_code_hasher():
     def f4():
         return "10"
 
+    def g1():
+        return global_var_10
+
+    def g2():
+        return global_var_20
+
+    free_var_10 = 10
+    free_var_20 = 20
+
+    def free1():
+        return free_var_10
+
+    def free2():
+        return free_var_20
+
+    def fref1():
+        return f1()
+
+    def fref2():
+        return f2()
+
     def inc(x):
         return x + 1
 
     def dec(x):
         return x - 1
+
+    def one():
+        return 1
+
+    def inc_with_one(x):
+        return x + one()
+
+    def dec_with_one(x):
+        return x - one()
 
     def quadratic_eq(a, b, c):
         d = b ** 2 - 4 * a * c
@@ -166,8 +196,16 @@ def test_code_hasher():
         f2,
         f3,
         f4,
+        g1,
+        g2,
+        free1,
+        free2,
+        fref1,
+        fref2,
         inc,
         dec,
+        inc_with_one,
+        dec_with_one,
         lambda x: x * 2,
         lambda x: x / 2,
         lambda: None,
@@ -191,7 +229,7 @@ def test_code_hasher():
     idx_by_hash_value = {}
     for idx, val in enumerate(values + values_with_complex_types):
         if idx >= len(values):
-            ctx_mgr = pytest.warns(UserWarning, match="Found a constant")
+            ctx_mgr = pytest.warns(UserWarning, match="Found a complex object")
         else:
             ctx_mgr = contextlib.suppress()
 
@@ -209,7 +247,7 @@ def test_complex_type_warning():
     val = threading.Lock()
     with pytest.warns(
         UserWarning,
-        match="Found a constant",
+        match="Found a complex object",
     ):
         assert CodeHasher.hash(val) == CodeHasher.hash(TypePrefix.DEFAULT)
 
@@ -223,9 +261,7 @@ def test_same_func_different_names():
         v = 10
         return v
 
-    assert CodeHasher.hash(f1) == CodeHasher.hash(f1)
-    assert CodeHasher.hash(f2) == CodeHasher.hash(f2)
-    assert CodeHasher.hash(f1) == CodeHasher.hash(f2)
+    assert check_hash_equivalence([[f1, f2]])
 
 
 def test_global_variable_references():
@@ -238,12 +274,7 @@ def test_global_variable_references():
     def f3():
         return global_var_20
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
-    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
-
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+    check_hash_equivalence([[f1, f2], [f3]])
 
 
 def test_free_variable_references():
@@ -260,12 +291,7 @@ def test_free_variable_references():
     def f3():
         return free_var_20
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
-    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
-
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+    check_hash_equivalence([[f1, f2], [f3]])
 
 
 def test_function_references():
@@ -287,12 +313,7 @@ def test_function_references():
     def f3():
         return ref20()
 
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f1, True)
-    assert CodeHasher.hash(f2, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f3, True) == CodeHasher.hash(f3, True)
-
-    assert CodeHasher.hash(f1, True) == CodeHasher.hash(f2, True)
-    assert CodeHasher.hash(f1, True) != CodeHasher.hash(f3, True)
+    check_hash_equivalence([[f1, f2], [f3]])
 
 
 def test_changes_in_references():
@@ -301,13 +322,13 @@ def test_changes_in_references():
     def f():
         return v
 
-    old_hash = CodeHasher.hash(f, True)
-    assert old_hash == CodeHasher.hash(f, True)
+    old_hash = CodeHasher.hash(f)
+    assert old_hash == CodeHasher.hash(f)
 
     # Hash for f should change if we change v.
     v = 20
-    new_hash = CodeHasher.hash(f, True)
-    assert new_hash == CodeHasher.hash(f, True)
+    new_hash = CodeHasher.hash(f)
+    assert new_hash == CodeHasher.hash(f)
     assert old_hash != new_hash
 
     def f1():
@@ -318,15 +339,15 @@ def test_changes_in_references():
             return 0
         return count(v - 1) + f1()
 
-    old_hash = CodeHasher.hash(count, True)
-    assert old_hash == CodeHasher.hash(count, True)
+    old_hash = CodeHasher.hash(count)
+    assert old_hash == CodeHasher.hash(count)
 
     # Hash for count should change if we change f1.
     def f1():  # noqa: F811
         return 2
 
-    new_hash = CodeHasher.hash(count, True)
-    assert new_hash == CodeHasher.hash(count, True)
+    new_hash = CodeHasher.hash(count)
+    assert new_hash == CodeHasher.hash(count)
     assert old_hash != new_hash
 
 
@@ -353,8 +374,8 @@ def test_changes_in_another_module(is_module_internal):
     def f():
         return m.f_mod()
 
-    old_hash = CodeHasher.hash(f, True)
-    assert old_hash == CodeHasher.hash(f, True)
+    old_hash = CodeHasher.hash(f)
+    assert old_hash == CodeHasher.hash(f)
 
     # Hash for f should not change if we change f_mod when module is
     # external.
@@ -364,9 +385,29 @@ def test_changes_in_another_module(is_module_internal):
     """
     m = import_code(dedent(f_mod_code))
 
-    new_hash = CodeHasher.hash(f, True)
-    assert new_hash == CodeHasher.hash(f, True)
+    new_hash = CodeHasher.hash(f)
+    assert new_hash == CodeHasher.hash(f)
     if is_module_internal:
         assert old_hash == new_hash
     else:
         assert old_hash != new_hash
+
+
+def check_hash_equivalence(groups):
+    """
+    Checks that hashes for every element in the group is the same and
+    hashes for elements between the groups are different. It also
+    hashes the elements in every group twice to test that the hash is
+    stable.
+    """
+
+    all_hashes = set()
+    for group in groups:
+        group_hashes = set()
+        for f in group:
+            group_hashes.add(CodeHasher.hash(f))
+            group_hashes.add(CodeHasher.hash(f))
+        assert len(group_hashes) == 1
+        all_hashes.add(next(iter(group_hashes)))
+
+    assert len(all_hashes) == len(groups)

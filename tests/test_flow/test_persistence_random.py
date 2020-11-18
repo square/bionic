@@ -9,7 +9,7 @@ import re
 from bionic.descriptors.parsing import dnode_from_descriptor
 from bionic.exception import CodeVersioningError
 from bionic.utils.misc import single_element, single_unique_element
-import bionic as bn
+import bionic as bn  # noqa: F401
 
 
 class ModelFlowHarness:
