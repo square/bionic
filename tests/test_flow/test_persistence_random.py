@@ -50,12 +50,12 @@ class ModelFlowHarness:
         builder,
         make_list,
         parallel_execution_enabled=False,
-        expect_exact_call_count_matches=False,
     ):
         self._builder = builder
         self._versioning_mode = "manual"
         self._parallel_execution_enabled = parallel_execution_enabled
-        self._expect_exact_call_count_matches = expect_exact_call_count_matches
+        self._expect_exact_call_count_matches = True
+        self._query_caching_enabled = True
 
         # TODO Would it make sense to factor all the model state into a single ModelFlow
         # object?
@@ -70,6 +70,13 @@ class ModelFlowHarness:
         assert mode in ("manual", "assist", "auto")
         self._versioning_mode = mode
         self._builder.set("core__versioning_mode", mode)
+
+    def disable_query_caching(self):
+        self._builder.set("core__temp_memoize_if_uncached", False)
+        self._query_caching_enabled = False
+
+    def disable_exact_call_counting(self):
+        self._expect_exact_call_count_matches = False
 
     def get_all_entity_names(self):
         return list(self._entities_by_name.keys())
@@ -143,6 +150,7 @@ class ModelFlowHarness:
 
         context = ModelExecutionContext(
             parallel_execution_enabled=self._parallel_execution_enabled,
+            query_caching_enabled=self._query_caching_enabled,
             versioning_mode=self._versioning_mode,
             memoized_flow_values_by_entity_name=self._active_model_memoized_values_by_entity_name,
             memoized_query_values_by_entity_name={},
@@ -237,6 +245,7 @@ class ModelExecutionContext:
     """
 
     parallel_execution_enabled = attr.ib()
+    query_caching_enabled = attr.ib()
     versioning_mode = attr.ib()
     memoized_flow_values_by_entity_name = attr.ib()
     memoized_query_values_by_entity_name = attr.ib()
@@ -415,7 +424,7 @@ class ModelBinding:
 
         if self.should_memoize:
             context.memoized_flow_values_by_entity_name.update(values_by_entity_name)
-        elif not self.should_persist:
+        elif not self.should_persist and context.query_caching_enabled:
             context.memoized_query_values_by_entity_name.update(values_by_entity_name)
 
         return values_by_entity_name[entity_name]
@@ -503,6 +512,9 @@ class RandomFlowTestConfig:
         If True, all definitions use ``@returns`` and may include nested tuples; if
         False, all definitions use ``@outputs`` and nested tuples are flattened into
         single-level tuples.
+    disable_query_caching: bool
+        If True, sets the ``core__temp_memoize_if_uncached`` entity in the tested flow
+        to False.
     versioning_mode: "manual", "assist", or "auto"
         Determines the value of ``core__versioning_mode`` in the tested flow.
     """
@@ -515,6 +527,7 @@ class RandomFlowTestConfig:
     p_three_out_given_multi = attr.ib(default=0.3)
     p_update_version_annotation = attr.ib(default=1.0)
     use_tuples_for_output = attr.ib(default=True)
+    disable_query_caching = attr.ib(default=False)
     versioning_mode = attr.ib(default="manual")
 
 
@@ -544,6 +557,8 @@ class RandomFlowTester:
 
     def run(self):
         self._harness.set_versioning_mode(self._config.versioning_mode)
+        if self._config.disable_query_caching:
+            self._harness.disable_query_caching()
 
         for _ in range(self._config.n_bindings):
             self.add_random_binding()
@@ -660,11 +675,13 @@ def harness(builder, make_list, parallel_execution_enabled):
         builder,
         make_list,
         parallel_execution_enabled=parallel_execution_enabled,
-        # If parallel execution is enabled, some non-persistable entities may get
-        # computed multiple times in different processes, which our model doesn't
-        # account for.
-        expect_exact_call_count_matches=not parallel_execution_enabled,
     )
+    # If parallel execution is enabled, some non-persistable entities may get
+    # computed multiple times in different processes, which our model doesn't
+    # account for.
+    if parallel_execution_enabled:
+        harness.disable_exact_call_counting()
+    return harness
 
 
 # This test is mostly here as an example of how to use the harness in a deterministic
@@ -739,5 +756,26 @@ def test_random_flow_no_tuples(harness):
         n_bindings=50,
         n_iterations=50,
         use_tuples_for_output=False,
+    )
+    RandomFlowTester(harness, config).run()
+
+
+@pytest.mark.slow
+def test_random_flow_no_query_caching(harness):
+    # Unfortunately, when query caching is disabled, it's difficult to model the
+    # exact number of times a function will be called. The main problem is when we have
+    # a tuple `x, y` and we need both `x` and `y` in different parts of the flow. If
+    # both requirements are detected before we compute `x, y`, then both entities will
+    # be stored in memory until they can be used. Otherwise, the non-required entity
+    # will be evicted and `x, y` will have to be recomputed when the second requirement
+    # is detected.
+    # In the future we may be able to refactor our implementation to be more
+    # deterministic (i.e., always discard any values that aren't needed immediately),
+    # in which case we can try to model its behavior more closely.
+    harness.disable_exact_call_counting()
+    config = RandomFlowTestConfig(
+        n_bindings=50,
+        n_iterations=50,
+        disable_query_caching=True,
     )
     RandomFlowTester(harness, config).run()
