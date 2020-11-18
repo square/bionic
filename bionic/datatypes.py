@@ -154,6 +154,9 @@ class Artifact:
     url: str = attr.ib()
     content_hash: str = attr.ib()
 
+    def evolve(self, **kwargs):
+        return attr.evolve(self, **kwargs)
+
 
 class CaseKeySpace(ImmutableSequence):
     """
