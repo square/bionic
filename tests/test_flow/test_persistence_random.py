@@ -45,9 +45,10 @@ class ModelFlowHarness:
     the above features, we can remove SFM altogether.
     """
 
-    def __init__(self, builder, make_list):
+    def __init__(self, builder, make_list, expect_exact_call_count_matches=False):
         self._builder = builder
         self._versioning_mode = "manual"
+        self._expect_exact_call_count_matches = expect_exact_call_count_matches
 
         self._entities_by_name = {}
 
@@ -108,7 +109,10 @@ class ModelFlowHarness:
 
         self._add_binding_to_flow(entity.binding)
 
-    def query_and_check_entity(self, entity_name):
+    def query_and_check_entity(self, entity_name, expect_exact_call_count_matches=None):
+        if expect_exact_call_count_matches is None:
+            expect_exact_call_count_matches = self._expect_exact_call_count_matches
+
         flow = self._builder.build()
 
         flow_exception = None
@@ -127,6 +131,16 @@ class ModelFlowHarness:
 
         if model_exception is None:
             assert flow_value == model_value
+
+            if expect_exact_call_count_matches:
+                assert sorted(self._descriptors_computed_by_flow) == sorted(
+                    self._descriptors_computed_by_model
+                )
+            else:
+                assert set(self._descriptors_computed_by_flow) == set(
+                    self._descriptors_computed_by_model
+                )
+            self._clear_called_descriptors()
 
         else:
             assert flow_exception.__class__ == model_exception.__class__
@@ -156,12 +170,13 @@ class ModelFlowHarness:
                 update_version_annotation=True,
             )
 
-            self.query_and_check_entity(entity_name)
-
-        assert set(self._descriptors_computed_by_flow) == set(
-            self._descriptors_computed_by_model
-        )
-        self._clear_called_descriptors()
+            self.query_and_check_entity(
+                entity_name,
+                # Since our query was interrupted, some extra non-persisted entities
+                # may have been computed, so we can't expect the final counts to line
+                # up exactly.
+                expect_exact_call_count_matches=False,
+            )
 
     # This is just used for debugging.
     def save_dag(self, filename):
@@ -212,7 +227,10 @@ class ModelFlowHarness:
 
         if not binding.has_persisted_values:
             dep_values = [
-                self._compute_model_value(dep_entity_name)
+                self._compute_model_value(
+                    dep_entity_name,
+                    memoized_values_by_entity_name=memoized_values_by_entity_name,
+                )
                 for dep_entity_name in binding.dep_entity_names
             ]
             values_by_entity_name = binding.compute_and_save_values(dep_values)
@@ -548,8 +566,15 @@ class RandomFlowTester:
 
 
 @pytest.fixture
-def harness(builder, make_list):
-    return ModelFlowHarness(builder, make_list)
+def harness(builder, make_list, parallel_execution_enabled):
+    return ModelFlowHarness(
+        builder,
+        make_list,
+        # If parallel execution is enabled, some non-persistable entities may get
+        # computed multiple times in different processes, which our model doesn't
+        # account for.
+        expect_exact_call_count_matches=not parallel_execution_enabled,
+    )
 
 
 # This test is mostly here as an example of how to use the harness in a deterministic
