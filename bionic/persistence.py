@@ -18,7 +18,6 @@ from .datatypes import CodeFingerprint, Artifact
 from .utils.files import (
     ensure_dir_exists,
     ensure_parent_dir_exists,
-    recursively_copy_path,
 )
 from .utils.misc import hash_simple_obj_to_hex, oneline
 from .utils.urls import (
@@ -751,32 +750,6 @@ class GcsCloudStore:
             self._fs.get_dir(url, path)
         else:
             self._fs.get_file(url, path)
-
-
-class FakeCloudStore(LocalStore):
-    """
-    A mock version of the GcsCloudStore that's actually backed by local files.
-    Useful for running tests without setting up a GCS connection, which is
-    slow and requires some configuration.
-    """
-
-    def __init__(self, root_path_str):
-        super(FakeCloudStore, self).__init__(root_path_str)
-
-    def generate_unique_url_prefix(self, provenance):
-        return url_from_path(self.generate_unique_dir_path(provenance))
-
-    def upload(self, path, url):
-        src_path = path
-        dst_path = path_from_url(url)
-
-        recursively_copy_path(src_path, dst_path)
-
-    def download(self, path, url):
-        src_path = path_from_url(url)
-        dst_path = path
-
-        recursively_copy_path(src_path, dst_path)
 
 
 class LocalFilesystem:

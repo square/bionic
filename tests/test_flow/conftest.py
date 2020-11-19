@@ -146,6 +146,20 @@ def gcs_builder(builder, tmp_gcs_url_prefix, use_fake_gcp, gcs_fs):
     return builder
 
 
+# Unlike gcs_builder, which is parametrized to be either real or fake, this builder is
+# always fake.
+@pytest.fixture
+def fake_gcs_builder(builder, make_dict):
+    builder = builder.build().to_builder()
+
+    builder.set("core__persistent_cache__gcs__bucket_name", "some-bucket")
+    builder.set("core__persistent_cache__gcs__object_path", "")
+    builder.set("core__persistent_cache__gcs__enabled", True)
+    builder.set("core__persistent_cache__gcs__fs", FakeGcsFs(make_dict))
+
+    return builder
+
+
 @pytest.fixture
 def aip_builder(gcs_builder, gcp_project, use_fake_gcp, gcs_fs, caplog, monkeypatch):
     gcs_builder.set("core__aip_execution__enabled", True)
