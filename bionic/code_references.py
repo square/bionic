@@ -151,7 +151,21 @@ def get_referenced_objects(code, context):
                     # cannot find the variable, we return it's name instead.
                     set_tos(op.argval)
             elif op.opname in ["LOAD_DEREF", "LOAD_CLOSURE"]:
-                set_tos(context.cells[op.argval])
+                if op.argval in context.cells:
+                    set_tos(context.cells[op.argval])
+                else:
+                    # This can happen when we have nested functions. The second
+                    # level or further nested functions won't have free variables
+                    # from any preceding function except for the top level
+                    # function. This is because the code context that gives us
+                    # free variables is created from the function variable, which
+                    # we only have for the top level function. We get only the
+                    # code object for any inner functions. Since we can't get the
+                    # code context for inner functions, we use the code context
+                    # of the top level function.
+                    # TODO: Consider creating a code context for code objects and
+                    # merge it with code context of it's ancestor.
+                    set_tos(op.argval)
             elif op.opname == "IMPORT_NAME":
                 # This instruction only appears if the code object imports a
                 # module using the import statement. If a user is importing

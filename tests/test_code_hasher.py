@@ -1,6 +1,8 @@
 import cmath
 import contextlib
+import logging
 import pytest
+from sklearn import linear_model
 from textwrap import dedent
 import threading
 import types
@@ -13,10 +15,7 @@ global_var_10_copy = 10
 global_var_20 = 20
 
 
-# TODO: Once we turn on the references flag, add more complicated cases
-# in this test, functions with inner functions etc.
-#
-# Also add tests for classes once we hash classes.
+# TODO: Add tests for classes once we hash classes.
 def test_code_hasher():
     def barray(value):
         return bytearray(value, "utf8")
@@ -93,8 +92,6 @@ def test_code_hasher():
         return (s1, s2)
 
     def logistic_reg(train_frame, random_seed, hyperparams_dict):
-        from sklearn import linear_model
-
         m = linear_model.LogisticRegression(
             solver="liblinear", random_state=random_seed, **hyperparams_dict
         )
@@ -102,8 +99,6 @@ def test_code_hasher():
         return m
 
     def a_lot_of_consts(train_frame, random_seed, hyperparams_dict):
-        import logging
-
         docstring = """
         This function uses a few constants and demonstrates that Bionic
         can hash all of them without any issues.
@@ -138,6 +133,16 @@ def test_code_hasher():
 
     def fib(n):
         return fib(n - 1) + fib(n - 2)
+
+    def nested():
+        v = 1
+
+        def inner():
+            logging.info(v)
+            w = 5
+
+            def innermost():
+                logging.info(v, w)
 
     values = [
         b"",
@@ -212,6 +217,8 @@ def test_code_hasher():
         f_with_defaults3,
         f_docstring1,
         f_docstring2,
+        fib,
+        nested,
     ]
 
     values_with_complex_types = [
