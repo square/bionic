@@ -1,5 +1,6 @@
 from io import BytesIO
 from textwrap import dedent
+import types
 import re
 import shutil
 
@@ -234,3 +235,16 @@ def longest_regex_prefix_match(regex, string, flags=0):
 def local_wipe_path(path_str):
     assert "BNTESTDATA" in path_str
     shutil.rmtree(path_str)
+
+
+def import_code(code, is_module_internal=False):
+    # Create a blank module.
+    if is_module_internal:
+        module = types.ModuleType("bionic.my_test_mod")
+        module.__file__ = "bionic/tests.py"
+    else:
+        module = types.ModuleType("my_test_mod")
+        module.__file__ = "my_file.py"
+    # Populate the module with code.
+    exec(code, module.__dict__)
+    return module

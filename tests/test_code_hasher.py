@@ -5,9 +5,9 @@ import pytest
 from sklearn import linear_model
 from textwrap import dedent
 import threading
-import types
 
 from bionic.code_hasher import CodeHasher, TypePrefix
+from .helpers import import_code
 
 
 global_var_10 = 10
@@ -370,23 +370,11 @@ def test_changes_in_references():
 
 @pytest.mark.parametrize("is_module_internal", [True, False])
 def test_changes_in_another_module(is_module_internal):
-    def import_code(code):
-        # Create a blank module.
-        if is_module_internal:
-            module = types.ModuleType("bionic.my_test_mod")
-            module.__file__ = "bionic/tests.py"
-        else:
-            module = types.ModuleType("my_test_mod")
-            module.__file__ = "my_file.py"
-        # Populate the module with code.
-        exec(code, module.__dict__)
-        return module
-
     f_mod_code = """
     def f_mod():
         return 1
     """
-    m = import_code(dedent(f_mod_code))
+    m = import_code(dedent(f_mod_code), is_module_internal)
 
     def f():
         return m.f_mod()
@@ -400,7 +388,7 @@ def test_changes_in_another_module(is_module_internal):
     def f_mod():
         return 2
     """
-    m = import_code(dedent(f_mod_code))
+    m = import_code(dedent(f_mod_code), is_module_internal)
 
     new_hash = CodeHasher.hash(f)
     assert new_hash == CodeHasher.hash(f)
