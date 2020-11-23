@@ -9,7 +9,8 @@ import re
 from bionic.descriptors.parsing import dnode_from_descriptor
 from bionic.exception import CodeVersioningError
 from bionic.utils.misc import single_element, single_unique_element
-import bionic as bn  # noqa: F401
+import bionic as bn
+from ..helpers import import_code
 
 
 class ModelFlowHarness:
@@ -452,7 +453,7 @@ class ModelBinding:
             record_call({self.out_descriptor!r})
             return {output_value_fragment}
         """
-        exec(dedent(raw_func_code), vars_dict)
+        import_code(dedent(raw_func_code), vars_dict=vars_dict)
 
     @property
     def dep_entity_names(self):

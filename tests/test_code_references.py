@@ -4,7 +4,6 @@ from bionic.code_references import get_code_context, get_referenced_objects
 from bionic.flow import FlowBuilder
 from bionic.utils.misc import oneline
 
-
 global_val = 42
 
 
@@ -200,3 +199,115 @@ def test_conditionals():
             logging.debug("DEBUG log")
 
     assert get_references(x) == ["val", logging.info, logging.debug]
+
+
+def test_complex_function():
+    import inspect
+    import warnings
+    from bionic.code_hasher import CodeHasher, TypePrefix
+    from bionic.utils.reload import is_internal_file
+
+    hasher = CodeHasher(False)
+    # TODO: This makes me realize that maybe we should dedup the results.
+    assert get_references(hasher._ingest) == [
+        "isinstance",
+        "bytes",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.BYTES,
+        "isinstance",
+        "bytearray",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.BYTEARRAY,
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.NONE,
+        "isinstance",
+        "int",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.INT,
+        "str",
+        "encode",
+        "isinstance",
+        "float",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.FLOAT,
+        "str",
+        "encode",
+        "isinstance",
+        "str",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.STRING,
+        "encode",
+        "isinstance",
+        "bool",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.BOOL,
+        "str",
+        "encode",
+        "isinstance",
+        "list",
+        "set",
+        "tuple",
+        "isinstance",
+        "list",
+        "isinstance",
+        "set",
+        # TODO: These don't appear in references, because they are
+        # stored in varnames. Maybe we should return new variables as
+        # references too.
+        # TypePrefix.LIST,
+        # TypePrefix.SET,
+        # TypePrefix.TUPLE, Note that this appears later.
+        "str",
+        "len",
+        "encode",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.TUPLE,
+        hasher._check_and_ingest,
+        "isinstance",
+        "dict",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.DICT,
+        "str",
+        "len",
+        "encode",
+        "items",
+        hasher._check_and_ingest,
+        hasher._check_and_ingest,
+        inspect.isbuiltin,
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.BUILTIN,
+        "__module__",
+        "__name__",
+        hasher._check_and_ingest,
+        inspect.isroutine,
+        "__module__",
+        "__module__.startswith",
+        is_internal_file,
+        "__code__.co_filename",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.INTERNAL_ROUTINE,
+        "__module__",
+        "__name__",
+        hasher._check_and_ingest,
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.ROUTINE,
+        get_code_context,
+        hasher._check_and_ingest,
+        "__defaults__",
+        hasher._ingest_code,
+        "__code__",
+        inspect.iscode,
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.CODE,
+        hasher._ingest_code,
+        inspect.isclass,
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.CLASS,
+        "__name__.encode",
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.DEFAULT,
+        False,  # hasher._supress_warnings
+        oneline,
+        "type",
+        warnings.warn,
+    ]
