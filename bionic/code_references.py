@@ -198,6 +198,10 @@ def get_referenced_objects(code, context):
                 ${code.co_name}. Changes inside the module will likely not be
                 detected. To detect changes inside the module, import it globally
                 instead.
+
+                You can also suppress this warning by removing the
+                `suppress_bytecode_warnings` override from the `@version`
+                decorator on the corresponding function.
                 """
                 )
                 warnings.warn(message)
@@ -228,9 +232,6 @@ def get_referenced_objects(code, context):
                 # reference.
                 set_tos(None)
         except Exception as e:
-            # TODO: Provide a way for users to disable bytecode hashing
-            # for individual entities and add information on how to
-            # disable it in the error message.
             message = oneline(
                 f"""
             Bionic found a code reference in file ${code.co_filename}
@@ -238,6 +239,12 @@ def get_referenced_objects(code, context):
             ${code.co_name}. This should be impossible and is most
             likely a bug in Bionic. Please raise a new issue at
             https://github.com/square/bionic/issues to let us know.
+
+            In the meantime, you can disabled bytecode analysis for
+            the corresponding function by setting `ignore_bytecode`
+            on its `@version` decorator. Please note that Bionic won't
+            automatically detect changes in this function; you'll need
+            to manually update the version youtself.
             """
             )
             raise AssertionError(message) from e
