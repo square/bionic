@@ -302,6 +302,10 @@ class CodeVersion:
 
     major: str = attr.ib(converter=str_from_version_value)
     minor: str = attr.ib(converter=str_from_version_value)
+    ignore_bytecode: bool = attr.ib(converter=attr.converters.default_if_none(False))
+    suppress_bytecode_warnings: bool = attr.ib(
+        converter=attr.converters.default_if_none(True)
+    )
 
 
 @attr.s(frozen=True)

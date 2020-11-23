@@ -211,9 +211,6 @@ def get_referenced_objects(code, context):
                 # reference.
                 set_tos(None)
         except Exception as e:
-            # TODO: Provide a way for users to disable bytecode hashing
-            # for individual entities and add information on how to
-            # disable it in the error message.
             message = oneline(
                 f"""
             Bionic found a code reference in file ${code.co_filename}
@@ -221,6 +218,12 @@ def get_referenced_objects(code, context):
             ${code.co_name}. This should be impossible and is most
             likely a bug in Bionic. Please raise a new issue at
             https://github.com/square/bionic/issues to let us know.
+
+            In the meantime, you can ignore bytecode analysis for
+            the corresponding function by setting `ignore_bytecode`
+            on its `@version` decorator. Please note that you will
+            need to manually manage the version since Bionic won't
+            perform bytecode analysis for it.
             """
             )
             raise CodeVersioningError(message) from e

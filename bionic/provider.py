@@ -78,13 +78,17 @@ class BaseProvider:
         )
 
     def get_code_fingerprint(self, case_key):
-        source_func = self.get_source_func()
-        bytecode_hash = None if source_func is None else CodeHasher.hash(source_func)
-
         code_version = (
-            CodeVersion(None, None)
+            CodeVersion(None, None, None, None)
             if self.attrs.code_version is None
             else self.attrs.code_version
+        )
+
+        source_func = self.get_source_func()
+        bytecode_hash = (
+            None
+            if source_func is None or code_version.ignore_bytecode
+            else CodeHasher.hash(source_func, code_version.suppress_bytecode_warnings)
         )
 
         return CodeFingerprint(
@@ -210,6 +214,8 @@ class ValueProvider(BaseProvider):
             version=CodeVersion(
                 major=value_tokens,
                 minor=None,
+                ignore_bytecode=None,
+                suppress_bytecode_warnings=None,
             ),
             bytecode_hash=None,
             orig_flow_name=None,

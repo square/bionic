@@ -45,14 +45,15 @@ class CodeHasher:
     it doesn't actually achieve the ideal behavior we described above.
     """
 
-    def __init__(self):
+    def __init__(self, suppress_warnings):
         self._hash = hashlib.new("md5")
+        self._suppress_warnings = suppress_warnings
         # This is used to detect circular references.
         self._object_depths_by_id = {}
 
     @classmethod
-    def hash(cls, obj):
-        hasher = cls()
+    def hash(cls, obj, suppress_warnings=False):
+        hasher = cls(suppress_warnings)
         hasher._check_and_ingest(obj=obj)
         return hasher._hash.hexdigest()
 
@@ -194,22 +195,24 @@ class CodeHasher:
         else:
             # TODO: Verify that we hash all Python constant types.
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.DEFAULT)
-            # TODO: Provide a way for users to disable bytecode hashing
-            # for individual entities and add information on how to
-            # suppress this warning.
-            message = oneline(
-                f"""
-                Found a complex object {obj!r} of type {type(obj)!r}
-                while analyzing code for caching. Any changes to its
-                value won't be detected by Bionic, which may result in
-                Bionic using stale cache values. Consider making this
-                value a Bionic entity instead.
+            if not self._suppress_warnings:
+                message = oneline(
+                    f"""
+                    Found a complex object {obj!r} of type {type(obj)!r}
+                    while analyzing code for caching. Any changes to its
+                    value won't be detected by Bionic, which may result in
+                    Bionic using stale cache values. Consider making this
+                    value a Bionic entity instead.
 
-                Check https://bionic.readthedocs.io/en/stable/warnings.html#avoid-global-state
-                for more information.
-                """
-            )
-            warnings.warn(message)
+                    Check https://bionic.readthedocs.io/en/stable/warnings.html#avoid-global-state
+                    for more information.
+
+                    You can also suppress this warning by removing
+                    `suppress_bytecode_warnings` override in `@version`
+                    decorator from the corresponding function.
+                    """
+                )
+                warnings.warn(message)
 
     def _ingest_code(self, code, code_context):
         self._check_and_ingest(code.co_code)

@@ -251,6 +251,9 @@ def test_complex_type_warning():
     ):
         assert CodeHasher.hash(val) == CodeHasher.hash(TypePrefix.DEFAULT)
 
+    with pytest.warns(None):
+        assert CodeHasher.hash(val, True) == CodeHasher.hash(TypePrefix.DEFAULT)
+
 
 def test_same_func_different_names():
     def f1():

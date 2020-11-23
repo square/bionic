@@ -25,10 +25,26 @@ from .provider import (
     ArgDescriptorSubstitutionProvider,
     NewOutputDescriptorProvider,
 )
+from .utils.misc import oneline
 from . import interpret
 
 
-def version(major=None, minor=None):
+# TODO: Our current bytecode analysis emits warnings for any complex
+# variable in any code, user-defined or library code. I'm going to
+# suppress the warning by default for now. There are a few options for
+# us to consider before we can turn it on by default.
+# - Warn only if the complex variable is directly referenced from
+# entity function. The user will be able to make code changes when they
+# see the warning.
+# - Similar to Streamlit, give users more control over what code is
+# analyzed. Streamlit currently watches everything in PYTHONPATH and
+# gives an option to the users to blacklist certain files or modules.
+def version(
+    major=None,
+    minor=None,
+    ignore_bytecode=None,
+    suppress_bytecode_warnings=None,
+):
     """
     Identifies the version of a Python function.  The version has two
     components: a major version and a minor version.  Each of these can be
@@ -59,15 +75,37 @@ def version(major=None, minor=None):
     minor: Integer or string (default 0)
         An arbitrary identifier for a function's nonfunctional characteristics.
 
+    ignore_bytecode: Boolean (default True)
+        Whether this entity's bytecode should be ignored.
+
+    suppress_bytecode_warnings: Boolean (default True)
+        Whether warnings from this entity's bytecode analysis should be ignored.
+
     Returns
     -------
     Function:
         A decorator which can be applied to an entity function.
     """
 
+    if ignore_bytecode is not None and not isinstance(ignore_bytecode, bool):
+        raise ValueError(
+            f"Argument ignore_bytecode must be a boolean; got {ignore_bytecode!r}"
+        )
+
+    if suppress_bytecode_warnings is not None and not isinstance(
+        suppress_bytecode_warnings, bool
+    ):
+        message = f"""
+        Argument suppress_bytecode_warnings must be a boolean; got
+        {suppress_bytecode_warnings!r}
+        """
+        raise ValueError(oneline(message))
+
     return decorator_updating_accumulator(
         lambda acc: acc.wrap_provider(
-            AttrUpdateProvider, "code_version", CodeVersion(major, minor)
+            AttrUpdateProvider,
+            "code_version",
+            CodeVersion(major, minor, ignore_bytecode, suppress_bytecode_warnings),
         )
     )
 
