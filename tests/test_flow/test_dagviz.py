@@ -61,24 +61,38 @@ def test_dag_size(flow_graph):
     assert len(flow_graph.nodes) == 11
 
 
-def test_dot_properties(flow_dot):
+def test_dot_names_and_colors(flow_dot):
     nodes = nodes_by_name_from_dot(flow_dot)
-    assert set(nodes.keys()) == {
+    same_color_name_groups = [
         # We've wrapped all our names in quotes to work around pydot. However, they're
         # not visible in the visualization.
-        '"first_name[0]"',
-        '"first_name[1]"',
-        '"last_name"',
-        '"<full_name, initials>[0]"',
-        '"<full_name, initials>[1]"',
-        '"full_name[0]"',
-        '"full_name[1]"',
-        '"initials[0]"',
-        '"initials[1]"',
-        '"<all_names,>"',
-        '"all_names"',
-    }
+        ['"first_name[0]"', '"first_name[1]"'],
+        ['"last_name"'],
+        [
+            '"<full_name, initials>[0]"',
+            '"<full_name, initials>[1]"',
+            '"full_name[0]"',
+            '"full_name[1]"',
+            '"initials[0]"',
+            '"initials[1]"',
+        ],
+        ['"<all_names,>"', '"all_names"'],
+    ]
 
+    all_names = [name for name_group in same_color_name_groups for name in name_group]
+    assert set(nodes.keys()) == set(all_names)
+
+    all_group_colors = set()
+    for name_group in same_color_name_groups:
+        group_colors = set(nodes[name].get_fillcolor() for name in name_group)
+        assert len(group_colors) == 1
+        (group_color,) = group_colors
+        assert group_color not in all_group_colors
+        all_group_colors.add(group_color)
+
+
+def test_dot_tooltips(flow_dot):
+    nodes = nodes_by_name_from_dot(flow_dot)
     assert nodes['"last_name"'].get_tooltip() is None
     assert nodes['"all_names"'].get_tooltip() == "Comma-separated list of names."
     assert nodes['"initials[0]"'].get_tooltip() == "Just the initials."
@@ -86,12 +100,6 @@ def test_dot_properties(flow_dot):
     assert (
         nodes['"<full_name, initials>[0]"'].get_tooltip()
         == "(Intermediate value) A Python tuple with 2 values."
-    )
-
-    assert nodes['"last_name"'].get_fillcolor() != nodes['"all_names"'].get_fillcolor()
-    assert (
-        nodes['"first_name[0]"'].get_fillcolor()
-        == nodes['"first_name[1]"'].get_fillcolor()
     )
 
 
