@@ -2,12 +2,13 @@
 Data model for task running on AI platform
 """
 import logging
-from typing import Callable, Optional, Any
+import pickle
+import time
+from typing import Callable, Optional
 
 import attr
 
-from bionic.aip.client import get_aip_client
-from bionic.aip.future import Future
+from bionic.aip.state import State, AipError
 from bionic.deps.optdep import import_optional_dependency
 
 
@@ -49,22 +50,26 @@ class Config:
 
 @attr.s(auto_attribs=True, frozen=True)
 class Task:
+    # This task object will be serialized and sent to AIP. Hence, all entities
+    # here must be serializable as well.
     name: str
     function: Callable
     config: Config
     task_config: TaskConfig
-    gcs_fs: Any  # AbstractFileSystem-like object, not necessarily a subclass.
 
-    def job_id(self):
+    @property
+    def job_id(self) -> str:
         return f"{self.config.uuid}_{self.name}"
 
-    def inputs_uri(self):
+    @property
+    def inputs_uri(self) -> str:
         # In a future version it might be better to make this path
         # specified by the flow, so that it can be inside a GCS cache
         # location and different file types.
         return f"gs://{self.config.project_name}/bionic/{self.config.uuid}/{self.name}-inputs.cloudpickle"
 
-    def output_uri(self):
+    @property
+    def output_uri(self) -> str:
         # In a future version it might be better to make this path
         # specified by the flow, so that it can be inside a GCS cache
         # location and different file types.
@@ -73,13 +78,13 @@ class Task:
     def _ai_platform_job_spec(self):
         """Conversion from our task data model to a job request on ai platform"""
         output = {
-            "jobId": f"{self.config.uuid}_{self.name}",
+            "jobId": f"{self.job_id}",
             "labels": {"job": self.config.uuid},
             "trainingInput": {
                 "serviceAccount": self.config.account,
                 "masterType": self.task_config.machine,
                 "masterConfig": {"imageUri": self.config.image_uri},
-                "args": ["python", "-m", "bionic.aip.main", self.inputs_uri()],
+                "args": ["python", "-m", "bionic.aip.main", self.inputs_uri],
                 "packageUris": [],
                 "region": "us-west1",
                 "pythonModule": "",
@@ -101,19 +106,17 @@ class Task:
 
         return output
 
-    def _stage(self):
+    def _stage(self, gcs_fs):
         cloudpickle = import_optional_dependency("cloudpickle")
 
-        path = self.inputs_uri()
+        path = self.inputs_uri
         logging.info(f"Staging task {self.name} at {path}")
 
-        with self.gcs_fs.open(path, "wb") as f:
+        with gcs_fs.open(path, "wb") as f:
             cloudpickle.dump(self, f)
 
-    def submit(self) -> Future:
-        aip_client = get_aip_client()
-
-        self._stage()
+    def submit(self, gcs_fs, aip_client):
+        self._stage(gcs_fs)
         spec = self._ai_platform_job_spec()
 
         logging.info(f"Submitting {self.config.project_name}: {self}")
@@ -124,8 +127,28 @@ class Task:
             .create(body=spec, parent=f"projects/{self.config.project_name}")
         )
         request.execute()
-        url = f'https://console.cloud.google.com/ai-platform/jobs/{spec["jobId"]}'
+        url = f"https://console.cloud.google.com/ai-platform/jobs/{self.job_id}"
         logging.info(f"Started task on AI Platform: {url}")
-        return Future(
-            self.gcs_fs, self.config.project_name, self.job_id(), self.output_uri()
+
+    def wait_for_results(self, gcs_fs, aip_client):
+        state, error = self._get_state_and_error(aip_client)
+        while state.is_executing():
+            time.sleep(10)
+            state, error = self._get_state_and_error(aip_client)
+            logging.info(f"Future for {self.job_id} has state {state}")
+
+        if state is not State.SUCCEEDED:
+            raise AipError(f"{self.job_id}: " + str(error))
+
+        with gcs_fs.open(self.output_uri, "rb") as f:
+            return pickle.load(f)
+
+    def _get_state_and_error(self, aip_client):
+        request = (
+            aip_client.projects()
+            .jobs()
+            .get(name=f"projects/{self.config.project_name}/jobs/{self.job_id}")
         )
+        response = request.execute()
+        state, error = State[response["state"]], response.get("errorMessage", None)
+        return state, error

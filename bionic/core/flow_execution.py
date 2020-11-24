@@ -3,9 +3,8 @@ This module contains the logic to execute tasks and their dependencies
 to completion.
 """
 
-from concurrent.futures import wait, FIRST_COMPLETED
 import logging
-import time
+from concurrent.futures import wait, FIRST_COMPLETED, ALL_COMPLETED
 
 import attr
 
@@ -278,6 +277,10 @@ class TaskCompletionRunner:
                 remote_subgraph.get_stripped_state(target_entry.state)
                 for target_entry in target_entries
             ]
+
+            # Remove the executors when sending the jobs over so that the remote
+            # executor does not attempt to create its own subprocess or AIP
+            # jobs.
             new_core = self._context.core.evolve(
                 aip_executor=None,
                 process_executor=None,
@@ -286,8 +289,11 @@ class TaskCompletionRunner:
                 core=new_core,
                 temp_result_cache=MemoryResultCache(),
             )
-            new_task_completion_runner = TaskCompletionRunner(new_context)
             if aip_task_config is not None:
+                new_context = new_context.evolve(
+                    task_key_logger=TaskKeyLogger(new_core),
+                )
+                new_task_completion_runner = TaskCompletionRunner(new_context)
                 future = self._context.core.aip_executor.submit(
                     aip_task_config,
                     run_in_subprocess,
@@ -304,6 +310,7 @@ class TaskCompletionRunner:
 
                 future.add_done_callback(done_callback)
             else:
+                new_task_completion_runner = TaskCompletionRunner(new_context)
                 future = self._context.core.process_executor.submit(
                     run_in_subprocess,
                     new_task_completion_runner,
@@ -401,31 +408,46 @@ class TaskCompletionRunner:
     def _wait_on_in_progress_entries(self):
         "Waits on any in-progress entry to finish."
         futures = set(entry.future for entry in self._in_progress_entries)
-        if self._parallel_execution_enabled:
-            finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
-        else:
-            assert self._aip_execution_enabled
-            # TODO: This works for PoC, but maybe there is a better way
-            # to do this. Also consider making the sleep time configurable.
-            # See this comment for example
-            # https://github.com/square/bionic/pull/253#discussion_r487066911
-            while all(future.running() for future in futures):
-                time.sleep(10)
-            finished_futures = [future for future in futures if future.done()]
-        for finished_future in finished_futures:
-            # TODO: If there is an error, consider waiting till all
-            # futures are done. With AIP execution, we can have one
-            # task fail while others are running. If we don't wait till
-            # those tasks are done, the user might perform another
-            # `get` operation that can spawn the same Task again. Apart
-            # from wasted resource, the other problem is that the older
-            # and newer tasks can potentially conflict writing to the
-            # same cache file.
-            task_keys = finished_future.result()
-            for task_key in task_keys:
-                entry = self._entries_by_task_key[task_key]
-                entry.state.sync_after_remote_computation()
-                assert self._mark_entry_completed_if_possible(entry)
+        finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
+        try:
+            for finished_future in finished_futures:
+                task_keys = finished_future.result()
+                for task_key in task_keys:
+                    entry = self._entries_by_task_key[task_key]
+                    entry.state.sync_after_remote_computation()
+                    assert self._mark_entry_completed_if_possible(entry)
+        except Exception as exception:
+            # If there is an error, wait until all futures are done. With AIP
+            # execution, we can have one task fail while others are running. If
+            # we don't wait till those tasks are done, the user might perform
+            # another `get` operation that can spawn the same Task again.
+
+            logger.error(
+                oneline(
+                    f"""
+                    Encountered an error while doing remote computation:
+                    {exception!r}. Waiting for all other remote computation to
+                    complete...
+                    """
+                )
+            )
+            finished_futures, _ = wait(futures, return_when=ALL_COMPLETED)
+
+            # There may be errors in the other tasks. Ensure that we log all of
+            # the other errors as well.
+            for future in finished_futures:
+                e = future.exception()
+                if e != exception and e is not None:
+                    logger.error(
+                        oneline(
+                            f"""
+                        Encountered another exception while doing remote
+                        computation: {e!r}.
+                        """
+                        )
+                    )
+
+            raise exception
 
     def _mark_entry_completed_if_possible(self, entry):
         assert entry.stage in [EntryStage.ACTIVE, EntryStage.IN_PROGRESS]
@@ -531,16 +553,8 @@ class TaskKeyLogger:
                 core.process_executor.create_synchronized_set()
             )
         else:
-            # TODO: When AIP execution is enabled, we will send this
-            # SynchronizedSet to AIP jobs for logging task keys. AIP
-            # will get the already added keys to the set, but any
-            # updates made to the set in AIP won't be returned back to
-            # the main process. This will results in progress reporting
-            # being inaccurate, since any job computed in AIP would not
-            # be logged and will be logged as loaded from disk in the
-            # main process as a result. We should fix AIP progress
-            # reporting by either logging the keys in the main process
-            # or rethinking how we do progress reporting.
+            # In AIP execution, any logs and updates to this set are not
+            # returned back to the main bionic process.
             self._already_logged_entity_case_key_pairs = SynchronizedSet()
 
     def _log(self, template, task_key, is_resolved=True):
