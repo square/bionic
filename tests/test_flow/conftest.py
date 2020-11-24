@@ -104,6 +104,17 @@ def make_list(process_manager):
 
 
 @pytest.fixture
+def make_dict(process_manager):
+    def _make_dict():
+        if process_manager is None:
+            return {}
+        else:
+            return process_manager.dict()
+
+    return _make_dict
+
+
+@pytest.fixture
 def gcs_fs(use_fake_gcp, multiprocessing_manager):
     if use_fake_gcp:
         # When running an AIP job, the GCS filesystem is serialized and then
@@ -150,7 +161,7 @@ def fake_gcs_builder(builder, make_dict):
     builder.set("core__persistent_cache__gcs__bucket_name", "some-bucket")
     builder.set("core__persistent_cache__gcs__object_path", "")
     builder.set("core__persistent_cache__gcs__enabled", True)
-    builder.set("core__persistent_cache__gcs__fs", FakeGcsFs(make_dict))
+    builder.set("core__persistent_cache__gcs__fs", FakeGcsFs(make_dict()))
 
     return builder
 
