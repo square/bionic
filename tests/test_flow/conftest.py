@@ -263,14 +263,23 @@ class LogChecker:
         self._caplog.clear()
 
     def expect_regex(self, *expected_patterns):
-        actual_messages = self._pop_messages()
+        messages = self._pop_messages()
         for pattern in expected_patterns:
-            assert any(re.fullmatch(pattern, message) for message in actual_messages)
+            assert any(
+                re.fullmatch(pattern, message, flags=re.DOTALL) for message in messages
+            )
 
     def _pop_messages(self):
-        messages = [record.getMessage() for record in self._caplog.records]
+        messages = [self._format_message(record) for record in self._caplog.records]
         self._caplog.clear()
         return messages
+
+    @staticmethod
+    def _format_message(record):
+        message = record.getMessage()
+        if record.exc_text:
+            message = message + " " + record.exc_text
+        return message
 
 
 @pytest.fixture

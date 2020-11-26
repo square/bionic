@@ -43,9 +43,9 @@ class AipExecutor:
             function=partial(fn, *args, **kwargs),
         )
         task.submit(gcs_fs=self._gcs_fs, aip_client=self._aip_client)
-        return ThreadPoolExecutor(max_workers=1).submit(
-            task.wait_for_results, self._gcs_fs, self._aip_client
-        )
+        return ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="aip-wait-results"
+        ).submit(task.wait_for_results, self._gcs_fs, self._aip_client)
 
     def _create_job_name(self, task_key):
         # AIP job names must be alphanumeric (including underscore) and start

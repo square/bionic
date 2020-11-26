@@ -88,7 +88,6 @@ def test_aip_jobs(aip_builder, log_checker):
     )
 
 
-@pytest.mark.no_parallel
 def test_aip_fail(aip_builder, log_checker):
     builder = aip_builder
 
@@ -107,5 +106,5 @@ def test_aip_fail(aip_builder, log_checker):
         r"Submitting AI Platform task on .*x_plus_one.*x=1.*",
         r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_x_plus_one.*",
         r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='x_plus_one'\), case_key=CaseKey\(x=1\)\).*",
-        r".*error while doing remote computation.*",
+        r".*error while doing remote computation for x_plus_one\(x=1\).*AipError.*",
     )
