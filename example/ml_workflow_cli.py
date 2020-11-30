@@ -55,7 +55,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-C",
-        help="Value or values (comma-separated) for"
+        help="Value or values (comma-separated) for "
         "the inverse regularization parameter 'C'",
     )
     parser.add_argument(
