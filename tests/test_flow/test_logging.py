@@ -130,10 +130,10 @@ def test_log_aip(aip_builder, log_checker):
     log_checker.expect_regex(
         r"Accessed   x\(x=1\) from definition",
         r"Uploading x\(x=1\) to GCS ...",
-        r"Staging task .* at gs://.*",
-        r"Submitting .*x_plus_one.*",
-        r"Started task on AI Platform: https://console.cloud.google.com/ai-platform/jobs/.*",
-        r"Computed   x_plus_one\(x=1\) using AIP",
+        r"Staging AI Platform task .* at gs://.*bionic_x_plus_one.*",
+        r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='x_plus_one'\), case_key=CaseKey\(x=1\)\).*",
+        r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_x_plus_one.*",
+        r"Computed   x_plus_one\(x=1\) using AI Platform",
     )
 
     assert flow.get("x_plus_two") == 3
@@ -142,8 +142,8 @@ def test_log_aip(aip_builder, log_checker):
     # printed in AIP logs but not locally.
 
     log_checker.expect_regex(
-        r"Staging task .* at gs://.*",
-        r"Submitting .*x_plus_two.*",
-        r"Started task on AI Platform: https://console.cloud.google.com/ai-platform/jobs/.*",
-        r"Computed   x_plus_two\(x=1\) using AIP",
+        r"Staging AI Platform task .* at gs://.*bionic_x_plus_two.*",
+        r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='x_plus_two'\), case_key=CaseKey\(x=1\)\).*",
+        r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_x_plus_two.*",
+        r"Computed   x_plus_two\(x=1\) using AI Platform",
     )

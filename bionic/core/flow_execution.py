@@ -295,6 +295,7 @@ class TaskCompletionRunner:
                 )
                 new_task_completion_runner = TaskCompletionRunner(new_context)
                 future = self._context.core.aip_executor.submit(
+                    entry.state.task_key,
                     aip_task_config,
                     run_in_subprocess,
                     new_task_completion_runner,
@@ -602,7 +603,7 @@ class TaskKeyLogger:
         self._log("Computed   %s", task_key)
 
     def log_computed_aip(self, task_key):
-        self._log("Computed   %s using AIP", task_key)
+        self._log("Computed   %s using AI Platform", task_key)
 
 
 # TODO Consider introducing the term "query" to refer to the scope of one get() call.
