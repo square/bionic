@@ -92,6 +92,7 @@ class ModelFlowHarness:
         out_entities = list(
             map(self._entities_by_name.get, out_dnode.all_entity_names())
         )
+        dep_entities = list(map(self._entities_by_name.get, dep_entity_names))
 
         should_persists = set(entity.should_persist for entity in out_entities)
         (should_persist,) = should_persists
@@ -99,7 +100,7 @@ class ModelFlowHarness:
         binding = ModelBinding(
             out_dnode=out_dnode,
             out_entities=out_entities,
-            dep_entity_names=dep_entity_names,
+            dep_entities=dep_entities,
             use_tuples_for_output=use_tuples_for_output,
         )
         for out_entity in out_entities:
@@ -218,84 +219,11 @@ class ModelFlowHarness:
             self._active_model_memoized_values_by_entity_name = {}
 
     def _add_binding_to_flow(self, binding):
-        out_entity_names = [entity.name for entity in binding.out_entities]
+        binding.add_to_builder(self._builder, self._descriptors_computed_by_flow)
 
-        joined_dep_entity_names = ", ".join(binding.dep_entity_names)
-
-        # TODO Could this logic live inside ModelBinding instead?
-        if binding.use_tuples_for_output:
-            output_decorator_fragment = f"""
-            @bn.returns({binding.out_descriptor!r})
-            """.strip()
-            output_value_fragment = binding.value_code_fragment_for_returns()
-        else:
-            output_decorator_fragment = f"""
-            @bn.outputs({', '.join(repr(name) for name in out_entity_names)})
-            """.strip()
-            output_value_fragment = binding.value_code_fragment_for_outputs()
-
-        vars_dict = {
-            "bn": bn,
-            "builder": self._builder,
-            "record_call": self._descriptors_computed_by_flow.append,
-        }
-
-        raw_func_code = f"""
-        @builder
-        {output_decorator_fragment}
-        @bn.version({binding.annotated_func_version})
-        @bn.persist({binding.should_persist})
-        @bn.memoize({binding.should_memoize})
-        def _({joined_dep_entity_names}):
-            record_call({binding.out_descriptor!r})
-            return {output_value_fragment}
-        """
-        exec(dedent(raw_func_code), vars_dict)
-
-    def _compute_model_value(
-        self,
-        entity_name,
-        context,
-    ):
-        if entity_name in context.memoized_query_values_by_entity_name:
-            return context.memoized_query_values_by_entity_name[entity_name]
-        if entity_name in context.memoized_flow_values_by_entity_name:
-            return context.memoized_flow_values_by_entity_name[entity_name]
-
-        entity = self._entities_by_name[entity_name]
-        binding = entity.binding
-
-        if not binding.has_persisted_values:
-            running_in_subprocess = (
-                context.parallel_execution_enabled and binding.should_persist
-            )
-            if running_in_subprocess:
-                dep_context = context.evolve(
-                    memoized_flow_values_by_entity_name={},
-                    memoized_query_values_by_entity_name={},
-                )
-            else:
-                dep_context = context
-            dep_values = [
-                self._compute_model_value(dep_entity_name, dep_context)
-                for dep_entity_name in binding.dep_entity_names
-            ]
-            values_by_entity_name = binding.compute_and_save_values(dep_values)
-            context.computed_descriptors.append(binding.out_descriptor)
-
-        else:
-            if binding.persisted_values_stale_ancestor is not None:
-                assert context.versioning_mode == "assist"
-                stale_ancestor = binding.persisted_values_stale_ancestor
-                raise CodeVersioningError("Binding is stale", stale_ancestor)
-            values_by_entity_name = binding.persisted_values_by_entity_name
-
-        if binding.should_memoize:
-            context.memoized_flow_values_by_entity_name.update(values_by_entity_name)
-        elif not binding.should_persist:
-            context.memoized_query_values_by_entity_name.update(values_by_entity_name)
-
-        return values_by_entity_name[entity_name]
+    def _compute_model_value(self, entity_name, context):
+        binding = self._entities_by_name[entity_name].binding
+        return binding.compute_entity_value(entity_name, context)
 
     def _clear_called_descriptors(self):
         self._descriptors_computed_by_flow[:] = []
@@ -329,13 +257,13 @@ class ModelEntity:
     binding = attr.ib(default=None)
     dependent_entities = attr.ib(default=attr.Factory(list))
 
-    def compute_value(self, dep_values):
+    def value_from_deps(self, dep_values):
         return f"{self.name}.{self.binding.func_version}({','.join(dep_values)})"
 
     def value_code_fragment(self):
         return (
             f"'{self.name}.{self.binding.func_version}('"
-            + " + ',' ".join(f"+ {name}" for name in self.binding.dep_entity_names)
+            + " + ',' ".join(f"+ {entity.name}" for entity in self.binding.dep_entities)
             + " + ')'"
         )
 
@@ -348,7 +276,7 @@ class ModelBinding:
 
     out_dnode = attr.ib()
     out_entities = attr.ib()
-    dep_entity_names = attr.ib()
+    dep_entities = attr.ib()
     use_tuples_for_output = attr.ib()
     func_version = attr.ib(default=1)
     annotated_func_version = attr.ib(default=1)
@@ -441,9 +369,9 @@ class ModelBinding:
         else:
             assert False
 
-    def compute_and_save_values(self, dep_values):
+    def get_and_save_values_from_deps(self, dep_values):
         values_by_entity_name = {
-            entity.name: entity.compute_value(dep_values)
+            entity.name: entity.value_from_deps(dep_values)
             for entity in self.out_entities
         }
         if self.should_persist:
@@ -453,6 +381,82 @@ class ModelBinding:
         self.no_descendant_can_have_persisted_values = False
         self.no_descendant_can_have_stale_persisted_values = False
         return values_by_entity_name
+
+    def compute_entity_value(self, entity_name, context):
+        if entity_name in context.memoized_query_values_by_entity_name:
+            return context.memoized_query_values_by_entity_name[entity_name]
+        if entity_name in context.memoized_flow_values_by_entity_name:
+            return context.memoized_flow_values_by_entity_name[entity_name]
+
+        if not self.has_persisted_values:
+            running_in_subprocess = (
+                context.parallel_execution_enabled and self.should_persist
+            )
+            if running_in_subprocess:
+                dep_context = context.evolve(
+                    memoized_flow_values_by_entity_name={},
+                    memoized_query_values_by_entity_name={},
+                )
+            else:
+                dep_context = context
+            dep_values = [
+                dep_entity.binding.compute_entity_value(dep_entity.name, dep_context)
+                for dep_entity in self.dep_entities
+            ]
+            values_by_entity_name = self.get_and_save_values_from_deps(dep_values)
+            context.computed_descriptors.append(self.out_descriptor)
+
+        else:
+            if self.persisted_values_stale_ancestor is not None:
+                assert context.versioning_mode == "assist"
+                stale_ancestor = self.persisted_values_stale_ancestor
+                raise CodeVersioningError("Binding is stale", stale_ancestor)
+            values_by_entity_name = self.persisted_values_by_entity_name
+
+        if self.should_memoize:
+            context.memoized_flow_values_by_entity_name.update(values_by_entity_name)
+        elif not self.should_persist:
+            context.memoized_query_values_by_entity_name.update(values_by_entity_name)
+
+        return values_by_entity_name[entity_name]
+
+    def add_to_builder(self, builder, descriptors_computed_by_flow):
+        out_entity_names = [entity.name for entity in self.out_entities]
+
+        joined_dep_entity_names = ", ".join(self.dep_entity_names)
+
+        if self.use_tuples_for_output:
+            output_decorator_fragment = f"""
+            @bn.returns({self.out_descriptor!r})
+            """.strip()
+            output_value_fragment = self.value_code_fragment_for_returns()
+        else:
+            output_decorator_fragment = f"""
+            @bn.outputs({', '.join(repr(name) for name in out_entity_names)})
+            """.strip()
+            output_value_fragment = self.value_code_fragment_for_outputs()
+
+        vars_dict = {
+            "bn": bn,
+            "builder": builder,
+            "record_call": descriptors_computed_by_flow.append,
+        }
+
+        raw_func_code = f"""
+        @builder
+        {output_decorator_fragment}
+        @bn.version({self.annotated_func_version})
+        @bn.persist({self.should_persist})
+        @bn.memoize({self.should_memoize})
+        def _({joined_dep_entity_names}):
+            record_call({self.out_descriptor!r})
+            return {output_value_fragment}
+        """
+        exec(dedent(raw_func_code), vars_dict)
+
+    @property
+    def dep_entity_names(self):
+        return [entity.name for entity in self.dep_entities]
 
     @property
     def out_descriptor(self):
