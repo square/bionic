@@ -8,7 +8,7 @@ from bionic.aip.state import AipError
 pytestmark = pytest.mark.needs_aip
 
 
-def test_aip_jobs(aip_builder):
+def test_aip_jobs(aip_builder, log_checker):
     builder = aip_builder
 
     builder.assign("x1", 1)
@@ -62,10 +62,34 @@ def test_aip_jobs(aip_builder):
     def total(y1, y2, y3, y4, y5):
         return y1 + y2 + y3 + y4 + y5
 
+    assert builder.build().get("y1") == 16
+
+    log_checker.expect_regex(
+        r"Staging AI Platform task .* at gs://.*bionic_y1.*",
+        r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_y1.*",
+        r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='y1'\), case_key=CaseKey\(x1=1\)\).*",
+        r"Computed   y1\(x1=1\) using AI Platform",
+        r"Downloading y1\(x1=1\) from GCS \.\.\.",
+    )
+
     assert builder.build().get("total") == 90
 
+    log_checker.expect_regex(
+        r"Loaded     y1\(x1=1\) from disk cache",
+        r"Staging AI Platform task .* at gs://.*bionic_y2.*",
+        r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_y2.*",
+        r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='y2'\), case_key=CaseKey\(x1=1\)\).*",
+        r"Computed   y2\(x1=1\) using AI Platform",
+        r"Downloading y2\(x1=1\) from GCS \.\.\.",
+        r"Computed   y3\(x1=1\)",
+        r"Computed   y4\(x1=1\)",
+        r"Computed   y5\(x1=1\)",
+        r"Computed   total\(x1=1\)",
+    )
 
-def test_aip_fail(aip_builder):
+
+@pytest.mark.no_parallel
+def test_aip_fail(aip_builder, log_checker):
     builder = aip_builder
 
     builder.assign("x", 1)
@@ -77,3 +101,11 @@ def test_aip_fail(aip_builder):
 
     with pytest.raises(AipError):
         builder.build().get("x_plus_one")
+
+    log_checker.expect_regex(
+        r"Staging AI Platform task .* at gs://.*bionic_x_plus_one.*",
+        r"Submitting AI Platform task on .*x_plus_one.*x=1.*",
+        r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_x_plus_one.*",
+        r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='x_plus_one'\), case_key=CaseKey\(x=1\)\).*",
+        r".*error while doing remote computation.*",
+    )

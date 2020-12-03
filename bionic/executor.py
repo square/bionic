@@ -8,6 +8,7 @@ work in a parallel setting.
 import copy
 import logging
 import queue
+import re
 import sys
 import threading
 import traceback
@@ -27,20 +28,16 @@ class AipExecutor:
     in one place.
     """
 
+    NON_ALPHANUMERIC_PATTERN = re.compile(r"\W")
+
     def __init__(self, gcs_fs, aip_client, aip_config):
         self._gcs_fs = gcs_fs
         self._aip_client = aip_client
         self._aip_config = aip_config
 
-    def submit(self, task_config, fn, *args, **kwargs):
+    def submit(self, task_key, task_config, fn, *args, **kwargs):
         task = Task(
-            # TODO: Use a better identifiable name, maybe a combination
-            # of entity name and case key.
-            # This is a temporary workaround. We are changing the random
-            # UUID in such a manner because AIP names have to start with
-            # a letter and only accepts alphanumeric and underscore
-            # characters.
-            name="a" + str(uuid4()).replace("-", ""),
+            name=self._create_job_name(task_key),
             config=self._aip_config,
             task_config=task_config,
             function=partial(fn, *args, **kwargs),
@@ -49,6 +46,12 @@ class AipExecutor:
         return ThreadPoolExecutor(max_workers=1).submit(
             task.wait_for_results, self._gcs_fs, self._aip_client
         )
+
+    def _create_job_name(self, task_key):
+        # AIP job names must be alphanumeric (including underscore) and start
+        # with a letter.
+        alphanumeric_task_key = self.NON_ALPHANUMERIC_PATTERN.sub("_", str(task_key))
+        return f"bionic_{alphanumeric_task_key}_{uuid4().hex}"
 
 
 class ProcessExecutor:

@@ -110,7 +110,7 @@ class Task:
         cloudpickle = import_optional_dependency("cloudpickle")
 
         path = self.inputs_uri
-        logging.info(f"Staging task {self.name} at {path}")
+        logging.info(f"Staging AI Platform task {self.name} at {path}")
 
         with gcs_fs.open(path, "wb") as f:
             cloudpickle.dump(self, f)
@@ -119,7 +119,9 @@ class Task:
         self._stage(gcs_fs)
         spec = self._ai_platform_job_spec()
 
-        logging.info(f"Submitting {self.config.project_name}: {self}")
+        logging.info(
+            f"Submitting AI Platform task on {self.config.project_name}: {self}"
+        )
 
         request = (
             aip_client.projects()
@@ -128,7 +130,7 @@ class Task:
         )
         request.execute()
         url = f"https://console.cloud.google.com/ai-platform/jobs/{self.job_id}"
-        logging.info(f"Started task on AI Platform: {url}")
+        logging.info(f"Started AI Platform task: {url}")
 
     def wait_for_results(self, gcs_fs, aip_client):
         state, error = self._get_state_and_error(aip_client)
