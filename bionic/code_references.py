@@ -88,22 +88,27 @@ def get_code_context(func) -> CodeContext:
 
 def get_referenced_objects(code, context):
     """
-    Returns referenced objects for a code object and name of the references when
-    the references cannot be detected without performing runtime logic.
+    Attempts to return all objects referenced externally by a code object. In
+    some cases, these objects are:
+    - replaced with strings: when we can't find a variable or when the reference
+      is an attribute of the result of a function call, or
+    - omitted: when the reference is accessed using exec or is the result of a
+      function call.
 
-    Referenced objects can be anything from a class, a function, a module or any
-    variables. The references can also be any scope, like global, local, cell,
-    free, or can even be in another object referenced using a full qualified
-    name.
+    An externally referenced object is any object used by a piece of code but not
+    defined in that code. These objects can include classes, functions, modules,
+    or any other variables. They can be referenced from various scopes: global,
+    "free" (when the variable is used in a code block, but is not defined there
+    and is not global), etc.; or as attributes of other referenced objects.
 
-    Note that this function does not perform any runtime logic. This includes
-    calling any functions used by the input code because doing so can be
-    expensive and have unintended consequences. Due to this, any references with
-    a fully qualified name that uses result of such a call won't be detected.
-    This means that if an inner function returns a module or a class, any
-    variables of the module or the class won't be detected. In this case, we will
-    return the name of the reference as a proxy. So for a function like below,
-    the returned reference would be ``"call"`` instead of ``MyClass.call``.
+    Note that this function does not actually run any code. This includes
+    calling any functions used by the input code, because doing so can be
+    expensive and have unintended consequences. Due to this, any references that
+    are attributes of the result of a function call won’t be detected. This means
+    that if an inner function returns a module or a class, any attributes of the
+    module or the class won't be detected. In this case, we return the name of
+    the attribute as a proxy for the object itself. So for the function below,
+    the returned references would be ``[get_my_class, "call"]``.
 
     .. code-block:: python
 
@@ -111,14 +116,9 @@ def get_referenced_objects(code, context):
             my_cls = get_my_class("MyClass") # Returns class MyClass
             my_cls.call()
 
-
-    On a higher level, this leaves out some changes that Bionic won't be able to
-    auto-detect for caching. Bionic should be able to detect any changes except
-    when a function returns a class or a module. In those case, Bionic cannot
-    detect what is returned. But it should be able to detect the class / module
-    returned when hashing the function which returns the said result. Bionic will
-    still hash those classes / modules, and detect as many changes as it can in
-    them.
+    This function uses a CodeContext object to look up variables defined outside
+    the local scope and to track local variables created while running the logic
+    to find references.
     """
 
     # We mutate context while finding references. Let's make a copy of
@@ -150,7 +150,7 @@ def get_referenced_objects(code, context):
         tos = t
 
     # Our goal is to find referenced objects. The problem is that co_names
-    # does not have full qualified names in it. So if you access `foo.bar`,
+    # does not have fully qualified names in it. So if you access `foo.bar`,
     # co_names has `foo` and `bar` in it but it doesn't tell us that the
     # code reads `bar` of `foo`. We are going over the bytecode to resolve
     # from which object an attribute is requested.
@@ -227,6 +227,8 @@ def get_referenced_objects(code, context):
                 tos = None
             elif op.opname == "LOAD_FAST" and op.argval in context.varnames:
                 set_tos(context.varnames[op.argval])
+            # TODO: Keep track of all known bytecode instructions and throw an
+            # error if we ever see a new instruction.
             else:
                 # For all other instructions, add the current TOS as a
                 # reference.
@@ -240,11 +242,11 @@ def get_referenced_objects(code, context):
             likely a bug in Bionic. Please raise a new issue at
             https://github.com/square/bionic/issues to let us know.
 
-            In the meantime, you can disabled bytecode analysis for
+            In the meantime, you can disable bytecode analysis for
             the corresponding function by setting `ignore_bytecode`
             on its `@version` decorator. Please note that Bionic won't
             automatically detect changes in this function; you'll need
-            to manually update the version youtself.
+            to manually update the version yourself.
             """
             )
             raise AssertionError(message) from e

@@ -308,8 +308,8 @@ class CodeVersion:
     major and a minor version string, and a boolean that indicates whether it
     includes the bytecode.  The convention is that changing the major version
     indicates a functional change, while changing the minor version indicates a
-    nonfunctional change.  includes_bytecode determines whether the bytecode is
-    also used to detect changes.
+    nonfunctional change.  If ``includes_bytecode`` is True, then the major version
+    is understood to implicitly include the bytecode of the code as well.
     """
 
     major: str = attr.ib(converter=str_from_version_value)
@@ -320,9 +320,9 @@ class CodeVersion:
 @attr.s(frozen=True)
 class CodeVersioningPolicy:
     """
-    Contains the version of user entities with any additional settings related to
-    the version. For now, we only have one setting that affects the analysis-time
-    behavior of the version.
+    Contains the version of the user entity function with any additional settings
+    related to the version. For now, we only have one setting that affects the
+    analysis-time behavior of the version.
     """
 
     version: CodeVersion = attr.ib()

@@ -280,7 +280,7 @@ mode from ``'manual'`` to ``'assist'``:
     builder.set('core__versioning_mode', 'assist')
 
 In this mode, if Bionic finds a cached file created by a function with the
-*same version* but *different code* [#code_hash]_, it will raise a
+*same version* but *different code* [#risk_factors]_, it will raise a
 ``CodeVersioningError``. You can resolve this error by updating the :func:`@version
 <bionic.version>`, which tells Bionic to ignore the cached file and compute a new
 value.
@@ -316,17 +316,42 @@ file as long as the ``major`` version matches.
     def message(greeting, subject):
         return f'{greeting} {subject}!!!'.upper()
 
-Be aware that Bionic can't detect every change that can affect your code's
-behavior.  It only looks at the code of the decorated function itself; if you
-change any other function or library that your decorated function depends on,
-Bionic won't notice.  Similarly, if your function is wrapped by a non-Bionic
-decorator, Bionic won't detect any code changes in that function at all.
-That's why this mode only provides a warning, rather than automatically
-invalidating the cache for you: to keep you in the habit of thinking carefully
-about versioning.
 
-However, if you do want to completely automate the versioning process, you
-can set Bionic to a "fully automatic" mode:
+Be aware that Bionic can't detect every change that can affect your code's
+behavior. Bionic will inspect the bytecode of each function, as well as any
+global variables and other functions it references [#bytecode_hash]_. However, it
+won’t detect changes of the following types:
+
+1. **Built-in or Installed Modules**: Bionic won’t detect changes in any built-in
+   modules or installed functions (modules accessed through Python’s
+   `installation paths <https://docs.python.org/3/library/sysconfig.html#installation-paths>`_).
+   Bionic *will* detect changes to modules in the same directory as your code,
+   and modules accessed through
+   `PYTHONPATH <https://docs.python.org/3/using/cmdline.html#envvar-PYTHONPATH>`_.
+
+2. **Global Variables with Complex Types**: Bionic will only detect changes in
+   global variables that have simple types (int, string, bool, bytes, etc.), but
+   it will ignore changes for other types of variables.
+
+3. **Python Classes**: Bionic won’t detect changes to the code of Python classes.
+   [#classes_hash]_
+
+4. **Runtime Code**: Bionic doesn’t actually run any code when inspecting it, so
+   it won’t recursively inspect functions that are referenced dynamically. If a
+   function is not referenced straightforwardly (that is, as a global variable or
+   as an attribute of a global variable), Bionic may not inspect it. For example:
+
+   .. code-block:: python
+
+    def f():
+        a = get_a()  # We will inspect `get_a`.
+        b = module.submodule.get_b()  # We will inspect `get_b`.
+        import new_module
+        c = new_module.get_c()  # We won’t inspect `get_c`.
+        d = exec("get_d()")  # We definitely won’t inspect `get_d`!
+
+If you're not worried about these false negatives, you can set Bionic to a "fully
+automatic" mode:
 
 .. code-block:: python
 
@@ -335,12 +360,16 @@ can set Bionic to a "fully automatic" mode:
 In this mode, Bionic will automatically invalidate cached files whenever a
 function's code changes, so you don't need to set a ``@version`` at all.
 (However, you can still update the ``@version`` to tell Bionic about external
-changes that it can't detect.)  This mode is more dangerous, but can be useful
-when your functions are small, change fast, and have few external dependencies
--- for example, when your flow is defined in a notebook.
+changes that it can't detect.)  This mode increases the risk of an undetected
+change, but it may be more convenient when your code doesn't include any of the
+risk factors listed above.
 
-.. [#code_hash] Bionic detects code changes by extracting and hashing the Python
-  bytecode of each function decorated by a FlowBuilder.
+.. [#risk_factors] The details are described later in this section.
+
+.. [#bytecode_hash] And any global variables and other functions they reference,
+  and so on.
+
+.. [#classes_hash] However, we expect to change this in an upcoming release.
 
 
 Disabling Persistent Caching

@@ -387,8 +387,8 @@ def test_changes_in_another_module(is_module_internal):
 
 def check_hash_equivalence(groups):
     """
-    Checks that hashes for every element in the group is the same and
-    hashes for elements between the groups are different. It also
+    Checks that hashes for every element in a given group are the same
+    and hashes for elements between the groups are different. It also
     hashes the elements in every group twice to test that the hash is
     stable.
     """

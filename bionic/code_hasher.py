@@ -35,6 +35,19 @@ from .utils.reload import is_internal_file
 PREFIX_SEPARATOR = b"$"
 
 
+# List of things we should do before releasing Smart Caching:
+# - dedup references
+# - caching individual object hashes for a CodeHasher run
+# - hash classes
+# - Throw an exception for unhandled bytecode instruction type
+# - maybe return references that are stored in local variable
+# - investigate if we can hash module or package versions
+# - verify that we hash all Python constant types
+# - version.suppress_bytecode_warnings TODO
+# - skip and warn for referenced code objects
+# - Only call getattr for modules TODO
+
+
 class CodeHasher:
     """
     This class hashes code objects into values that uniquely identify
