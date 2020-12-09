@@ -3,8 +3,6 @@ import threading
 
 import pytest
 
-import bionic as bn
-
 
 @pytest.mark.allows_parallel
 def test_logging_details(builder, log_checker, parallel_execution_enabled):
@@ -103,47 +101,4 @@ def test_log_unpickleable_value(builder, log_checker):
         "Cannot pickle me",
         "Logging unpickleable class: Cannot pickle me",
         "Computed   log_unpickleable_value()",
-    )
-
-
-@pytest.mark.no_parallel
-@pytest.mark.needs_aip
-def test_log_aip(aip_builder, log_checker):
-    builder = aip_builder
-
-    builder.assign("x", 1)
-
-    @builder
-    @bn.aip_task_config("n1-standard-4")
-    def x_plus_one(x):
-        return x + 1
-
-    @builder
-    @bn.aip_task_config("n1-standard-8")
-    def x_plus_two(x_plus_one):
-        return x_plus_one + 1
-
-    flow = builder.build()
-
-    assert flow.get("x_plus_one") == 2
-
-    log_checker.expect_regex(
-        r"Accessed   x\(x=1\) from definition",
-        r"Uploading x\(x=1\) to GCS ...",
-        r"Staging AI Platform task .* at gs://.*bionic_x_plus_one.*",
-        r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='x_plus_one'\), case_key=CaseKey\(x=1\)\).*",
-        r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_x_plus_one.*",
-        r"Computed   x_plus_one\(x=1\) using AI Platform",
-    )
-
-    assert flow.get("x_plus_two") == 3
-
-    # Unfortunately, the string "Loaded     x_plus_one(x=1) from disk cache" is
-    # printed in AIP logs but not locally.
-
-    log_checker.expect_regex(
-        r"Staging AI Platform task .* at gs://.*bionic_x_plus_two.*",
-        r"Submitting AI Platform task .*TaskKey\(dnode=EntityNode\(name='x_plus_two'\), case_key=CaseKey\(x=1\)\).*",
-        r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_x_plus_two.*",
-        r"Computed   x_plus_two\(x=1\) using AI Platform",
     )

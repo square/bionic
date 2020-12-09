@@ -303,7 +303,10 @@ class TaskCompletionRunner:
                 )
 
                 def done_callback(callback_future):
-                    if not callback_future.cancelled():
+                    if (
+                        not callback_future.cancelled()
+                        and callback_future.exception() is None
+                    ):
                         for target_entry in target_entries:
                             self._context.task_key_logger.log_computed_aip(
                                 target_entry.state.task_key
@@ -408,47 +411,62 @@ class TaskCompletionRunner:
 
     def _wait_on_in_progress_entries(self):
         "Waits on any in-progress entry to finish."
-        futures = set(entry.future for entry in self._in_progress_entries)
-        finished_futures, _ = wait(futures, return_when=FIRST_COMPLETED)
-        try:
-            for finished_future in finished_futures:
-                task_keys = finished_future.result()
-                for task_key in task_keys:
-                    entry = self._entries_by_task_key[task_key]
-                    entry.state.sync_after_remote_computation()
-                    assert self._mark_entry_completed_if_possible(entry)
-        except Exception as exception:
-            # If there is an error, wait until all futures are done. With AIP
-            # execution, we can have one task fail while others are running. If
-            # we don't wait till those tasks are done, the user might perform
-            # another `get` operation that can spawn the same Task again.
-
-            logger.error(
-                oneline(
-                    f"""
-                    Encountered an error while doing remote computation:
-                    {exception!r}. Waiting for all other remote computation to
-                    complete...
-                    """
+        entries_by_future = {entry.future: entry for entry in self._in_progress_entries}
+        finished_futures, _ = wait(
+            entries_by_future.keys(), return_when=FIRST_COMPLETED
+        )
+        for finished_future in finished_futures:
+            try:
+                self._sync_and_complete_remotely_computed_task_keys(
+                    finished_future.result()
                 )
-            )
-            finished_futures, _ = wait(futures, return_when=ALL_COMPLETED)
+            except Exception as exception:
+                # If there is an error, wait until all futures are done. With
+                # AIP execution, we can have one task fail while others are
+                # running. If we don't wait till those tasks are done, the user
+                # might perform another `get` operation that can spawn the same
+                # Task again.
 
-            # There may be errors in the other tasks. Ensure that we log all of
-            # the other errors as well.
-            for future in finished_futures:
-                e = future.exception()
-                if e != exception and e is not None:
-                    logger.error(
-                        oneline(
-                            f"""
-                        Encountered another exception while doing remote
-                        computation: {e!r}.
+                logger.exception(
+                    oneline(
+                        f"""
+                        Encountered an error while doing remote computation for
+                        {entries_by_future[finished_future].state.task_key}.
+                        Waiting for all other remote computation(s) to
+                        complete...
                         """
-                        )
                     )
+                )
+                finished_futures, _ = wait(
+                    entries_by_future.keys(), return_when=ALL_COMPLETED
+                )
 
-            raise exception
+                # There may be errors in the other tasks. Ensure that we log all
+                # of the other errors as well.
+                for future in finished_futures:
+                    try:
+                        self._sync_and_complete_remotely_computed_task_keys(
+                            future.result()
+                        )
+                    except Exception as e:
+                        if e != exception and e is not None:
+                            logger.exception(
+                                oneline(
+                                    f"""
+                                    Encountered another error while doing remote
+                                    computation for
+                                    {entries_by_future[future].state.task_key}.
+                                    """
+                                )
+                            )
+
+                raise exception
+
+    def _sync_and_complete_remotely_computed_task_keys(self, task_keys):
+        for task_key in task_keys:
+            entry = self._entries_by_task_key[task_key]
+            entry.state.sync_after_remote_computation()
+            assert self._mark_entry_completed_if_possible(entry)
 
     def _mark_entry_completed_if_possible(self, entry):
         assert entry.stage in [EntryStage.ACTIVE, EntryStage.IN_PROGRESS]

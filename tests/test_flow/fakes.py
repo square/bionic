@@ -1,8 +1,7 @@
 import io
-import logging
 import re
 from concurrent.futures import Future
-from concurrent.futures.thread import ThreadPoolExecutor
+from concurrent.futures.process import ProcessPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import mkdtemp
@@ -122,21 +121,6 @@ class FakeGcsFs:
             f.write(content_bytes)
 
 
-@contextmanager
-def temporarily_filter_all_logs():
-    class FilterAllLogs(logging.Filter):
-        def filter(self, rec):
-            return 0
-
-    logger = logging.getLogger()
-    filter_all_logs = FilterAllLogs()
-    try:
-        logger.addFilter(filter_all_logs)
-        yield
-    finally:
-        logger.removeFilter(filter_all_logs)
-
-
 class FakeAipClient:
     def __init__(self, gcs_fs, tmp_path):
         self._gcs_fs = gcs_fs
@@ -150,13 +134,6 @@ class FakeAipClient:
             "bionic.aip.main",
         ]
 
-        self._jobs[body["jobId"]] = ThreadPoolExecutor(max_workers=1).submit(
-            self._run_aip_job, body
-        )
-
-        return Mock()
-
-    def _run_aip_job(self, body):
         input_uri = body["trainingInput"]["args"][3]
 
         # AIP execution does not have access to the disk cache of the local
@@ -164,14 +141,11 @@ class FakeAipClient:
         # change location of disk cache for the AIP job.
         self._modify_disk_cache_location(input_uri)
 
-        # AIP execution does not send back logs to local bionic instance. Hence,
-        # all logs are filtered here.
-        with temporarily_filter_all_logs():
-            try:
-                run_aip(input_uri, self._gcs_fs)
-                return "SUCCEEDED", None
-            except Exception as e:
-                return "FAILED", str(e)
+        self._jobs[body["jobId"]] = ProcessPoolExecutor(max_workers=1).submit(
+            run_aip, input_uri, self._gcs_fs
+        )
+
+        return Mock()
 
     def _modify_disk_cache_location(self, input_uri):
         assert self._gcs_fs.exists(input_uri)
@@ -192,12 +166,19 @@ class FakeAipClient:
         future = self._jobs[job_id]
 
         if future.done():
-            state, error_message = future.result()
+            try:
+                future.result()
+                response = {"state": "SUCCEEDED"}
+            except Exception as e:
+                # Exception information is only added for convenience. In real
+                # GCP, if an AIP job fails, the error message will contain a url
+                # instead.
+                response = {"state": "FAILED", "errorMessage": repr(e)}
         else:
-            state, error_message = "RUNNING", None
+            response = {"state": "RUNNING"}
 
         job = Mock()
-        job.execute.return_value = {"state": state, "errorMessage": error_message}
+        job.execute.return_value = response
         return job
 
     def projects(self):

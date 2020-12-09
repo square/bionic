@@ -113,8 +113,9 @@ def test_parallel_fail(aip_builder, make_counter, multiprocessing_manager, log_c
     y4_counter = make_counter()
 
     # The barrier ensures that all the entity functions do not complete unless
-    # all of them are started.
-    barrier = multiprocessing_manager.Barrier(4, timeout=120)
+    # all of them are started. Since running this test in a debugger can be
+    # slow, a high timeout is used here.
+    barrier = multiprocessing_manager.Barrier(4, timeout=240)
 
     @builder
     @y1_counter
@@ -126,7 +127,7 @@ def test_parallel_fail(aip_builder, make_counter, multiprocessing_manager, log_c
     @y2_counter
     def y2(x):
         barrier.wait()
-        raise Exception()
+        raise Exception("y2 fail")
 
     @builder
     @bn.aip_task_config("n1-standard-4")
@@ -149,10 +150,13 @@ def test_parallel_fail(aip_builder, make_counter, multiprocessing_manager, log_c
     with pytest.raises(Exception):
         builder.build().get("total")
 
-    # Verify that, when multiple jobs fail, bionic can log all the exceptions.
+    # Verify that, when multiple entities fail to compute, all the exceptions
+    # are logged.
     log_checker.expect_regex(
-        r".*An exception was thrown while computing the value of descriptor '<y2>'.*",
-        r".*An exception was thrown while computing the value of descriptor '<y3>'.*",
+        r"Computed   y1\(x=1\)",
+        r".*error while doing remote computation for y2\(x=1\).*y2 fail.*",
+        r".*error while doing remote computation for y3\(x=1\).*AipError.*",
+        r"Computed   y4\(x=1\) using AI Platform",
     )
 
     assert y1_counter.times_called() == 1
@@ -179,3 +183,8 @@ def test_parallel_fail(aip_builder, make_counter, multiprocessing_manager, log_c
     assert y2_counter.times_called() == 1
     assert y3_counter.times_called() == 1
     assert y4_counter.times_called() == 0
+
+    log_checker.expect_regex(
+        r"Computed   y2\(x=1\)",
+        r"Computed   y3\(x=1\) using AI Platform",
+    )
