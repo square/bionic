@@ -34,16 +34,26 @@ class Config:
     Attributes
     ----------
     uuid: str
-        The globally unique job name on AI platform
+        The globally unique job name on AI platform.
     image_uri: str
-        The full address on gcr of the docker image for the tasks
+        The full address on gcr of the docker image for the tasks.
     project: str
-        The GCP project where the jobs will be run
+        The GCP project where the jobs will be run.
+    poll_period_seconds: float
+        How many seconds to wait between polling calls to AIP while waiting for jobs
+        to complete.
+    account: str, optional
+        The GCP service account to use. Corresponds to AIP's
+        `TrainingInput.serviceAccount`.
+    network: str, optional
+        The name of the Google Compute Engine network with which jobs are peered.
+        Corresponds to AIP's `TrainingInput.network`.
     """
 
     uuid: str
     image_uri: str
     project_name: str
+    poll_period_seconds: float
     account: Optional[str] = None
     network: Optional[str] = None
 
@@ -135,7 +145,7 @@ class Task:
     def wait_for_results(self, gcs_fs, aip_client):
         state, error = self._get_state_and_error(aip_client)
         while state.is_executing():
-            time.sleep(10)
+            time.sleep(self.config.poll_period_seconds)
             state, error = self._get_state_and_error(aip_client)
             logging.info(f"Future for {self.job_id} has state {state}")
 

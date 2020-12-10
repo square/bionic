@@ -172,6 +172,7 @@ def aip_builder(gcs_builder, gcp_project, use_fake_gcp, gcs_fs, tmp_path):
     gcs_builder.set("core__aip_execution__gcp_project_name", gcp_project)
 
     if use_fake_gcp:
+        gcs_builder.set("core__aip_execution__poll_period_seconds", 0.1)
         gcs_builder.set("core__aip_client", FakeAipClient(gcs_fs, tmp_path))
 
     return gcs_builder
