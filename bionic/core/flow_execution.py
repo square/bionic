@@ -18,7 +18,7 @@ from .task_execution import (
 )
 from ..exception import AttributeValidationError
 from ..utils.keyed_priority_stack import KeyedPriorityStack
-from ..utils.misc import check_exactly_one_present, oneline, SynchronizedSet
+from ..utils.misc import oneline, SynchronizedSet
 
 
 # TODO At some point it might be good to have the option of Bionic handling its
@@ -83,7 +83,7 @@ class TaskCompletionRunner:
                 self._add_requirement(
                     dst_entry=entry,
                     level=EntryLevel.CACHED,
-                    is_transient=False,
+                    expiration=EntryRequirement.Expiration.NEVER,
                 )
 
             while self._has_pending_entries():
@@ -131,7 +131,10 @@ class TaskCompletionRunner:
         self._set_up_entry_dependencies(entry)
         for dep_entry in entry.dep_entries:
             self._add_requirement(
-                src_entry=entry, dst_entry=dep_entry, level=EntryLevel.PRIMED
+                src_entry=entry,
+                dst_entry=dep_entry,
+                level=EntryLevel.PRIMED,
+                expiration=EntryRequirement.Expiration.WHEN_SRC_CACHED,
             )
         if self._mark_entry_blocked_if_necessary(entry):
             return
@@ -246,6 +249,7 @@ class TaskCompletionRunner:
                         src_entry=entry,
                         dst_entry=target_entry,
                         level=EntryLevel.INITIALIZED,
+                        expiration=EntryRequirement.Expiration.WHEN_SRC_CACHED,
                     )
             if self._mark_entry_blocked_if_necessary(entry):
                 return
@@ -259,7 +263,7 @@ class TaskCompletionRunner:
                 self._add_requirement(
                     dst_entry=target_entry,
                     level=EntryLevel.CACHED,
-                    is_transient=True,
+                    expiration=EntryRequirement.Expiration.WHEN_MET,
                 )
                 if target_entry.stage == EntryStage.PENDING:
                     self._mark_entry_active(target_entry)
@@ -329,7 +333,10 @@ class TaskCompletionRunner:
         # for our dependencies to be primed; they also need to have cached values.
         for dep_entry in entry.dep_entries:
             self._add_requirement(
-                src_entry=entry, dst_entry=dep_entry, level=EntryLevel.CACHED
+                src_entry=entry,
+                dst_entry=dep_entry,
+                level=EntryLevel.CACHED,
+                expiration=EntryRequirement.Expiration.WHEN_SRC_CACHED,
             )
         if self._mark_entry_blocked_if_necessary(entry):
             return
@@ -350,18 +357,17 @@ class TaskCompletionRunner:
         self,
         dst_entry,
         level,
+        expiration,
         src_entry=None,
-        is_transient=None,
     ):
-        check_exactly_one_present(src_entry=src_entry, is_transient=is_transient)
-        if src_entry is not None:
-            is_transient = False
+        if expiration == EntryRequirement.Expiration.WHEN_SRC_CACHED:
+            assert src_entry is not None
 
         req = EntryRequirement(
             dst_entry=dst_entry,
             level=level,
+            expiration=expiration,
             src_entry=src_entry,
-            is_transient=is_transient,
         )
         if req.src_entry is not None:
             req.src_entry.outgoing_reqs.add(req)
@@ -507,7 +513,7 @@ class TaskCompletionRunner:
                 self._add_requirement(
                     dst_entry=followup_entry,
                     level=EntryLevel.CACHED,
-                    is_transient=True,
+                    expiration=EntryRequirement.Expiration.WHEN_MET,
                 )
                 # We also add a requirement from the followup back to its parent.
                 # This requirement will get generated anyway as soon as we start
@@ -526,6 +532,7 @@ class TaskCompletionRunner:
                     src_entry=followup_entry,
                     dst_entry=entry,
                     level=EntryLevel.CACHED,
+                    expiration=EntryRequirement.Expiration.WHEN_SRC_CACHED,
                 )
 
             # Now this this entry has reached the final level of progress, some
@@ -555,14 +562,22 @@ class TaskCompletionRunner:
     def _prune_requirements_for_cached_entry(self, entry):
         assert entry.level >= EntryLevel.CACHED
 
-        # Once an entry is CACHED, we no longer care about any incoming transient
-        # requirements, or about any outgoing requirements at all.
-        transient_incoming_reqs = [
-            req for req in entry.incoming_reqs if req.is_transient
+        # This entry is cached, so all incoming requirements must be already be met. If
+        # that matches their expiration criterion, we can discard them.
+        incoming_reqs_to_discard = [
+            req
+            for req in entry.incoming_reqs
+            if req.expiration == EntryRequirement.Expiration.WHEN_MET
         ]
-        reqs_to_discard = list(entry.outgoing_reqs) + transient_incoming_reqs
+        # Similary, all outgoing requirements have this entry as a source, so we know
+        # their source is cached.
+        outgoing_reqs_to_discard = [
+            req
+            for req in entry.outgoing_reqs
+            if req.expiration == EntryRequirement.Expiration.WHEN_SRC_CACHED
+        ]
 
-        for req in reqs_to_discard:
+        for req in incoming_reqs_to_discard + outgoing_reqs_to_discard:
             req.dst_entry.incoming_reqs.discard(req)
             if req.src_entry is not None:
                 req.src_entry.outgoing_reqs.discard(req)

@@ -279,20 +279,32 @@ class EntryRequirement:
     Represents a requirement from one entry to another.
 
     A requirement indicates that we need a particular entry (``dst_entry``) to reach a
-    certain level of progress (``level``). This could be because it's blocking some
-    other entry (``src_entry``), or for some external or a priori reason.
+    certain level of progress (``level``). Once reached, this level needs to be
+    maintained until a certain point (``expiration``); afterwards the requirement is no
+    longer in effect and can be ignored (and deleted).
 
-    An entry can be marked ``is_transient``, meaning it can safely be discarded once
-    ``dst_entry`` has reached the target ``level``. Otherwise, it also be discarded if
-    its ``src_entry`` has reached the (final) ``CACHED`` level. Once a requirement is
-    discarded, it's permissible for ``dst_entry`` to revert to a previous level. If a
-    requirement is not transient and has no source, it is assumed to be permanent.
+    There are three possible values for ``expiration``:
+
+    - ``WHEN_MET``: When ``dst_entry` reaches ``level``.
+    - ``WHEN_SRC_CACHED``: When another entry (``src_entry``) reaches the ``CACHED``
+        stage. Generally ``src_entry`` will depend on the requirement being met, so this
+        condition implies the previous one.
+    - ``NEVER``: This requirement is in effect forever.
     """
+
+    class Expiration(IntEnum):
+        """
+        Represents the point when a requirement ceases to be in effect.
+        """
+
+        WHEN_MET = auto()
+        WHEN_SRC_CACHED = auto()
+        NEVER = auto()
 
     dst_entry: TaskRunnerEntry = attr.ib()
     level: "EntryLevel" = attr.ib()
+    expiration: Expiration = attr.ib()
     src_entry: Optional[TaskRunnerEntry] = attr.ib()
-    is_transient: bool = attr.ib()
 
     @property
     def is_met(self):
