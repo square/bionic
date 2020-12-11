@@ -1898,6 +1898,7 @@ def create_default_flow_config():
     builder.assign(
         "core__aip_execution__docker_image_name", "bionic:latest", persist=False
     )
+    builder.assign("core__aip_execution__poll_period_seconds", 10, persist=False)
 
     @builder
     @decorators.immediate
@@ -1919,6 +1920,7 @@ def create_default_flow_config():
         core__aip_execution__enabled,
         core__aip_execution__gcp_project_name,
         core__aip_execution__docker_image_uri,
+        core__aip_execution__poll_period_seconds,
         core__flow_name,
     ):
         if not core__aip_execution__enabled:
@@ -1940,6 +1942,7 @@ def create_default_flow_config():
             uuid=f"{core__flow_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             project_name=core__aip_execution__gcp_project_name,
             image_uri=core__aip_execution__docker_image_uri,
+            poll_period_seconds=core__aip_execution__poll_period_seconds,
         )
 
     @builder
