@@ -18,11 +18,12 @@ in the correct order; thus, the TaskRunnerEntry mostly contains data pertaining 
 task's relationship to other tasks.
 """
 
-import attr
 import copy
-import logging
-
 from enum import auto, Enum, IntEnum
+import logging
+from typing import Optional
+
+import attr
 
 from ..datatypes import Artifact, Result
 from ..exception import (
@@ -73,7 +74,7 @@ class TaskRunnerEntry:
 
         self.incoming_reqs = set()
         self.outgoing_reqs = set()
-        self.priority = EntryPriority.DEFAULT
+        self.priority = EntryPriority.NORMAL
 
     @property
     def stage(self):
@@ -206,6 +207,7 @@ class TaskRunnerEntry:
         # exactly the same value.)
         elif state.should_memoize:
             state._result = result
+
         else:
             self.context.temp_result_cache.save(result)
 
@@ -216,46 +218,9 @@ class TaskRunnerEntry:
 
         result = self.context.temp_result_cache.load(self.state.task_key)
         if result is not None:
-            if isinstance(result, VacatedResult):
-                descriptor = self.state.task_key.dnode.to_descriptor()
-                message = f"""
-                Attempted to access a memoized value for {descriptor} after it was
-                vacated; this should never happen unless you're using an undocumented
-                descriptor feature; otherwise, this is probably a bug in Bionic.
-                """
-                raise AssertionError(oneline(message))
             return result
 
         return self.state.get_cached_result(context)
-
-    def vacate(self):
-        """
-        Deletes any result memoized on this entry.
-
-        The purpose is to avoid holding values in memory if we know they won't be
-        needed. This is used for tuple-producing entries once all their followups
-        have been completed. We know we won't need the tuple values anymore (see NOTE
-        below), and we want the downstream entries to be the ones to decide if the
-        values stay in memory or not.
-
-        Does not affect anything memoized on the TaskState -- only on this entry itself.
-
-        NOTE We assume tuple entries will never be requested directly by user code,
-        so the only entries that need to access their values are the
-        automatically-created followup tasks. This assumption is not actually safe if
-        the user uses tuple descriptors, but these aren't currently documented. Once
-        we have file descriptors, the only tasks with followups will be the "crude"
-        pre-persisted values, which we won't document and which the user will have no
-        reason to access. Furthermore, at that point we should be able to simplify
-        the task architecture, so it may be easier to implement this "vacation" idea
-        more gracefully, such as by allowing an entry to become un-CACHED and then
-        get recomputed again.
-        """
-
-        if not self.context.temp_result_cache.contains(self.state.task_key):
-            return
-
-        self.context.temp_result_cache.save(VacatedResult(self.state.task_key))
 
     def __str__(self):
         return f"TaskRunnerEntry({self.state.task_key})"
@@ -313,16 +278,33 @@ class EntryRequirement:
     """
     Represents a requirement from one entry to another.
 
-    A requirement indicates that one entry (`src_entry`) can't make any further progress
-    until another entry (`dst_entry`) has reached a certain level of progress (`level`).
+    A requirement indicates that we need a particular entry (``dst_entry``) to reach a
+    certain level of progress (``level``). Once reached, this level needs to be
+    maintained until a certain point (``expiration``); afterwards the requirement is no
+    longer in effect and can be ignored (and deleted).
 
-    Note: `src_entry` can also be `None`, indicating some sort of external or a priori
-    requirement. On the other hand, `dst_entry` cannot be `None`.
+    There are three possible values for ``expiration``:
+
+    - ``WHEN_MET``: When ``dst_entry` reaches ``level``.
+    - ``WHEN_SRC_CACHED``: When another entry (``src_entry``) reaches the ``CACHED``
+        stage. Generally ``src_entry`` will depend on the requirement being met, so this
+        condition implies the previous one.
+    - ``NEVER``: This requirement is in effect forever.
     """
 
-    src_entry = attr.ib()
-    dst_entry = attr.ib()
-    level = attr.ib()
+    class Expiration(IntEnum):
+        """
+        Represents the point when a requirement ceases to be in effect.
+        """
+
+        WHEN_MET = auto()
+        WHEN_SRC_CACHED = auto()
+        NEVER = auto()
+
+    dst_entry: TaskRunnerEntry = attr.ib()
+    level: "EntryLevel" = attr.ib()
+    expiration: Expiration = attr.ib()
+    src_entry: Optional[TaskRunnerEntry] = attr.ib()
 
     @property
     def is_met(self):
@@ -368,6 +350,10 @@ class EntryLevel(IntEnum):
         in the persistent cache, in memory on the TaskState, and/or in memory on this
         entry (depending on the cache settings). This is the final level: after this,
         there is no more work to do on this task.
+
+    Normally an entry will only make forward progress through these levels; however,
+    we do sometimes evict temporarily-memoized values, which can cause an entry to
+    regress from CACHED to PRIMED.
     """
 
     CREATED = auto()
@@ -381,16 +367,23 @@ class EntryPriority(IntEnum):
     Indicates a level of priority for a TaskRunnerEntry.
 
     When multiple entries are in the PENDING stage, an entry with higher priority will
-    always be activated before one with lower priority. There are currently only two
-    priorities: DEFAULT and HIGH.
+    always be activated before one with lower priority. There are currently three
+    priorities:
 
-    Currently, the only reason to prioritize one entry over another is because we may
-    want one entry's output to be saved to a persistent cache before another entry has
-    a chance to run (and possibly crash).
+    1. NORMAL: Most entries will have this priority.
+    2. HIGH: This is for entries that some meaningful side effect depends on. For
+       example, after computing a value, we want to make sure it gets persisted to disk
+       (if appropriate) before any other work happens.
+    3. TOP: This is for entries that some effect depends on *and* that depends on a
+       potentially large in-memory objet. For example, if we compute a tuple value, our
+       first priority should be to decompose it into smaller objects, allowing the
+       original tuple to be garbage-collected; until that happens, the individual
+       objects can't be garbage-collected either.
     """
 
-    DEFAULT = auto()
+    NORMAL = auto()
     HIGH = auto()
+    TOP = auto()
 
 
 # TODO Let's reorder the methods here with this order:
@@ -457,12 +450,12 @@ class TaskState:
         return self.desc_metadata.should_memoize
 
     @property
-    def should_persist(self):
-        return self.desc_metadata.should_persist and not self.output_would_be_missing()
+    def should_memoize_for_query(self):
+        return self.desc_metadata.should_memoize_for_query
 
     @property
-    def should_cache(self):
-        return self.should_memoize or self.should_persist
+    def should_persist(self):
+        return self.desc_metadata.should_persist and not self.output_would_be_missing()
 
     @property
     def is_cached(self):
