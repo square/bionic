@@ -133,6 +133,9 @@ def read_hashable_bytes_from_file_or_dir(path):
     if not path.exists():
         raise ValueError(f"{path!r} doesn't exist")
     elif path.is_file():
+        # TODO This file could be large, so it would be better not to read the whole
+        # thing into memory. We could probably implement this whole function as a
+        # streaming algorithm instead.
         return b"F" + num_as_bytes(path.stat().st_size) + b":" + path.read_bytes()
     elif path.is_dir():
         # We could just concatenate all the file byte strings together, but
@@ -205,6 +208,19 @@ def update_hash(hash_, obj):
             update_hash(hash_, value)
     else:
         raise ValueError(f"Unable to hash object {obj!r} of type {type(obj)!r}")
+
+
+# This default chunk size is just a guess; I haven't benchmarked anything.
+def hexdigest_from_path(path, hash_=None, chunk_size=4192):
+    if hash_ is None:
+        hash_ = sha256()
+    with path.open("rb") as file_:
+        while True:
+            chunk_bytes = file_.read(chunk_size)
+            if len(chunk_bytes) == 0:
+                break
+            hash_.update(chunk_bytes)
+    return hash_.hexdigest()
 
 
 # Matches a line that looks like the start of a new paragraph.

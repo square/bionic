@@ -29,6 +29,7 @@ from .exception import EntityValueError, UnsupportedSerializedValueError
 from .deps.optdep import import_optional_dependency
 from .utils.files import recursively_copy_path
 from .utils.misc import (
+    hexdigest_from_path,
     oneline,
     read_hashable_bytes_from_file_or_dir,
     single_element,
@@ -614,6 +615,88 @@ class PathProtocol(BaseProtocol):
 
     def read(self, path):
         return single_element(path.iterdir())
+
+
+# This protocol allows us to hash sets deterministically.
+# It would be preferable if PicklableProtocol could install a special handler for sets,
+# but unfortunately pickle's override mechanisms (dispatch tables and reduce_override)
+# don't work for built-in types like set -- at least not in the C implementation of
+# pickle. This custom protocol will work for set objects, but not for any other objects
+# that happen to contain sets.
+class PicklableSetProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's value will be a set or frozenset whose
+    contents are picklable.
+
+    Sets need special handling because their iteration order is non-deterministic, so
+    the result of pickling them is also non-deterministic, which causes problems when
+    the serialized file is hashed. To resolve this, this protocol pickles each element
+    of a set into a separate file, which can then be hashed deterministically.
+
+    Parameters:
+        pickle_protocol_version: int (default: 4)
+            The pickle serialization protocol to use.
+    """
+
+    def __init__(self, pickle_protocol_version=4):
+        super(PicklableSetProtocol, self).__init__()
+        self._pickle_protocol_version = pickle_protocol_version
+
+    def get_fixed_file_extension(self):
+        return "setpkl"
+
+    def validate(self, value):
+        assert isinstance(value, (set, frozenset))
+
+    def write(self, value, path):
+        # We store each element of the set as a separate file, named after the hash of
+        # its contents; this guarantees that the whole directory will get a consistent
+        # hash value regardless of what order the elements are accessed in.
+        path.mkdir()
+
+        items_path = self.items_dir_sub_path(path)
+        items_path.mkdir()
+
+        occurrence_counts_by_hash = Counter()
+        for item in value:
+            item_file_path = items_path / "_tmp.pkl"
+            with item_file_path.open("wb") as file_:
+                pickle.dump(item, file_, protocol=self._pickle_protocol_version)
+
+            # We name each file based on a hash of its contents. However, it's possible
+            # for two objects in a set to generate the same hash (see
+            # `test_set_with_duplicate_pickle_output` for an example), so we add an
+            # extra number that increments each time we see the same hash.
+            item_file_hash = hexdigest_from_path(item_file_path)
+            n_identical_files_so_far = occurrence_counts_by_hash[item_file_hash]
+            occurrence_counts_by_hash[item_file_hash] += 1
+
+            filename = f"{item_file_hash}_{n_identical_files_so_far}.pkl"
+            new_item_file_path = items_path / filename
+            assert not new_item_file_path.exists()
+            item_file_path.rename(new_item_file_path)
+
+        type_path = self.type_file_sub_path(path)
+        type_path.write_bytes(
+            pickle.dumps(type(value), protocol=self._pickle_protocol_version)
+        )
+
+    def read(self, path):
+        type_path = self.type_file_sub_path(path)
+        collection_type = pickle.loads(type_path.read_bytes())
+
+        items = []
+        for item_file_path in self.items_dir_sub_path(path).iterdir():
+            with item_file_path.open("rb") as file_:
+                items.append(pickle.load(file_))
+
+        return collection_type(items)
+
+    def type_file_sub_path(self, path):
+        return path / "type.pkl"
+
+    def items_dir_sub_path(self, path):
+        return path / "items"
 
 
 class CombinedProtocol(BaseProtocol):

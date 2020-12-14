@@ -29,38 +29,42 @@ class Harness:
     Holds a simple Bionic flow with counters to all the functions in it.
     """
 
+    EXPECTED_TOTAL_SUM = 1002
+
     def __init__(self, cache_dir, make_counter):
+        lowercase_sum_counter = make_counter()
+        uppercase_sum_counter = make_counter()
+        total_sum_counter = make_counter()
+
         builder = bn.FlowBuilder("test")
 
         builder.set("core__persistent_cache__flow_dir", cache_dir)
-        builder.assign("x", 2)
-        builder.assign("y", 3)
-        builder.assign("z", 4)
 
-        xy_counter = make_counter()
-
-        @builder
-        def xy(x, y):
-            xy_counter.mark()
-            return x * y
-
-        yz_counter = make_counter()
+        # It's important that this test uses sets, because we want to check that sets
+        # are hashed deterministically. (Set iteration is non-deterministic, but it's
+        # always the same within one Python process, so a simpler test where we just
+        # run a flow multiple times won't work for this.)
+        builder.assign("lowercase_chars", set("abcdef"))
+        builder.assign("uppercase_chars", frozenset("ABCDEF"))
 
         @builder
-        def yz(y, z):
-            yz_counter.mark()
-            return y * z
-
-        xy_plus_yz_counter = make_counter()
+        def lowercase_sum(lowercase_chars):
+            lowercase_sum_counter.mark()
+            return sum(ord(char) for char in lowercase_chars)
 
         @builder
-        def xy_plus_yz(xy, yz):
-            xy_plus_yz_counter.mark()
-            return xy + yz
+        def uppercase_sum(uppercase_chars):
+            uppercase_sum_counter.mark()
+            return sum(ord(char) for char in uppercase_chars)
 
-        self.xy_counter = xy_counter
-        self.yz_counter = yz_counter
-        self.xy_plus_yz_counter = xy_plus_yz_counter
+        @builder
+        def total_sum(lowercase_sum, uppercase_sum):
+            total_sum_counter.mark()
+            return lowercase_sum + uppercase_sum
+
+        self.lowercase_sum_counter = lowercase_sum_counter
+        self.uppercase_sum_counter = uppercase_sum_counter
+        self.total_sum_counter = total_sum_counter
 
         self.manual_flow = builder.build()
         builder.set("core__versioning_mode", "auto")
@@ -81,7 +85,5 @@ if __name__ == "__main__":
     shutil.rmtree(CACHE_TEST_DIR)
 
     for flow in harness.flows:
-        # call methods to write to cache
-        flow.get("xy")
-        flow.get("yz")
-        flow.get("xy_plus_yz")
+        # Make sure everything is written to the cache.
+        flow.get("total_sum")

@@ -687,3 +687,48 @@ def test_redundant_protocols(builder, protocol1, protocol2):
 
     actual_protocol = builder.build().entity_protocol("problem")
     assert isinstance(actual_protocol, protocol1().__class__)
+
+
+# This checks that our special handling for sets will fail gracefully if the set isn't
+# sortable.
+def test_unsortable_set(builder, make_counter):
+    counter = make_counter()
+
+    @builder
+    @counter
+    def unsortable_set():
+        return {None, 1}
+
+    flow = builder.build()
+
+    assert flow.get("unsortable_set") == {None, 1}
+    assert flow.get("unsortable_set") == {None, 1}
+    assert counter.times_called() == 1
+
+
+class Dummy:
+    """
+    A minimal class. No two dummy objects are equal, so you can have more than one in a
+    set; but all dummies produce the same bytes when pickled.
+    """
+
+    pass
+
+
+@pytest.mark.parametrize("set_type", [set, frozenset])
+def test_set_with_duplicate_pickle_output(builder, make_counter, set_type):
+    counter = make_counter()
+
+    @builder
+    @counter
+    def three_dummies():
+        return set_type([Dummy(), Dummy(), Dummy()])
+
+    flow = builder.build()
+    for _ in range(2):
+        dummies = flow.get("three_dummies")
+        assert type(dummies) == set_type
+        assert len(dummies) == 3
+        assert all(isinstance(dummy, Dummy) for dummy in dummies)
+
+    assert counter.times_called() == 1
