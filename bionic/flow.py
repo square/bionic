@@ -1767,16 +1767,19 @@ def create_default_flow_config():
             return VersioningPolicy(
                 treat_bytecode_as_functional=False,
                 check_for_bytecode_errors=False,
+                ignore_bytecode_exceptions=True,
             )
         elif core__versioning_mode == "assist":
             return VersioningPolicy(
                 treat_bytecode_as_functional=False,
                 check_for_bytecode_errors=True,
+                ignore_bytecode_exceptions=False,
             )
         elif core__versioning_mode == "auto":
             return VersioningPolicy(
                 treat_bytecode_as_functional=True,
                 check_for_bytecode_errors=False,
+                ignore_bytecode_exceptions=False,
             )
         else:
             raise ValueError(

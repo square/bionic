@@ -579,7 +579,7 @@ class EntityDeriver:
         # (code_fingerprint and changes_per_run), so we could extract that into a
         # separate class and attach it either to the TaskState or to the Task itself.
         provider = self._obtain_provider_for_dnode(dnode)
-        func_attrs = provider.get_func_attrs(case_key)
+        func_attrs = provider.get_func_attrs(case_key, self._core.versioning_policy)
 
         metadata = self._obtain_metadata_for_dnode(task.key.dnode)
 
@@ -718,6 +718,7 @@ BOOTSTRAP_CORE = ExecutionCore(
     versioning_policy=VersioningPolicy(
         check_for_bytecode_errors=False,
         treat_bytecode_as_functional=False,
+        ignore_bytecode_exceptions=True,
     ),
     aip_executor=None,
     process_executor=None,

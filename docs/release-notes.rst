@@ -78,8 +78,11 @@ Improvements
 ............
 
 - When a function returns multiple entities (using the :func:`@outputs
-<bionic.outputs>` decorator), those entities and the function itself are now
-all visualized with the same color.
+  <bionic.outputs>` decorator), those entities and the function itself are now
+  all visualized with the same color.
+- When "assisted" or "fully automatic" :ref:`versioning <automatic-versioning>`
+  is enabled, Bionic now inspects not just entity functions, but also any
+  functions they reference.
 
 0.9.2 (Oct 26, 2020)
 --------------------

@@ -7,6 +7,7 @@ from random import Random
 from bionic.exception import CodeVersioningError
 from bionic import interpret
 import bionic as bn
+from ..helpers import import_code
 
 
 class SimpleFlowModel:
@@ -164,7 +165,7 @@ class SimpleFlowModel:
         }
 
         e = entity
-        exec(
+        import_code(
             dedent(
                 f"""
             @builder
@@ -176,7 +177,7 @@ class SimpleFlowModel:
                 return {' + '.join([str(e.func_value)] + e.dep_names)}
             """
             ),
-            vars_dict,
+            vars_dict=vars_dict,
         )
 
         self._update_flow()

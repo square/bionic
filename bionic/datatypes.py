@@ -161,6 +161,9 @@ class Artifact:
     url: str = attr.ib()
     content_hash: str = attr.ib()
 
+    def evolve(self, **kwargs):
+        return attr.evolve(self, **kwargs)
+
 
 class CaseKeySpace(ImmutableSequence):
     """
@@ -302,13 +305,30 @@ def str_from_version_value(value):
 class CodeVersion:
     """
     Contains the user-designated version of a piece of code, consisting of a
-    major and a minor version string.  The convention is that changing the
-    major version indicates a functional change, while changing the minor
-    version indicates a nonfunctional change.
+    major and a minor version string, and a boolean that indicates whether it
+    includes the bytecode.  The convention is that changing the major version
+    indicates a functional change, while changing the minor version indicates a
+    nonfunctional change.  If ``includes_bytecode`` is True, then the major version
+    is understood to implicitly include the bytecode of the code as well.
     """
 
     major: str = attr.ib(converter=str_from_version_value)
     minor: str = attr.ib(converter=str_from_version_value)
+    includes_bytecode: bool = attr.ib(converter=attr.converters.default_if_none(True))
+
+
+@attr.s(frozen=True)
+class CodeVersioningPolicy:
+    """
+    Contains the version of the user entity function with any additional settings
+    related to the version. For now, we only have one setting that affects the
+    analysis-time behavior of the version.
+    """
+
+    version: CodeVersion = attr.ib()
+    suppress_bytecode_warnings: bool = attr.ib(
+        converter=attr.converters.default_if_none(True)
+    )
 
 
 @attr.s(frozen=True)
@@ -343,6 +363,7 @@ class VersioningPolicy:
 
     check_for_bytecode_errors = attr.ib()
     treat_bytecode_as_functional = attr.ib()
+    ignore_bytecode_exceptions = attr.ib()
 
 
 @attr.s(frozen=True)
@@ -352,5 +373,6 @@ class FunctionAttributes:
     """
 
     code_fingerprint = attr.ib()
+    code_versioning_policy = attr.ib()
     changes_per_run = attr.ib()
     aip_task_config = attr.ib()

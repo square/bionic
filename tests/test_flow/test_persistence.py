@@ -1,9 +1,10 @@
 import pytest
 
 import math
+from textwrap import dedent
 import threading
 
-from ..helpers import RoundingProtocol
+from ..helpers import RoundingProtocol, import_code
 from bionic.exception import AttributeValidationError, CodeVersioningError
 from bionic.protocols import PicklableProtocol
 
@@ -449,6 +450,72 @@ def test_versioning_assist(builder, make_counter):
     assert call_counter.times_called() == 1
 
 
+def test_versioning_assist_with_refs(builder, make_counter):
+    call_counter = make_counter()
+
+    builder.set("core__versioning_mode", "assist")
+
+    builder.assign("x", 2)
+    builder.assign("y", 3)
+
+    def op(x, y):
+        return x + y
+
+    @builder
+    def f(x, y):
+        call_counter.mark()
+        return op(x, y)
+
+    assert builder.build().get("f") == 5
+    assert builder.build().get("f") == 5
+    assert call_counter.times_called() == 1
+
+    def op(x, y):  # noqa: F811
+        return x * y
+
+    with raises_versioning_error_for_entity("f"):
+        builder.build().get("f")
+
+    @builder  # noqa: F811
+    @bn.version(1)
+    def f(x, y):  # noqa: F811
+        call_counter.mark()
+        return op(x, y)
+
+    assert builder.build().get("f") == 6
+    assert call_counter.times_called() == 1
+
+    def op(x, y):  # noqa: F811
+        return y * x
+
+    with raises_versioning_error_for_entity("f"):
+        builder.build().get("f")
+
+    @builder  # noqa: F811
+    @bn.version(major=1, minor=1)
+    def f(x, y):  # noqa: F811
+        call_counter.mark()
+        return op(x, y)
+
+    assert builder.build().get("f") == 6
+    assert call_counter.times_called() == 0
+
+    def op(x, y):  # noqa: F811
+        return x ** y
+
+    with raises_versioning_error_for_entity("f"):
+        builder.build().get("f")
+
+    @builder  # noqa: F811
+    @bn.version(major=2)
+    def f(x, y):  # noqa: F811
+        call_counter.mark()
+        return op(x, y)
+
+    assert builder.build().get("f") == 8
+    assert call_counter.times_called() == 1
+
+
 def test_indirect_versioning_assist(builder, make_counter):
     y_call_counter = make_counter()
     f_call_counter = make_counter()
@@ -745,6 +812,142 @@ def test_indirect_versioning_auto(builder, make_counter):
     assert builder.build().get("f") == 6
     assert y_call_counter.times_called() == 0
     assert f_call_counter.times_called() == 0
+
+
+def test_versioning_auto_with_local_refs(builder, make_counter):
+    call_counter = make_counter()
+
+    builder.set("core__versioning_mode", "auto")
+
+    ret_val = 1
+
+    def ref_func():
+        return ret_val
+
+    @builder
+    @call_counter
+    def x():
+        return ref_func()
+
+    assert builder.build().get("x") == 1
+    assert call_counter.times_called() == 1
+
+    # With no changes, x is not called again.
+    assert builder.build().get("x") == 1
+    assert call_counter.times_called() == 0
+
+    # If we change the ref_func, the bytecode of x changes.
+    def ref_func():  # noqa: F811
+        return ret_val + 7
+
+    assert builder.build().get("x") == 8
+    assert call_counter.times_called() == 1
+
+    # If we change the ret_val, the bytecode of x changes.
+    ret_val = 5
+    assert builder.build().get("x") == 12
+    assert call_counter.times_called() == 1
+
+
+def test_versioning_auto_with_module_refs(builder, make_counter):
+    call_counter = make_counter()
+
+    builder.set("core__versioning_mode", "auto")
+
+    mod_code = """
+    ret_val = 1
+
+    def ref_func():
+        return ret_val
+    """
+    m = import_code(dedent(mod_code))
+
+    @builder
+    @call_counter
+    def x():
+        return m.ref_func()
+
+    assert builder.build().get("x") == 1
+    assert call_counter.times_called() == 1
+
+    # With no changes, x is not called again.
+    m = import_code(dedent(mod_code))
+    assert builder.build().get("x") == 1
+    assert call_counter.times_called() == 0
+
+    # If we change the ref_func, the bytecode of x changes.
+    mod_code = """
+    ret_val = 1
+
+    def ref_func():
+        return ret_val + 7
+    """
+    m = import_code(dedent(mod_code))
+    assert builder.build().get("x") == 8
+    assert call_counter.times_called() == 1
+
+    # If we change the ret_val, the bytecode of x changes.
+    mod_code = """
+    ret_val = 5
+
+    def ref_func():
+        return ret_val + 7
+    """
+    m = import_code(dedent(mod_code))
+    assert builder.build().get("x") == 12
+    assert call_counter.times_called() == 1
+
+
+def test_versioning_auto_version_options(builder):
+    builder.set("core__versioning_mode", "auto")
+
+    complex_number = complex(1.0, 0.0)
+
+    @builder
+    def x():
+        assert complex_number is not None
+        return 1
+
+    with pytest.warns(None) as warnings:
+        assert builder.build().get("x") == 1
+    assert len(warnings) == 0
+
+    # With suppress_bytecode_warnings as False, bytecode analysis
+    # throws a warning.
+    @builder  # noqa: F811
+    @bn.version(major=2, suppress_bytecode_warnings=False)
+    def x():  # noqa: F811
+        assert complex_number is not None
+        return 1
+
+    with pytest.warns(UserWarning, match="Found a complex object"):
+        assert builder.build().get("x") == 1
+
+    # With ignore_bytecode=True, we won't analyze bytecode and won't
+    # throw a warning.
+    @builder  # noqa: F811
+    @bn.version(major=2, ignore_bytecode=True)
+    def x():  # noqa: F811
+        assert complex_number is not None
+        return 2
+
+    with pytest.warns(None) as warnings:
+        # It's a little awkward that we compute the value again even
+        # though we ignore the bytecode. But that's because the
+        # bytecode is now null which changes the version.
+        assert builder.build().get("x") == 2
+    assert len(warnings) == 0
+
+    @builder  # noqa: F811
+    @bn.version(major=2, ignore_bytecode=True)
+    def x():  # noqa: F811
+        assert complex_number is not None
+        return 3
+
+    with pytest.warns(None) as warnings:
+        # Even with the change in bytecode, it uses the cached value.
+        assert builder.build().get("x") == 2
+    assert len(warnings) == 0
 
 
 def test_all_returned_results_are_deserialized(builder, make_counter):

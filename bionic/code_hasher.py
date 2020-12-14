@@ -9,7 +9,7 @@ entity again.
 
 This class is only used when versioning mode is set to "auto" or
 "assisted". Since the logic doesn't cover every type of code change,
-like changes to references or classes, these versioning modes are still
+like changes to referenced classes, these versioning modes are still
 experimental. When we can detect all kinds of code changes, we will
 make "auto" mode the default behavior.
 
@@ -24,10 +24,28 @@ import hashlib
 import inspect
 import warnings
 
+from .code_references import (
+    get_code_context,
+    get_referenced_objects,
+)
 from .utils.misc import oneline
+from .utils.reload import is_internal_file
 
 
 PREFIX_SEPARATOR = b"$"
+
+
+# List of things we should do before releasing Smart Caching:
+# - dedup references
+# - caching individual object hashes for a CodeHasher run
+# - hash classes
+# - Throw an exception for unhandled bytecode instruction type
+# - maybe return references that are stored in local variable
+# - investigate if we can hash module or package versions
+# - verify that we hash all Python constant types
+# - version.suppress_bytecode_warnings TODO
+# - skip and warn for referenced code objects
+# - Only call getattr for modules TODO
 
 
 class CodeHasher:
@@ -43,14 +61,15 @@ class CodeHasher:
     it doesn't actually achieve the ideal behavior we described above.
     """
 
-    def __init__(self):
+    def __init__(self, suppress_warnings):
         self._hash = hashlib.new("md5")
+        self._suppress_warnings = suppress_warnings
         # This is used to detect circular references.
         self._object_depths_by_id = {}
 
     @classmethod
-    def hash(cls, obj):
-        hasher = cls()
+    def hash(cls, obj, suppress_warnings=False):
+        hasher = cls(suppress_warnings)
         hasher._check_and_ingest(obj=obj)
         return hasher._hash.hexdigest()
 
@@ -66,7 +85,7 @@ class CodeHasher:
         self._hash.update(PREFIX_SEPARATOR)
         self._hash.update(obj_bytes)
 
-    def _check_and_ingest(self, obj):
+    def _check_and_ingest(self, obj, code_context=None):
         """
         Checks for circular references before calling the _ingest
         method, which does the actual encoding.
@@ -84,10 +103,10 @@ class CodeHasher:
             return
 
         self._object_depths_by_id[obj_id] = len(self._object_depths_by_id)
-        self._ingest(obj)
+        self._ingest(obj, code_context)
         del self._object_depths_by_id[obj_id]
 
-    def _ingest(self, obj):
+    def _ingest(self, obj, code_context):
         """
         Contains the logic that analyzes the objects and encodes them
         into bytes that are added to the hash.
@@ -144,7 +163,7 @@ class CodeHasher:
                 obj_bytes=obj_bytes,
             )
             for elem in obj:
-                self._check_and_ingest(elem)
+                self._check_and_ingest(elem, code_context)
 
         elif isinstance(obj, dict):
             self._ingest_raw_prefix_and_bytes(
@@ -152,33 +171,70 @@ class CodeHasher:
                 obj_bytes=str(len(obj)).encode(),
             )
             for key, elem in obj.items():
-                self._check_and_ingest(key)
-                self._check_and_ingest(elem)
+                self._check_and_ingest(key, code_context)
+                self._check_and_ingest(elem, code_context)
+
+        elif inspect.isbuiltin(obj):
+            self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.BUILTIN)
+            builtin_name = "%s.%s" % (obj.__module__, obj.__name__)
+            self._check_and_ingest(builtin_name)
 
         elif inspect.isroutine(obj):
-            self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.ROUTINE)
-            self._check_and_ingest(obj.__defaults__)
-            self._ingest_code(obj.__code__)
+            # TODO: See if we can get the version of the module and
+            # hash the version as well.
+            if (
+                obj.__module__ is not None and obj.__module__.startswith("bionic")
+            ) or is_internal_file(obj.__code__.co_filename):
+                self._ingest_raw_prefix_and_bytes(
+                    type_prefix=TypePrefix.INTERNAL_ROUTINE
+                )
+                routine_name = "%s.%s" % (obj.__module__, obj.__name__)
+                self._check_and_ingest(routine_name)
+            else:
+                self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.ROUTINE)
+                code_context = get_code_context(obj)
+                self._check_and_ingest(obj.__defaults__, code_context)
+                self._ingest_code(obj.__code__, code_context)
 
         elif inspect.iscode(obj):
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.CODE)
-            self._ingest_code(obj)
+            self._ingest_code(obj, code_context)
+
+        elif inspect.isclass(obj):
+            # TODO: Hashing classes is next on our roadmap. Let's hash
+            # the name for now.
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.CLASS,
+                obj_bytes=obj.__name__.encode(),
+            )
 
         else:
             # TODO: Verify that we hash all Python constant types.
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.DEFAULT)
-            message = oneline(
-                f"""
-                Found a constant {obj!r} of type {type(obj)!r} that
-                Bionic doesn't know how to hash. This is most likely a
-                bug in Bionic. Please raise a new issue at
-                https://github.com/square/bionic/issues to let us know.
-                """
-            )
-            warnings.warn(message)
+            if not self._suppress_warnings:
+                # TODO: What else can we tell about this object to the user?
+                # Can we add line number, filename and object name?
+                message = oneline(
+                    f"""
+                    Found a complex object {obj!r} of type {type(obj)!r}
+                    while analyzing code for caching. Any changes to its
+                    value won't be detected by Bionic, which may result in
+                    Bionic using stale cache values. Consider making this
+                    value a Bionic entity instead.
 
-    def _ingest_code(self, code):
-        # TODO: Find references for the code and analyze references.
+                    See https://bionic.readthedocs.io/en/stable/warnings.html#avoid-global-state
+                    for more information.
+
+                    You can also suppress this warning by removing the
+                    `suppress_bytecode_warnings` override from the
+                    `@version` decorator on the corresponding function.
+                    """
+                )
+                warnings.warn(message)
+
+    def _ingest_code(self, code, code_context):
+        assert code_context is not None
+
         self._check_and_ingest(code.co_code)
 
         # TODO: Maybe there is a way using which we can differentiate
@@ -189,7 +245,13 @@ class CodeHasher:
             for const in code.co_consts
             if not (isinstance(const, str) and const.endswith(".<lambda>"))
         ]
-        self._check_and_ingest(consts)
+        self._check_and_ingest(consts, code_context)
+
+        references = get_referenced_objects(code, code_context)
+        # TODO: We should skip any referenced code objects since
+        # they can't be analyzed with the current code's
+        # code_context.
+        self._check_and_ingest(references, code_context)
 
 
 class TypePrefix(Enum):
@@ -218,6 +280,9 @@ class TypePrefix(Enum):
     ROUTINE = b"AL"
     CODE = b"AM"
     CIRCULAR_REF = b"AN"
+    INTERNAL_ROUTINE = b"AO"
+    BUILTIN = b"AP"
+    CLASS = b"AQ"
     DEFAULT = b"ZZ"
 
 

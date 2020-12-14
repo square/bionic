@@ -1,11 +1,21 @@
 import cmath
 import contextlib
+import logging
 import pytest
+from sklearn import linear_model
+from textwrap import dedent
 import threading
 
 from bionic.code_hasher import CodeHasher, TypePrefix
+from .helpers import import_code
 
 
+global_var_10 = 10
+global_var_10_copy = 10
+global_var_20 = 20
+
+
+# TODO: Add tests for classes once we hash classes.
 def test_code_hasher():
     def barray(value):
         return bytearray(value, "utf8")
@@ -39,11 +49,41 @@ def test_code_hasher():
     def f4():
         return "10"
 
+    def g1():
+        return global_var_10
+
+    def g2():
+        return global_var_20
+
+    free_var_10 = 10
+    free_var_20 = 20
+
+    def free1():
+        return free_var_10
+
+    def free2():
+        return free_var_20
+
+    def fref1():
+        return f1()
+
+    def fref2():
+        return f2()
+
     def inc(x):
         return x + 1
 
     def dec(x):
         return x - 1
+
+    def one():
+        return 1
+
+    def inc_with_one(x):
+        return x + one()
+
+    def dec_with_one(x):
+        return x - one()
 
     def quadratic_eq(a, b, c):
         d = b ** 2 - 4 * a * c
@@ -52,8 +92,6 @@ def test_code_hasher():
         return (s1, s2)
 
     def logistic_reg(train_frame, random_seed, hyperparams_dict):
-        from sklearn import linear_model
-
         m = linear_model.LogisticRegression(
             solver="liblinear", random_state=random_seed, **hyperparams_dict
         )
@@ -61,8 +99,6 @@ def test_code_hasher():
         return m
 
     def a_lot_of_consts(train_frame, random_seed, hyperparams_dict):
-        import logging
-
         docstring = """
         This function uses a few constants and demonstrates that Bionic
         can hash all of them without any issues.
@@ -94,6 +130,19 @@ def test_code_hasher():
     def f_docstring2():
         """Docstring2"""
         pass
+
+    def fib(n):
+        return fib(n - 1) + fib(n - 2)
+
+    def nested():
+        v = 1
+
+        def inner():
+            logging.info(v)
+            w = 5
+
+            def innermost():
+                logging.info(v, w)
 
     values = [
         b"",
@@ -147,8 +196,16 @@ def test_code_hasher():
         f2,
         f3,
         f4,
+        g1,
+        g2,
+        free1,
+        free2,
+        fref1,
+        fref2,
         inc,
         dec,
+        inc_with_one,
+        dec_with_one,
         lambda x: x * 2,
         lambda x: x / 2,
         lambda: None,
@@ -160,6 +217,8 @@ def test_code_hasher():
         f_with_defaults3,
         f_docstring1,
         f_docstring2,
+        fib,
+        nested,
     ]
 
     values_with_complex_types = [
@@ -170,7 +229,7 @@ def test_code_hasher():
     idx_by_hash_value = {}
     for idx, val in enumerate(values + values_with_complex_types):
         if idx >= len(values):
-            ctx_mgr = pytest.warns(UserWarning, match="Found a constant")
+            ctx_mgr = pytest.warns(UserWarning, match="Found a complex object")
         else:
             ctx_mgr = contextlib.suppress()
 
@@ -188,9 +247,13 @@ def test_complex_type_warning():
     val = threading.Lock()
     with pytest.warns(
         UserWarning,
-        match="Found a constant",
+        match="Found a complex object",
     ):
         assert CodeHasher.hash(val) == CodeHasher.hash(TypePrefix.DEFAULT)
+
+    with pytest.warns(None) as warnings:
+        assert CodeHasher.hash(val, True) == CodeHasher.hash(TypePrefix.DEFAULT, True)
+    assert len(warnings) == 0
 
 
 def test_same_func_different_names():
@@ -202,6 +265,141 @@ def test_same_func_different_names():
         v = 10
         return v
 
-    assert CodeHasher.hash(f1) == CodeHasher.hash(f1)
-    assert CodeHasher.hash(f2) == CodeHasher.hash(f2)
-    assert CodeHasher.hash(f1) == CodeHasher.hash(f2)
+    check_hash_equivalence([[f1, f2]])
+
+
+def test_global_variable_references():
+    def f1():
+        return global_var_10
+
+    def f2():
+        return global_var_10_copy
+
+    def f3():
+        return global_var_20
+
+    check_hash_equivalence([[f1, f2], [f3]])
+
+
+def test_free_variable_references():
+    free_var_10 = 10
+    free_var_10_copy = 10
+    free_var_20 = 20
+
+    def f1():
+        return free_var_10
+
+    def f2():
+        return free_var_10_copy
+
+    def f3():
+        return free_var_20
+
+    check_hash_equivalence([[f1, f2], [f3]])
+
+
+def test_function_references():
+    def ref10():
+        return 10
+
+    def ref10_copy():
+        return 10
+
+    def ref20():
+        return 20
+
+    def f1():
+        return ref10()
+
+    def f2():
+        return ref10_copy()
+
+    def f3():
+        return ref20()
+
+    check_hash_equivalence([[f1, f2], [f3]])
+
+
+def test_changes_in_references():
+    v = 10
+
+    def f():
+        return v
+
+    old_hash = CodeHasher.hash(f)
+    assert old_hash == CodeHasher.hash(f)
+
+    # Hash for f should change if we change v.
+    v = 20
+    new_hash = CodeHasher.hash(f)
+    assert new_hash == CodeHasher.hash(f)
+    assert old_hash != new_hash
+
+    def f1():
+        return 1
+
+    def count(v):
+        if v == 0:
+            return 0
+        return count(v - 1) + f1()
+
+    old_hash = CodeHasher.hash(count)
+    assert old_hash == CodeHasher.hash(count)
+
+    # Hash for count should change if we change f1.
+    def f1():  # noqa: F811
+        return 2
+
+    new_hash = CodeHasher.hash(count)
+    assert new_hash == CodeHasher.hash(count)
+    assert old_hash != new_hash
+
+
+@pytest.mark.parametrize("is_module_internal", [True, False])
+def test_changes_in_another_module(is_module_internal):
+    f_mod_code = """
+    def f_mod():
+        return 1
+    """
+    m = import_code(dedent(f_mod_code), is_module_internal=is_module_internal)
+
+    def f():
+        return m.f_mod()
+
+    old_hash = CodeHasher.hash(f)
+    assert old_hash == CodeHasher.hash(f)
+
+    # Hash for f should not change if we change f_mod when module is
+    # external.
+    f_mod_code = """
+    def f_mod():
+        return 2
+    """
+    m = import_code(dedent(f_mod_code), is_module_internal=is_module_internal)
+
+    new_hash = CodeHasher.hash(f)
+    assert new_hash == CodeHasher.hash(f)
+    if is_module_internal:
+        assert old_hash == new_hash
+    else:
+        assert old_hash != new_hash
+
+
+def check_hash_equivalence(groups):
+    """
+    Checks that hashes for every element in a given group are the same
+    and hashes for elements between the groups are different. It also
+    hashes the elements in every group twice to test that the hash is
+    stable.
+    """
+
+    all_hashes = set()
+    for group in groups:
+        group_hashes = set()
+        for f in group:
+            group_hashes.add(CodeHasher.hash(f))
+            group_hashes.add(CodeHasher.hash(f))
+        assert len(group_hashes) == 1
+        all_hashes.add(next(iter(group_hashes)))
+
+    assert len(all_hashes) == len(groups)
