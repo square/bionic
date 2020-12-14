@@ -30,38 +30,37 @@ class Harness:
     """
 
     def __init__(self, cache_dir, make_counter):
+        self.lowercase_sum_counter = make_counter()
+        self.uppercase_sum_counter = make_counter()
+        self.total_sum_counter = make_counter()
+
         builder = bn.FlowBuilder("test")
 
         builder.set("core__persistent_cache__flow_dir", cache_dir)
-        builder.assign("x", 2)
-        builder.assign("y", 3)
-        builder.assign("z", 4)
 
-        xy_counter = make_counter()
-
-        @builder
-        @xy_counter
-        def xy(x, y):
-            return x * y
-
-        yz_counter = make_counter()
+        # It's important that this test uses sets, because we want to check that sets
+        # are hashed deterministically. (Set iteration is non-deterministic, but it's
+        # always the same within one Python process, so a simpler test where we just
+        # run a flow multiple times won't work for this.)
+        builder.assign("lowercase_chars", set("abcdef"))
+        builder.assign("uppercase_chars", frozenset("ABCDEF"))
 
         @builder
-        @yz_counter
-        def yz(y, z):
-            return y * z
-
-        xy_plus_yz_counter = make_counter()
+        @self.lowercase_sum_counter
+        def lowercase_sum(lowercase_chars):
+            return sum(ord(char) for char in lowercase_chars)
 
         @builder
-        @xy_plus_yz_counter
-        def xy_plus_yz(xy, yz):
-            return xy + yz
+        @self.uppercase_sum_counter
+        def uppercase_sum(uppercase_chars):
+            return sum(ord(char) for char in uppercase_chars)
+
+        @builder
+        @self.total_sum_counter
+        def total_sum(lowercase_sum, uppercase_sum):
+            return lowercase_sum + uppercase_sum
 
         self.flow = builder.build()
-        self.xy_counter = xy_counter
-        self.yz_counter = yz_counter
-        self.xy_plus_yz_counter = xy_plus_yz_counter
 
 
 if __name__ == "__main__":
@@ -73,7 +72,5 @@ if __name__ == "__main__":
 
     shutil.rmtree(CACHE_TEST_DIR)
 
-    # call methods to write to cache
-    flow.get("xy")
-    flow.get("yz")
-    flow.get("xy_plus_yz")
+    # Make sure everything is written to the cache.
+    flow.get("total_sum")

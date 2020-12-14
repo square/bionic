@@ -1,0 +1,57 @@
+artifact:
+  content_hash: dfe2762afc
+  url: ../../../../artifacts/total_sum/2b1c8d4c-6e06-4220-8494-1b9503c876d4/total_sum.json
+descriptor: total_sum
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - lowercase_chars
+    - ce6194feca
+  - !!python/tuple
+    - uppercase_chars
+    - b66f9294c7
+  code_fingerprint:
+    bytecode_hash: 45fbbfbab65ecd368b89b66503402651
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 7fd1a4ae19cfa8513a28770efba6bd9aa628ebcb5ef68b94e20d8653863cac56
+    functional_hash: ddb945b07b5ebd184e917c38c4174885734ad0d2dd6f6f959478a15e0d901605
+    nominal_hash: 89f622aa193518b63431fe4b4a57687894b0f177f9ab68fcd4d614fca303ea88
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - lowercase_chars
+        - ce6194feca
+      - !!python/tuple
+        - uppercase_chars
+        - b66f9294c7
+      code_fingerprint:
+        bytecode_hash: ce1523a3d3a0ba29480016037e464ece
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: aff7b06807
+        functional_hash: aff7b06807
+        nominal_hash: aff7b06807
+        provenance: null
+      - exact_hash: b1dd543a4e
+        functional_hash: b1dd543a4e
+        nominal_hash: b1dd543a4e
+        provenance: null
+      descriptor: <total_sum>
+      exact_hash: 7fd1a4ae19cfa8513a28770efba6bd9aa628ebcb5ef68b94e20d8653863cac56
+      functional_hash: ddb945b07b5ebd184e917c38c4174885734ad0d2dd6f6f959478a15e0d901605
+      nominal_hash: 89f622aa193518b63431fe4b4a57687894b0f177f9ab68fcd4d614fca303ea88
+  descriptor: total_sum
+  exact_hash: 7fd1a4ae19cfa8513a28770efba6bd9aa628ebcb5ef68b94e20d8653863cac56
+  functional_hash: ddb945b07b5ebd184e917c38c4174885734ad0d2dd6f6f959478a15e0d901605
+  nominal_hash: 89f622aa193518b63431fe4b4a57687894b0f177f9ab68fcd4d614fca303ea88

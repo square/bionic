@@ -1,0 +1,43 @@
+artifact:
+  content_hash: ce6194feca
+  url: ../../../../artifacts/lowercase_chars/1094a7e6-6f18-4831-b4b1-03273ab5e762/lowercase_chars.setpkl
+descriptor: lowercase_chars
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - lowercase_chars
+    - ce6194feca
+  code_fingerprint:
+    bytecode_hash: 45fbbfbab65ecd368b89b66503402651
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 977ae1984a20fd9c7513eae90849b4e98ead9fe6ddf5d6aa9daf9e5e5c9658f1
+    functional_hash: dda9f17a5962ae60fb74b9340227f9a0966dcf03b7633a21c74b70a73a119d69
+    nominal_hash: 16049d30e80b8f5a073d4697fe5ea7e2baab2be77844a194340bc81bb3be73a9
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - lowercase_chars
+        - ce6194feca
+      code_fingerprint:
+        bytecode_hash: null
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: ce6194feca
+          minor: '0'
+      dep_digests: []
+      descriptor: <lowercase_chars>
+      exact_hash: 977ae1984a20fd9c7513eae90849b4e98ead9fe6ddf5d6aa9daf9e5e5c9658f1
+      functional_hash: dda9f17a5962ae60fb74b9340227f9a0966dcf03b7633a21c74b70a73a119d69
+      nominal_hash: 16049d30e80b8f5a073d4697fe5ea7e2baab2be77844a194340bc81bb3be73a9
+  descriptor: lowercase_chars
+  exact_hash: 977ae1984a20fd9c7513eae90849b4e98ead9fe6ddf5d6aa9daf9e5e5c9658f1
+  functional_hash: dda9f17a5962ae60fb74b9340227f9a0966dcf03b7633a21c74b70a73a119d69
+  nominal_hash: 16049d30e80b8f5a073d4697fe5ea7e2baab2be77844a194340bc81bb3be73a9

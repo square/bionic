@@ -599,6 +599,69 @@ class PathProtocol(BaseProtocol):
         return single_element(path.iterdir())
 
 
+# This protocol allows us to hash sets deterministically.
+# It would be preferable if PicklableProtocol could install a special handler for sets,
+# but unfortunately pickle's override mechanisms (dispatch tables and reduce_override)
+# don't work for built-in types like set -- at least not in the C implementation of
+# pickle. This custom protocol will work for set objects, but not for any other objects
+# that happen to contain sets.
+class PicklableSetProtocol(BaseProtocol):
+    """
+    Decorator indicating that an entity's value will be a set or frozenset whose
+    contents are picklable.
+
+    Sets need special handling because their iteration order is non-deterministic, so
+    the result of pickling them is also non-deterministic, which causes problems when
+    the serialized file is hashed. To resolve this, this protocol attempts to sort
+    the set before pickling it. (If the set is not sortable, we emit a warning and
+    pickle it anyway.)
+
+    Parameters:
+        pickle_protocol_version: int (default: 4)
+            The pickle serialization protocol to use.
+    """
+
+    def __init__(self, pickle_protocol_version=4):
+        super(PicklableSetProtocol, self).__init__()
+        self._pickle_protocol_version = pickle_protocol_version
+
+    def get_fixed_file_extension(self):
+        return "setpkl"
+
+    def validate(self, value):
+        assert isinstance(value, (set, frozenset))
+
+    def write(self, value, path):
+        original_type = type(value)
+        try:
+            sorted_contents = sorted(value)
+        except TypeError as e:
+            message = f"""
+            Attempted to sort {original_type.__name__} {value!r} before serializing
+            it, but failed with {e!r}.
+            This value will be serialized with the regular pickle algorithm, but note
+            that pickle does not generate deterministic output for {original_type}s, so
+            downstream entities may be spuriously recomputed.
+            You can fix this issue by using a list or dict, or you can suppress this
+            warning by applying the `@bn.protocol.picklable` decorator to this
+            entity.
+            """
+            warnings.warn(oneline(message))
+            sorted_contents = value
+
+        with path.open("wb") as file_:
+            pickle.dump(
+                (original_type, sorted_contents),
+                file_,
+                protocol=self._pickle_protocol_version,
+            )
+
+    def read(self, path):
+        with path.open("rb") as file_:
+            original_type, sorted_contents = pickle.load(file_)
+        return original_type(sorted_contents)
+
+
 class CombinedProtocol(BaseProtocol):
     """
     Decorator generator indicating that an entity's values should be handled

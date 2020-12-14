@@ -687,3 +687,26 @@ def test_redundant_protocols(builder, protocol1, protocol2):
 
     actual_protocol = builder.build().entity_protocol("problem")
     assert isinstance(actual_protocol, protocol1().__class__)
+
+
+# This checks that our special handling for sets will fail gracefully if the set isn't
+# sortable.
+# We don't run this test with parallel execution because we can't capture warnings in
+# other processes (and there's no particular reason this protocol would interact with
+# parallellism).
+@pytest.mark.no_parallel
+def test_unsortable_set(builder, make_counter):
+    counter = make_counter()
+
+    @builder
+    @counter
+    def unsortable_set():
+        return {None, 1}
+
+    flow = builder.build()
+
+    with pytest.warns(UserWarning, match="Attempted to sort set") as warning_records:
+        assert flow.get("unsortable_set") == {None, 1}
+        assert flow.get("unsortable_set") == {None, 1}
+    assert len(warning_records) == 1
+    assert counter.times_called() == 1
