@@ -1,3 +1,5 @@
+import pytest
+
 import logging
 
 from bionic.code_references import get_code_context, get_referenced_objects
@@ -33,7 +35,8 @@ def test_empty_references():
 
         return warnings
 
-    assert get_references(x) == []
+    with pytest.warns(UserWarning, match=".*imports the 'warnings' module.*"):
+        assert get_references(x) == []
 
 
 def test_global_references():
