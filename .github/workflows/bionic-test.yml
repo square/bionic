@@ -41,6 +41,12 @@ jobs:
         # This prints out all installed package versions, which may help for debugging
         # build failures.
         pip freeze
+    - name: Exercise problem test
+      run: |
+        pytest --parallel -k 'test_parallel_and_aip'
+    - name: Exercise problem test in group
+      run: |
+        pytest --parallel -m 'not baseline'
     - name: Set up gcloud
       uses: GoogleCloudPlatform/github-actions/setup-gcloud@master
       with:
