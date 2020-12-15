@@ -239,6 +239,7 @@ def test_complex_function():
     import numpy as np
     import matplotlib.pyplot as plt
     from sklearn import linear_model
+    from sklearn.metrics import r2_score
 
     # Function for predicting future values :
     def get_regression_predictions(input_features, intercept, slope):
@@ -292,9 +293,8 @@ def test_complex_function():
             my_engine_size, regr.intercept_[0], regr.coef_[0][0]
         )
         logging.info("Estimated Emission :", estimatd_emission)
-        # Checking various accuracy:
-        from sklearn.metrics import r2_score
 
+        # Checking various accuracy:
         test_x = np.array(test[["ENGINESIZE"]])
         test_y = np.array(test[["CO2EMISSIONS"]])
         test_y_ = regr.predict(test_x)
@@ -346,4 +346,5 @@ def test_complex_function():
         logging.info,
         np.mean,
         logging.info,
+        r2_score,
     ]
