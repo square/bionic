@@ -27,6 +27,7 @@ import warnings
 from .code_references import (
     get_code_context,
     get_referenced_objects,
+    ReferenceProxy,
 )
 from .utils.misc import oneline
 from .utils.reload import is_internal_file
@@ -174,6 +175,12 @@ class CodeHasher:
                 self._check_and_ingest(key, code_context)
                 self._check_and_ingest(elem, code_context)
 
+        elif isinstance(obj, ReferenceProxy):
+            self._ingest_raw_prefix_and_bytes(
+                type_prefix=TypePrefix.REF_PROXY,
+                obj_bytes=obj.val.encode(),
+            )
+
         elif inspect.isbuiltin(obj):
             self._ingest_raw_prefix_and_bytes(type_prefix=TypePrefix.BUILTIN)
             builtin_name = "%s.%s" % (obj.__module__, obj.__name__)
@@ -283,6 +290,7 @@ class TypePrefix(Enum):
     INTERNAL_ROUTINE = b"AO"
     BUILTIN = b"AP"
     CLASS = b"AQ"
+    REF_PROXY = b"AR"
     DEFAULT = b"ZZ"
 
 

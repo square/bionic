@@ -90,8 +90,8 @@ def get_referenced_objects(code, context):
     """
     Attempts to return all objects referenced externally by a code object. In
     some cases, these objects are:
-    - replaced with strings: when we can't find a variable or when the reference
-      is an attribute of the result of a function call, or
+    - replaced with ReferenceProxy class: when we can't find a variable or when
+      the reference is an attribute of the result of a function call, or
     - omitted: when the reference is accessed using exec or is the result of a
       function call.
 
@@ -132,21 +132,14 @@ def get_referenced_objects(code, context):
     lineno = None
     refs = []
 
-    def set_tos(t, placeholder=False):
+    def set_tos(t):
         nonlocal tos
         if tos is not None:
             # If the top of stack item already exists, that means we
             # have gone through all the instructions that use the item,
             # and it is a reference object.
-            if isinstance(tos, PlaceholderTos):
-                # TODO: Consider returning the value as PlaceholderTos
-                # class once we hash classes too.
-                refs.append(tos.val)
-            else:
-                refs.append(tos)
+            refs.append(tos)
 
-        if placeholder:
-            t = PlaceholderTos(t)
         tos = t
 
     # Our goal is to find referenced objects. The problem is that co_names
@@ -171,7 +164,7 @@ def get_referenced_objects(code, context):
                     # This can happen if the variable does not exist, or if LOAD_NAME
                     # is trying to access a local frame argument. If we cannot find the
                     # variable, we return its name instead.
-                    set_tos(op.argval, placeholder=True)
+                    set_tos(ReferenceProxy(op.argval))
             elif op.opname in ["LOAD_DEREF", "LOAD_CLOSURE"]:
                 if op.argval in context.cells:
                     set_tos(context.cells[op.argval])
@@ -185,7 +178,7 @@ def get_referenced_objects(code, context):
                     # code object for any inner functions. Since we can't get the
                     # code context for inner functions, we use the code context
                     # of the top level function.
-                    set_tos(op.argval, placeholder=True)
+                    set_tos(ReferenceProxy(op.argval))
             elif op.opname == "IMPORT_NAME":
                 # This instruction only appears if the code object imports a
                 # module using the import statement. If a user is importing
@@ -205,7 +198,7 @@ def get_referenced_objects(code, context):
                 warnings.warn(oneline(message))
                 set_tos(None)
             elif op.opname in ["LOAD_METHOD", "LOAD_ATTR"]:
-                if isinstance(tos, PlaceholderTos):
+                if isinstance(tos, ReferenceProxy):
                     tos.val += "." + op.argval
                 # TODO: Consider calling getattr only when TOS is a module.
                 # Doing so has risk of missing cases, and any missing case would
@@ -219,7 +212,7 @@ def get_referenced_objects(code, context):
                 elif hasattr(tos, op.argval):
                     tos = getattr(tos, op.argval)
                 else:
-                    set_tos(op.argval, placeholder=True)
+                    set_tos(ReferenceProxy(op.argval))
             elif op.opname == "STORE_FAST" and tos:
                 context.varnames[op.argval] = tos
                 tos = None
@@ -252,11 +245,13 @@ def get_referenced_objects(code, context):
     return refs
 
 
-class PlaceholderTos:
+@attr.s
+class ReferenceProxy:
     """
-    Wraps the placeholder strings for TOS objects to differentiate the
-    object from actual string objects.
+    When we can't find the actual value of a reference variable, we
+    return a proxy in it's place that contains the name of the
+    variable. This class wraps those proxy references, so that we can
+    differentiate them from actual string objects.
     """
 
-    def __init__(self, val):
-        self.val = str(val)
+    val = attr.ib()
