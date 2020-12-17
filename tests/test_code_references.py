@@ -108,7 +108,14 @@ def test_class_references():
         my_class.log_val()
         return my_class
 
-    assert get_references(x) == [logging.info, "42", my_class.log_val, my_class]
+    assert get_references(x) == [
+        logging.info,
+        my_class,
+        ReferenceProxy("val"),
+        my_class,
+        ReferenceProxy("log_val"),
+        my_class,
+    ]
 
     def x():
         builder = FlowBuilder()
@@ -158,9 +165,7 @@ def test_references_with_qualified_names():
         m = multiprocessing.managers.SyncManager
         return m.start()
 
-    assert get_references(x) == [
-        multiprocessing.managers.SyncManager.start,
-    ]
+    assert get_references(x) == [multiprocessing.managers.SyncManager, ReferenceProxy("start")]
 
 
 def test_multiple_references():
@@ -207,119 +212,134 @@ def test_conditionals():
 
     assert get_references(x) == [ReferenceProxy("val"), logging.info, logging.debug]
 
+    import math
+
+    def y(op_type, val):
+        if op_type == "ceil":
+            func = math.ceil
+        else:
+            func = math.floor
+
+        return func(val)
+
+    # TODO: We should also return math.ceil as a reference. It isn't
+    # returned now because it is stored in a local variable. Maybe we
+    # should return the values of local variables as they are assigned.
+    assert get_references(y) == [math.floor]
+
 
 def test_complex_function():
-    import inspect
-    import warnings
-    from bionic.code_hasher import CodeHasher, TypePrefix
-    from bionic.utils.reload import is_internal_file
+    # Example code of a ml flow. Taken from below article with minor changes:
+    # https://medium.com/towards-artificial-intelligence/machine-learning-algorithms-for-beginners-with-python-code-examples-ml-19c6afd60daa
 
-    hasher = CodeHasher(False)
-    # TODO: This makes me realize that maybe we should dedup the results.
-    assert get_references(hasher._ingest) == [
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("bytes"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.BYTES,
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("bytearray"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.BYTEARRAY,
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.NONE,
-        ReferenceProxy("isinstance"),
+    # Import required libraries:
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from sklearn import linear_model
+
+    # Function for predicting future values :
+    def get_regression_predictions(input_features, intercept, slope):
+        predicted_values = input_features * slope + intercept
+        return predicted_values
+
+    def get_regression_predictions_resized(input_features, intercept, slope):
+        predictions = get_regression_predictions(input_features, intercept, slope)
+        return [p * 0.75 for p in predictions]
+
+    def predict(resize):
+        # Read the CSV file :
+        data = pd.read_csv("Fuel.csv")
+        data.head()
+        # Let"s select some features to explore more :
+        data = data[["ENGINESIZE", "CO2EMISSIONS"]]
+        # ENGINESIZE vs CO2EMISSIONS:
+        plt.scatter(data["ENGINESIZE"], data["CO2EMISSIONS"], color="blue")
+        plt.xlabel("ENGINESIZE")
+        plt.ylabel("CO2EMISSIONS")
+        plt.show()
+        # Generating training and testing data from our data:
+        # We are using 80% data for training.
+        train = data[: (int((len(data) * 0.8)))]
+        test = data[(int((len(data) * 0.8))) :]
+        # Modeling:
+        # Using sklearn package to model data :
+        regr = linear_model.LinearRegression()
+        train_x = np.array(train[["ENGINESIZE"]])
+        train_y = np.array(train[["CO2EMISSIONS"]])
+        regr.fit(train_x, train_y)
+        # The coefficients:
+        logging.info("coefficients : ", regr.coef_)  # Slope
+        logging.info("Intercept : ", regr.intercept_)  # Intercept
+        # Plotting the regression line:
+        plt.scatter(train["ENGINESIZE"], train["CO2EMISSIONS"], color="blue")
+        plt.plot(train_x, regr.coef_ * train_x + regr.intercept_, "-r")
+        plt.xlabel("Engine size")
+        plt.ylabel("Emission")
+
+        # Predicting values:
+        # Function for predicting future values :
+        if resize:
+            prediction_function = get_regression_predictions_resized
+        else:
+            prediction_function = get_regression_predictions
+
+        # Predicting emission for future car:
+        my_engine_size = 3.5
+        estimatd_emission = prediction_function(
+            my_engine_size, regr.intercept_[0], regr.coef_[0][0]
+        )
+        logging.info("Estimated Emission :", estimatd_emission)
+        # Checking various accuracy:
+        from sklearn.metrics import r2_score
+
+        test_x = np.array(test[["ENGINESIZE"]])
+        test_y = np.array(test[["CO2EMISSIONS"]])
+        test_y_ = regr.predict(test_x)
+        logging.info(
+            "Mean absolute error: %.2f" % np.mean(np.absolute(test_y_ - test_y))
+        )
+        logging.info(
+            "Mean sum of squares (MSE): %.2f" % np.mean((test_y_ - test_y) ** 2)
+        )
+        logging.info("R2-score: %.2f" % r2_score(test_y_, test_y))
+
+    assert get_references(predict) == [
+        pd.read_csv,
+        ReferenceProxy("head"),
+        plt.scatter,
+        plt.xlabel,
+        plt.ylabel,
+        plt.show,
         ReferenceProxy("int"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.INT,
-        ReferenceProxy("str"),
-        ReferenceProxy("encode"),
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("float"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.FLOAT,
-        ReferenceProxy("str"),
-        ReferenceProxy("encode"),
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("str"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.STRING,
-        ReferenceProxy("encode"),
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("bool"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.BOOL,
-        ReferenceProxy("str"),
-        ReferenceProxy("encode"),
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("list"),
-        ReferenceProxy("set"),
-        ReferenceProxy("tuple"),
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("list"),
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("set"),
-        # TODO: These don't appear in references, because they are
-        # stored in varnames. Maybe we should return new variables as
-        # references too.
-        # TypePrefix.LIST,
-        # TypePrefix.SET,
-        # TypePrefix.TUPLE, Note that this appears later.
-        ReferenceProxy("str"),
         ReferenceProxy("len"),
-        ReferenceProxy("encode"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.TUPLE,
-        hasher._check_and_ingest,
-        ReferenceProxy("isinstance"),
-        ReferenceProxy("dict"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.DICT,
-        ReferenceProxy("str"),
+        ReferenceProxy("int"),
         ReferenceProxy("len"),
-        ReferenceProxy("encode"),
-        ReferenceProxy("items"),
-        hasher._check_and_ingest,
-        hasher._check_and_ingest,
-        ReferenceProxy("isinstance"),
-        ReferenceProxy,
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.REF_PROXY,
-        ReferenceProxy("val.encode"),
-        inspect.isbuiltin,
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.BUILTIN,
-        ReferenceProxy("__module__"),
-        ReferenceProxy("__name__"),
-        hasher._check_and_ingest,
-        inspect.isroutine,
-        ReferenceProxy("__module__"),
-        ReferenceProxy("__module__.startswith"),
-        is_internal_file,
-        ReferenceProxy("__code__.co_filename"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.INTERNAL_ROUTINE,
-        ReferenceProxy("__module__"),
-        ReferenceProxy("__name__"),
-        hasher._check_and_ingest,
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.ROUTINE,
-        get_code_context,
-        hasher._check_and_ingest,
-        ReferenceProxy("__defaults__"),
-        hasher._ingest_code,
-        ReferenceProxy("__code__"),
-        inspect.iscode,
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.CODE,
-        hasher._ingest_code,
-        inspect.isclass,
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.CLASS,
-        ReferenceProxy("__name__.encode"),
-        hasher._ingest_raw_prefix_and_bytes,
-        TypePrefix.DEFAULT,
-        False,  # hasher._supress_warnings
-        oneline,
-        ReferenceProxy("type"),
-        warnings.warn,
+        linear_model.LinearRegression,
+        np.array,
+        np.array,
+        ReferenceProxy("fit"),
+        logging.info,
+        ReferenceProxy("coef_"),
+        logging.info,
+        ReferenceProxy("intercept_"),
+        plt.scatter,
+        plt.plot,
+        ReferenceProxy("coef_"),
+        ReferenceProxy("intercept_"),
+        plt.xlabel,
+        plt.ylabel,
+        get_regression_predictions,
+        ReferenceProxy("intercept_"),
+        ReferenceProxy("coef_"),
+        logging.info,
+        np.array,
+        np.array,
+        ReferenceProxy("predict"),
+        logging.info,
+        np.mean,
+        np.absolute,
+        logging.info,
+        np.mean,
+        logging.info,
     ]

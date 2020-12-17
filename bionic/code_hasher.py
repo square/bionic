@@ -46,7 +46,6 @@ PREFIX_SEPARATOR = b"$"
 # - verify that we hash all Python constant types
 # - version.suppress_bytecode_warnings TODO
 # - skip and warn for referenced code objects
-# - Only call getattr for modules TODO
 
 
 class CodeHasher:
