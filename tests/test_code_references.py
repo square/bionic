@@ -2,7 +2,11 @@ import pytest
 
 import logging
 
-from bionic.code_references import get_code_context, get_referenced_objects
+from bionic.code_references import (
+    get_code_context,
+    get_referenced_objects,
+    ReferenceProxy,
+)
 from bionic.flow import FlowBuilder
 from bionic.utils.misc import oneline
 
@@ -82,7 +86,7 @@ def test_function_references():
     def y():
         return func_does_not_exist()  # noqa: F821
 
-    assert get_references(y) == ["func_does_not_exist"]
+    assert get_references(y) == [ReferenceProxy("func_does_not_exist")]
 
 
 def test_class_references():
@@ -111,7 +115,7 @@ def test_class_references():
         builder.assign("cls", MyClass)
         return builder
 
-    assert get_references(x) == [FlowBuilder, "assign", MyClass]
+    assert get_references(x) == [FlowBuilder, ReferenceProxy("assign"), MyClass]
 
 
 def test_method_references():
@@ -128,12 +132,12 @@ def test_method_references():
 
     # We don't get the method as a reference because class initialization
     # is a function call and that incorrectly sets my_class as None.
-    assert get_references(x) == [MyClass, "log_val"]
+    assert get_references(x) == [MyClass, ReferenceProxy("log_val")]
 
     def y(my_class):
         my_class.log_val()
 
-    assert get_references(y) == ["log_val"]
+    assert get_references(y) == [ReferenceProxy("log_val")]
 
 
 def test_references_with_qualified_names():
@@ -189,7 +193,7 @@ def test_multiple_references():
         "free_val",
         "cell_var",
         FlowBuilder,
-        "build",
+        ReferenceProxy("build"),
         "cell_var",
     ]
 
@@ -201,7 +205,7 @@ def test_conditionals():
         else:
             logging.debug("DEBUG log")
 
-    assert get_references(x) == ["val", logging.info, logging.debug]
+    assert get_references(x) == [ReferenceProxy("val"), logging.info, logging.debug]
 
 
 def test_complex_function():
@@ -213,92 +217,97 @@ def test_complex_function():
     hasher = CodeHasher(False)
     # TODO: This makes me realize that maybe we should dedup the results.
     assert get_references(hasher._ingest) == [
-        "isinstance",
-        "bytes",
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("bytes"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.BYTES,
-        "isinstance",
-        "bytearray",
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("bytearray"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.BYTEARRAY,
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.NONE,
-        "isinstance",
-        "int",
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("int"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.INT,
-        "str",
-        "encode",
-        "isinstance",
-        "float",
+        ReferenceProxy("str"),
+        ReferenceProxy("encode"),
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("float"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.FLOAT,
-        "str",
-        "encode",
-        "isinstance",
-        "str",
+        ReferenceProxy("str"),
+        ReferenceProxy("encode"),
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("str"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.STRING,
-        "encode",
-        "isinstance",
-        "bool",
+        ReferenceProxy("encode"),
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("bool"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.BOOL,
-        "str",
-        "encode",
-        "isinstance",
-        "list",
-        "set",
-        "tuple",
-        "isinstance",
-        "list",
-        "isinstance",
-        "set",
+        ReferenceProxy("str"),
+        ReferenceProxy("encode"),
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("list"),
+        ReferenceProxy("set"),
+        ReferenceProxy("tuple"),
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("list"),
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("set"),
         # TODO: These don't appear in references, because they are
         # stored in varnames. Maybe we should return new variables as
         # references too.
         # TypePrefix.LIST,
         # TypePrefix.SET,
         # TypePrefix.TUPLE, Note that this appears later.
-        "str",
-        "len",
-        "encode",
+        ReferenceProxy("str"),
+        ReferenceProxy("len"),
+        ReferenceProxy("encode"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.TUPLE,
         hasher._check_and_ingest,
-        "isinstance",
-        "dict",
+        ReferenceProxy("isinstance"),
+        ReferenceProxy("dict"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.DICT,
-        "str",
-        "len",
-        "encode",
-        "items",
+        ReferenceProxy("str"),
+        ReferenceProxy("len"),
+        ReferenceProxy("encode"),
+        ReferenceProxy("items"),
         hasher._check_and_ingest,
         hasher._check_and_ingest,
+        ReferenceProxy("isinstance"),
+        ReferenceProxy,
+        hasher._ingest_raw_prefix_and_bytes,
+        TypePrefix.REF_PROXY,
+        ReferenceProxy("val.encode"),
         inspect.isbuiltin,
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.BUILTIN,
-        "__module__",
-        "__name__",
+        ReferenceProxy("__module__"),
+        ReferenceProxy("__name__"),
         hasher._check_and_ingest,
         inspect.isroutine,
-        "__module__",
-        "__module__.startswith",
+        ReferenceProxy("__module__"),
+        ReferenceProxy("__module__.startswith"),
         is_internal_file,
-        "__code__.co_filename",
+        ReferenceProxy("__code__.co_filename"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.INTERNAL_ROUTINE,
-        "__module__",
-        "__name__",
+        ReferenceProxy("__module__"),
+        ReferenceProxy("__name__"),
         hasher._check_and_ingest,
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.ROUTINE,
         get_code_context,
         hasher._check_and_ingest,
-        "__defaults__",
+        ReferenceProxy("__defaults__"),
         hasher._ingest_code,
-        "__code__",
+        ReferenceProxy("__code__"),
         inspect.iscode,
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.CODE,
@@ -306,11 +315,11 @@ def test_complex_function():
         inspect.isclass,
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.CLASS,
-        "__name__.encode",
+        ReferenceProxy("__name__.encode"),
         hasher._ingest_raw_prefix_and_bytes,
         TypePrefix.DEFAULT,
         False,  # hasher._supress_warnings
         oneline,
-        "type",
+        ReferenceProxy("type"),
         warnings.warn,
     ]
