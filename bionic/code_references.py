@@ -206,7 +206,7 @@ def get_referenced_objects(code, context):
                     set_tos(ReferenceProxy(op.argval))
             elif op.opname == "STORE_FAST" and tos:
                 context.varnames[op.argval] = tos
-                tos = None
+                set_tos(None)
             elif op.opname == "LOAD_FAST" and op.argval in context.varnames:
                 set_tos(context.varnames[op.argval])
             # TODO: Keep track of all known bytecode instructions and throw an

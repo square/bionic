@@ -157,6 +157,7 @@ def test_references_with_qualified_names():
 
     assert get_references(x) == [
         multiprocessing.managers.public_methods,
+        multiprocessing.managers.public_methods,
         multiprocessing.managers.SyncManager,
     ]
 
@@ -165,7 +166,11 @@ def test_references_with_qualified_names():
         m = multiprocessing.managers.SyncManager
         return m.start()
 
-    assert get_references(x) == [multiprocessing.managers.SyncManager, ReferenceProxy("start")]
+    assert get_references(x) == [
+        multiprocessing.managers.SyncManager,
+        multiprocessing.managers.SyncManager,
+        ReferenceProxy("start"),
+    ]
 
 
 def test_multiple_references():
@@ -222,10 +227,7 @@ def test_conditionals():
 
         return func(val)
 
-    # TODO: We should also return math.ceil as a reference. It isn't
-    # returned now because it is stored in a local variable. Maybe we
-    # should return the values of local variables as they are assigned.
-    assert get_references(y) == [math.floor]
+    assert get_references(y) == [math.ceil, math.floor, math.floor]
 
 
 def test_complex_function():
@@ -329,6 +331,8 @@ def test_complex_function():
         ReferenceProxy("intercept_"),
         plt.xlabel,
         plt.ylabel,
+        get_regression_predictions_resized,
+        get_regression_predictions,
         get_regression_predictions,
         ReferenceProxy("intercept_"),
         ReferenceProxy("coef_"),
