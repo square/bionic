@@ -1,6 +1,6 @@
 artifact:
   content_hash: 154223632a
-  url: ../../../../artifacts/x/121f5985-d01a-4108-b038-86e0091df7c8/x.json
+  url: ../../../../artifacts/x/41f1f8b4-d5de-4128-86a4-c8d59d303669/x.json
 descriptor: x
 provenance:
   case_key_elements:
@@ -8,7 +8,7 @@ provenance:
     - x
     - '2'
   code_fingerprint:
-    bytecode_hash: 99241991984f56d688b9d30a36baa3af
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
     is_identity: true
     orig_flow_name: null
     version:
