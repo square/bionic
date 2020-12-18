@@ -105,10 +105,10 @@ def get_referenced_objects(code, context):
     calling any functions used by the input code, because doing so can be
     expensive and have unintended consequences. Due to this, any references that
     are attributes of the result of a function call won’t be detected. This means
-    that if an inner function returns a module or a class, any attributes of the
-    module or the class won't be detected. In this case, we return the name of
-    the attribute as a proxy for the object itself. So for the function below,
-    the returned references would be ``[get_my_class, "call"]``.
+    that if an inner function returns a module, any attributes of the module
+    won't be detected. In this case, we return the name of the attribute as a
+    proxy for the object itself. So for the function below, the returned
+    references would be ``[get_my_class, "call"]``.
 
     .. code-block:: python
 
@@ -200,22 +200,13 @@ def get_referenced_objects(code, context):
             elif op.opname in ["LOAD_METHOD", "LOAD_ATTR"]:
                 if isinstance(tos, ReferenceProxy):
                     tos.val += "." + op.argval
-                # TODO: Consider calling getattr only when TOS is a module.
-                # Doing so has risk of missing cases, and any missing case would
-                # be hard to detect for users. Before making this change,
-                # document all the cases that we won't be catching so that we are
-                # aware of them.
-                # TODO: Due to the same reason as why we don't import modules, we
-                # should not call `getattr` on properties. We should either add a
-                # separate check for properties, or implement the above TODO to
-                # fix this.
-                elif hasattr(tos, op.argval):
+                elif inspect.ismodule(tos) and hasattr(tos, op.argval):
                     tos = getattr(tos, op.argval)
                 else:
                     set_tos(ReferenceProxy(op.argval))
             elif op.opname == "STORE_FAST" and tos:
                 context.varnames[op.argval] = tos
-                tos = None
+                set_tos(None)
             elif op.opname == "LOAD_FAST" and op.argval in context.varnames:
                 set_tos(context.varnames[op.argval])
             # TODO: Keep track of all known bytecode instructions and throw an
