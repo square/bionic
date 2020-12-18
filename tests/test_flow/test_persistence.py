@@ -1676,10 +1676,20 @@ def test_non_memoized_complex_tuples_are_garbage_collected(builder, make_tracked
     assert builder.build().get("x_plus_two") == 3
 
 
-# When an entity has both persistence and memoization disabled, we memoize it just
-# for the duration of the get() call.
-def test_uncached_values_cached_for_query_duration(builder, make_counter):
+# When an entity has both persistence and memoization disabled, we memoize it just for
+# the duration of the get() call. However, we may want to disable this behavior in the
+# future; for the time being it's configurable (but undocumented).
+@pytest.mark.parametrize("disable_query_caching", [False, True])
+def test_uncached_values_cached_for_query_duration(
+    builder, make_counter, disable_query_caching
+):
     x_counter = make_counter()
+
+    if disable_query_caching:
+        builder.set("core__temp_memoize_if_uncached", False)
+        expected_x_calls_per_query = 2
+    else:
+        expected_x_calls_per_query = 1
 
     builder.set("core__persist_by_default", False)
     builder.set("core__memoize_by_default", False)
@@ -1706,7 +1716,7 @@ def test_uncached_values_cached_for_query_duration(builder, make_counter):
     flow = builder.build()
 
     assert flow.get("y_x_cubed") == 24
-    assert x_counter.times_called() == 1
+    assert x_counter.times_called() == expected_x_calls_per_query
 
     assert flow.get("y_x_cubed") == 24
-    assert x_counter.times_called() == 1
+    assert x_counter.times_called() == expected_x_calls_per_query

@@ -329,6 +329,9 @@ class EntityDeriver:
             should_persist_default=self._compute_core_entity(
                 "core__persist_by_default"
             ),
+            should_memoize_for_query_if_uncached=self._compute_core_entity(
+                "core__temp_memoize_if_uncached"
+            ),
             task_key_logging_level=logging.INFO,
         )
         self._core_is_final = True
@@ -473,13 +476,16 @@ class EntityDeriver:
                 logger.warn(oneline(message))
                 should_persist = False
 
+            should_memoize_for_query = (
+                self._core.should_memoize_for_query_if_uncached
+                and not (should_memoize or should_persist)
+            )
+
             return DescriptorMetadata(
                 protocol=entity_def.protocol,
                 doc=entity_def.doc,
                 should_memoize=should_memoize,
-                # If we don't have any other caching enabled for this entity, we memoize
-                # it for the lifetime of the current query.
-                should_memoize_for_query=(not (should_memoize or should_persist)),
+                should_memoize_for_query=should_memoize_for_query,
                 should_persist=should_persist,
             )
 
@@ -707,6 +713,7 @@ class ExecutionCore:
     gcs_fs = attr.ib()
     should_memoize_default = attr.ib(type=bool)
     should_persist_default = attr.ib(type=bool)
+    should_memoize_for_query_if_uncached = attr.ib(type=bool)
     task_key_logging_level = attr.ib()
 
     def evolve(self, **kwargs):
@@ -725,6 +732,7 @@ BOOTSTRAP_CORE = ExecutionCore(
     gcs_fs=None,
     should_memoize_default=True,
     should_persist_default=False,
+    should_memoize_for_query_if_uncached=False,
     task_key_logging_level=logging.DEBUG,
 )
 
