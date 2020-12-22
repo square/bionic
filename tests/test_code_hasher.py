@@ -15,7 +15,6 @@ global_var_10_copy = 10
 global_var_20 = 20
 
 
-# TODO: Add tests for classes once we hash classes.
 def test_code_hasher():
     def barray(value):
         return bytearray(value, "utf8")
@@ -144,6 +143,55 @@ def test_code_hasher():
             def innermost():
                 logging.info(v, w)
 
+    class ClassDefault:
+        v = 1
+
+    class ClassWithInit:
+        v = 1
+
+        def __init__(self):
+            self.a = 1
+
+    class ClassWithDifferentInit:
+        v = 1
+
+        def __init__(self):
+            self.a = 2
+
+    class ClassWithInnerClass:
+        v = 1
+
+        def __init__(self):
+            self.a = 1
+
+        class InnerClass:
+            def __init__(self):
+                self.i = 1
+
+    class ClassWithDifferentInnerClass:
+        v = 1
+
+        def __init__(self):
+            self.a = 1
+
+        class InnerClass:
+            def __init__(self):
+                self.i = 2
+
+    class ClassWithMethod:
+        def v(self):
+            return 1
+
+    class ClassWithClassMethod1:
+        @classmethod
+        def v(cls):
+            return 10
+
+    class ClassWithClassMethod2:
+        @classmethod
+        def v(cls):
+            return 20
+
     values = [
         b"",
         b"123",
@@ -219,6 +267,14 @@ def test_code_hasher():
         f_docstring2,
         fib,
         nested,
+        ClassDefault,
+        ClassWithInit,
+        ClassWithDifferentInit,
+        ClassWithInnerClass,
+        ClassWithDifferentInnerClass,
+        ClassWithMethod,
+        ClassWithClassMethod1,
+        ClassWithClassMethod2,
     ]
 
     values_with_complex_types = [
@@ -318,6 +374,40 @@ def test_function_references():
         return ref20()
 
     check_hash_equivalence([[f1, f2], [f3]])
+
+
+def test_class_references():
+    # References change in dunder methods.
+    class C1:
+        def __init__(self):
+            self.v = global_var_10
+
+    class C2:
+        def __init__(self):
+            self.v = global_var_10_copy
+
+    class C3:
+        def __init__(self):
+            self.v = global_var_20
+
+    check_hash_equivalence([[C1, C2], [C3]])
+
+    # References change in normal methods.
+    class C1:
+        def my(self):
+            return global_var_10
+
+    class C2:
+        def my(self):
+            return global_var_10_copy
+
+    class C3:
+        def my(self):
+            return global_var_20
+
+    check_hash_equivalence([[C1, C2], [C3]])
+
+    check_hash_equivalence([[type(1), type(2)], [type("str1"), type("str2")]])
 
 
 def test_changes_in_references():

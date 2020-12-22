@@ -37,12 +37,12 @@ PREFIX_SEPARATOR = b"$"
 
 
 # List of things we should do before releasing Smart Caching:
-# - hash classes
 # - Throw an exception for unhandled bytecode instruction type
 # - investigate if we can hash module or package versions
 # - verify that we hash all Python constant types
 # - version.suppress_bytecode_warnings TODO
 # - skip and warn for referenced code objects
+# - add support for Enums, class properties, and attrs.Attribute
 
 
 class CodeHasher:
@@ -247,13 +247,32 @@ class CodeHasher:
             self._update_hash_for_code(hash_accumulator, obj, code_context)
 
         elif inspect.isclass(obj):
-            # TODO: Hashing classes is next on our roadmap. Let's hash
-            # the name for now.
-            add_to_hash(
-                hash_accumulator,
-                type_prefix=TypePrefix.CLASS,
-                obj_bytes=obj.__name__.encode(),
-            )
+            # TODO: See if we can get the version of the module and
+            # hash the version as well.
+            if is_internal_class(obj):
+                add_to_hash(hash_accumulator, type_prefix=TypePrefix.INTERNAL_CLASS)
+                class_name = "%s.%s" % (obj.__module__, obj.__name__)
+                add_to_hash(
+                    hash_accumulator,
+                    type_prefix=TypePrefix.HASH,
+                    obj_bytes=self._check_and_hash(class_name),
+                )
+            else:
+                add_to_hash(hash_accumulator, type_prefix=TypePrefix.CLASS)
+                members_to_hash = [
+                    m_value
+                    for (m_name, m_value) in inspect.getmembers(obj)
+                    if not (
+                        inspect.ismethoddescriptor(m_value)
+                        or inspect.isgetsetdescriptor(m_value)
+                        or m_name in {"__class__", "__dict__", "__members__"}
+                    )
+                ]
+                add_to_hash(
+                    hash_accumulator,
+                    type_prefix=TypePrefix.HASH,
+                    obj_bytes=self._check_and_hash(members_to_hash),
+                )
 
         else:
             # TODO: Verify that we hash all Python constant types.
@@ -344,6 +363,7 @@ class TypePrefix(Enum):
     CLASS = b"AQ"
     REF_PROXY = b"AR"
     HASH = b"AS"
+    INTERNAL_CLASS = b"AT"
     DEFAULT = b"ZZ"
 
 
@@ -357,3 +377,15 @@ def add_to_hash(hash_accumulator, type_prefix, obj_bytes=b""):
     hash_accumulator.update(get_size_as_bytes(obj_bytes))
     hash_accumulator.update(PREFIX_SEPARATOR)
     hash_accumulator.update(obj_bytes)
+
+
+def is_internal_class(class_obj):
+    assert inspect.isclass(class_obj)
+
+    try:
+        return is_internal_file(inspect.getfile(class_obj))
+    except TypeError:
+        # inspect.getfile throws TypeError when the class_obj is a
+        # built-in class. See the documentation for more info.
+        # https://docs.python.org/3/library/inspect.html#inspect.getfile
+        return False
