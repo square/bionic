@@ -22,6 +22,7 @@ CACHE_SCHEMA_VERSION to update cache scheme.
 from enum import Enum
 import hashlib
 import inspect
+import types
 import warnings
 
 from .code_references import (
@@ -266,6 +267,12 @@ class CodeHasher:
                         inspect.ismethoddescriptor(m_value)
                         or inspect.isgetsetdescriptor(m_value)
                         or m_name in {"__class__", "__dict__", "__members__"}
+                        # TODO Remove this when hashing properties.
+                        or isinstance(m_value, property)
+                        # TODO These should be handled the same way as properties.
+                        or isinstance(m_value, types.DynamicClassAttribute)
+                        # TODO Remove this when hashing attr classes.
+                        or m_name == "__attrs_attrs__"
                     )
                 ]
                 add_to_hash(

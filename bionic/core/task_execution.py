@@ -33,7 +33,7 @@ from ..exception import (
 )
 from ..persistence import Provenance, ProvenanceDigest
 from ..utils.files import ensure_parent_dir_exists
-from ..utils.misc import oneline
+from ..utils.misc import hash_simple_obj_to_hex, oneline
 from ..utils.urls import path_from_url, url_from_path
 
 logger = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class TaskRunnerEntry:
         )
 
         if state.should_persist:
-            artifact = state._local_artifact_from_value(result.value)
+            artifact = state._local_artifact_from_value(result.value, context)
             state._cache_accessor.save_local_artifact(artifact)
             state._result_value_hash = artifact.content_hash
 
@@ -726,7 +726,7 @@ class TaskState:
             assert self._provenance is not None
             return ProvenanceDigest.from_provenance(self._provenance)
 
-    def _local_artifact_from_value(self, value):
+    def _local_artifact_from_value(self, value, context):
         protocol = self.desc_metadata.protocol
 
         dir_path = self._cache_accessor.generate_unique_local_dir_path()
@@ -751,12 +751,36 @@ class TaskState:
                 )
             ) from e
 
-        value_hash = protocol.tokenize_file(value_path)
+        value_hash = self._generate_value_hash(value, value_path, context)
         return Artifact(
             url=url_from_path(value_path),
             content_hash=value_hash,
         )
         return value_path
+
+    def _generate_value_hash(self, value, value_path, context):
+        protocol = self.desc_metadata.protocol
+        value_hash = protocol.tokenize_file(value_path)
+
+        code_versioning_policy = self.func_attrs.code_versioning_policy
+        code_version = code_versioning_policy.version
+        if not code_version.includes_bytecode:
+            return ""
+
+        protocol = self.desc_metadata.protocol
+        versioning_policy = context.core.versioning_policy
+        try:
+            extra_value_hash = protocol.get_extra_value_hash(
+                value,
+                code_versioning_policy.suppress_bytecode_warnings
+                or versioning_policy.ignore_bytecode_exceptions,
+            )
+        except Exception:
+            if not versioning_policy.ignore_bytecode_exceptions:
+                raise
+            extra_value_hash = ""
+
+        return hash_simple_obj_to_hex([value_hash, extra_value_hash])
 
     def _value_from_local_artifact(self, local_artifact):
         file_path = path_from_url(local_artifact.url)
