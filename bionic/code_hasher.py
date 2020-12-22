@@ -43,7 +43,7 @@ PREFIX_SEPARATOR = b"$"
 # - verify that we hash all Python constant types
 # - version.suppress_bytecode_warnings TODO
 # - skip and warn for referenced code objects
-# - add support for Enums, class properties, and attrs.Attribute
+# - add support for class properties and attr.Attribute
 
 
 class CodeHasher:
@@ -211,6 +211,16 @@ class CodeHasher:
                 obj_bytes=obj.val.encode(),
             )
 
+        # This detects only Enum values. The actual Enum class is still
+        # detected and handled by inspect.isclass.
+        elif isinstance(obj, Enum):
+            add_to_hash(hash_accumulator, type_prefix=TypePrefix.ENUM)
+            add_to_hash(
+                hash_accumulator,
+                type_prefix=TypePrefix.HASH,
+                obj_bytes=self._check_and_hash(obj.value, code_context),
+            )
+
         elif inspect.isbuiltin(obj):
             add_to_hash(hash_accumulator, type_prefix=TypePrefix.BUILTIN)
             builtin_name = "%s.%s" % (obj.__module__, obj.__name__)
@@ -371,6 +381,7 @@ class TypePrefix(Enum):
     REF_PROXY = b"AR"
     HASH = b"AS"
     INTERNAL_CLASS = b"AT"
+    ENUM = b"AU"
     DEFAULT = b"ZZ"
 
 

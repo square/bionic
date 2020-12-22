@@ -275,6 +275,9 @@ def test_code_hasher():
         ClassWithMethod,
         ClassWithClassMethod1,
         ClassWithClassMethod2,
+        TypePrefix,
+        TypePrefix.BYTES,
+        TypePrefix.BYTEARRAY,
     ]
 
     values_with_complex_types = [
@@ -300,15 +303,16 @@ def test_code_hasher():
 
 
 def test_complex_type_warning():
-    val = threading.Lock()
+    lock = threading.Lock()
+    cond = threading.Condition()
     with pytest.warns(
         UserWarning,
         match="Found a complex object",
     ):
-        assert CodeHasher.hash(val) == CodeHasher.hash(TypePrefix.DEFAULT)
+        assert CodeHasher.hash(lock) == CodeHasher.hash(cond)
 
     with pytest.warns(None) as warnings:
-        assert CodeHasher.hash(val, True) == CodeHasher.hash(TypePrefix.DEFAULT, True)
+        assert CodeHasher.hash(lock, True) == CodeHasher.hash(cond, True)
     assert len(warnings) == 0
 
 
