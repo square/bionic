@@ -116,15 +116,18 @@ class TaskRunnerEntry:
 
     @property
     def _is_cached(self):
-        return (
-            self.context.temp_result_cache.contains(self.state.task_key)
-            or self.state.is_cached
-        )
+        if self.state.should_persist:
+            return self.state.is_cached
+        else:
+            return (
+                self.context.temp_result_cache.contains(self.state.task_key)
+                or self.state.is_cached
+            )
 
     @property
     def _is_primed(self):
         if self.state.should_persist:
-            return self.state.is_cached
+            return self._is_cached
         else:
             return self.state.is_initialized
 
@@ -147,6 +150,8 @@ class TaskRunnerEntry:
 
         assert state.is_initialized
         assert not state.is_cached
+
+        assert task is not None, (state.task_key, self.level)
 
         dep_results = []
         for dep_entry, dep_key in zip(self.dep_entries, task.dep_keys):
@@ -462,14 +467,12 @@ class TaskState:
         """
         Indicates whether the task state's result is cached.
         """
-        return self._result_value_hash is not None or self._result is not None
-
-    @property
-    def is_cached_persistently(self):
-        """
-        Indicates whether the task state's result is cached persistently.
-        """
-        return self._result_value_hash is not None
+        if self.should_persist:
+            # If our value is persistable, it can be saved either on disk or in memory,
+            # but only the former counts as being officially "cached".
+            return self._result_value_hash is not None
+        else:
+            return self._result is not None
 
     def output_would_be_missing(self):
         return self.task_key.case_key.has_missing_values
@@ -806,97 +809,121 @@ class RemoteSubgraph:
     process).
 
     Given a target TaskState, this class identifies the minimal set of TaskStates that
-    should be run along with it; this includes all of its immediate non-persistable
-    ancestors (which can't be serialized and transmitted to the other process) and any
-    of their follow-up tasks (which need to be computed immediately after their
-    parents). It also maintains a copy of this subgraph with unnecessary data pruned;
-    these "stripped" TaskStates can be safely serialized with cloudpickle and sent to
-    the other process.
+    should be run along with it. Task values can only be shared across
+    processes if they're persistable, so if we want to run a task remotely, we also
+    need to run all of its non-persistable dependencies (and their non-persistable
+    dependencies, and so on). Thus, this subgraph is constructed by starting from the
+    target TaskState and traversing outward through dependency and followup tasks,
+    stopping at any other persistable followup TaskStates. The final subgraph will
+    contain:
+
+    - A collection of `target_states` -- the original TaskState and any other
+      persistable followup states which need to be computed as well.
+    - A set of `external_dependency_states` --  any persistable TaskStates that need to
+      already be completed and persisted before this graph can be run.
+    - Any non-persistable TaskStates in between, which will also need to be computed.
+
+    This class also provides other fields and methods for determining if and how the
+    subgraph can be run. In particular, the `strip_states` method will make return a
+    copy of the task graph with unnecessary states and attributes removed, allowing
+    it to be serialized and transmitted to another process.
     """
 
-    def __init__(self, target_state, context):
-        self._core = context.core
+    def __init__(self, target_state):
+        self.all_states = set()
 
-        self._stripped_states_by_task_key = {}
-        self.persistable_but_not_persisted_states = set()
-        self.non_serializable_stripped_states = set()
-        self.stripped_states_with_aip_task_configs = set()
+        self.external_dependency_states = set()
+        self.target_states = set()
 
-        self._strip_state(target_state)
+        self.states_with_aip_task_configs = set()
+        self.non_serializable_states = set()
 
-    def _strip_state(self, original_state):
-        task_key = original_state.task_key
-        if task_key in self._stripped_states_by_task_key:
-            return self._stripped_states_by_task_key[task_key]
+        def add_state_and_traverse(state, is_dependency=False):
+            if state in self.all_states:
+                return
+            self.all_states.add(state)
 
-        # Make a copy of the TaskState, which we'll strip down to make it easier to
-        # serialize.
-        # (This is a shallow copy, so we'll make sure to avoid mutating any of its
-        # member variables.)
-        stripped_state = copy.copy(original_state)
-        self._stripped_states_by_task_key[task_key] = stripped_state
+            if state.should_persist:
+                assert len(state.followup_states) == 0
+                if is_dependency:
+                    self.external_dependency_states.add(state)
+                    return
+                else:
+                    self.target_states.add(state)
 
-        # Strip out data cached in memory -- we can't necessarily pickle it, so
-        # we need to get rid of it before trying to transmit this state to another
-        # process.
-        stripped_state._result = None
+            if state.func_attrs.aip_task_config is not None:
+                self.states_with_aip_task_configs.add(state)
+            if not state.task.can_be_serialized:
+                self.non_serializable_states.add(state)
 
-        # These fields are picklable, but only needed for cache setup and
-        # initialization.
-        if stripped_state.is_initialized:
-            stripped_state.case_key = None
+            for dep_state in state.dep_states:
+                add_state_and_traverse(dep_state, is_dependency=True)
+            for followup_state in state.followup_states:
+                add_state_and_traverse(followup_state)
 
-        if stripped_state.should_persist:
-            assert len(stripped_state.followup_states) == 0
+        add_state_and_traverse(target_state)
 
-            if stripped_state.is_cached_persistently:
+    def strip_states(self, states):
+        """
+        Returns copies of the provided TaskStates with any unnecessary state and
+        ancestors "stripped" off; these copies can be safely transmitted to another
+        process for computation.
+        """
+
+        stripped_states_by_task_key = {}
+
+        def strip_state(original_state):
+            """Returns a stripped copy of a TaskState."""
+
+            task_key = original_state.task_key
+            if task_key in stripped_states_by_task_key:
+                return stripped_states_by_task_key[task_key]
+
+            assert original_state in self.all_states
+            assert original_state not in self.non_serializable_states
+
+            # Make a copy of the TaskState, which we'll strip down to make it
+            # easier to serialize.
+            # (This is a shallow copy, so we'll make sure to avoid mutating any of
+            # its member variables.)
+            stripped_state = copy.copy(original_state)
+            stripped_states_by_task_key[task_key] = stripped_state
+
+            # Strip out data cached in memory -- we can't necessarily pickle it, so
+            # we need to get rid of it before trying to transmit this state to
+            # another process.
+            stripped_state._result = None
+
+            # External dependency states are expected to be already completed, so we
+            # don't need to include their task information or any of their dependencies.
+            if original_state in self.external_dependency_states:
                 stripped_state.task = None
                 stripped_state.func_attrs = None
                 stripped_state.dep_states = []
 
+            # Otherwise, we'll recursively strip all the dependency states as well.
             else:
-                self.persistable_but_not_persisted_states.add(original_state)
+                stripped_state.dep_states = [
+                    strip_state(dep_state) for dep_state in original_state.dep_states
+                ]
 
-        if stripped_state.task is not None:
-            if not stripped_state.task.can_be_serialized:
-                self.non_serializable_stripped_states.add(stripped_state)
-            if stripped_state.func_attrs.aip_task_config is not None:
-                self.stripped_states_with_aip_task_configs.add(stripped_state)
+            # We also strip and include any followup states.
+            stripped_state.followup_states = [
+                strip_state(followup_state)
+                for followup_state in original_state.followup_states
+            ]
 
-        stripped_state.dep_states = [
-            self._strip_state(dep_state) for dep_state in stripped_state.dep_states
-        ]
-        stripped_state.followup_states = [
-            self._strip_state(followup_state)
-            for followup_state in stripped_state.followup_states
-        ]
+            return stripped_state
 
-        return stripped_state
-
-    def get_stripped_state(self, original_state):
-        assert original_state in self.persistable_but_not_persisted_states
-        return self._stripped_states_by_task_key[original_state.task_key]
+        return [strip_state(state) for state in states]
 
     @property
     def all_states_can_be_serialized(self):
-        return len(self.non_serializable_stripped_states) == 0
+        return len(self.non_serializable_states) == 0
 
     @property
     def distinct_aip_task_configs(self):
         return set(
             state.func_attrs.aip_task_config
-            for state in self.stripped_states_with_aip_task_configs
+            for state in self.states_with_aip_task_configs
         )
-
-
-@attr.s(frozen=True)
-class VacatedResult:
-    """
-    A fake Result.
-
-    We use this when we're confident a result will never be accessed again and we
-    want to remove its contents from memory. We use this class instead of None so that
-    if someone does try to access it, the error will be more obvious.
-    """
-
-    task_key = attr.ib()

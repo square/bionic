@@ -168,7 +168,7 @@ class TaskCompletionRunner:
             self._aip_execution_enabled or self._parallel_execution_enabled
         ) and entry.state.should_persist
         if entry_may_be_computable_remotely:
-            remote_subgraph = RemoteSubgraph(entry.state, self._context)
+            remote_subgraph = RemoteSubgraph(entry.state)
             if self._aip_execution_enabled:
                 aip_task_configs = remote_subgraph.distinct_aip_task_configs
             else:
@@ -180,7 +180,7 @@ class TaskCompletionRunner:
                 descriptions_str = "; ".join(
                     f"function outputting {state.task_key.dnode.to_descriptor()!r} "
                     f"requires {state.func_attrs.aip_task_config}"
-                    for state in remote_subgraph.stripped_states_with_aip_task_configs
+                    for state in remote_subgraph.states_with_aip_task_configs
                 )
                 message = f"""
                 Multiple functions need to be run together (since some are not
@@ -196,11 +196,11 @@ class TaskCompletionRunner:
                     # as an AIP-decorated derived node.
                     non_serializable_descriptors = [
                         state.task_key.dnode.to_descriptor()
-                        for state in remote_subgraph.non_serializable_stripped_states
+                        for state in remote_subgraph.non_serializable_states
                     ]
                     aip_descriptors = [
                         state.task_key.dnode.to_descriptor()
-                        for state in remote_subgraph.stripped_states_with_aip_task_configs
+                        for state in remote_subgraph.states_with_aip_task_configs
                     ]
                     message = f"""
                     Found impossible configuration:
@@ -224,23 +224,45 @@ class TaskCompletionRunner:
             entry_is_computable_remotely = False
 
         if entry_is_computable_remotely:
-            # When we run an entry remotely, we also need to run all of its immediate
-            # non-persistable ancestors, since their values can't be shared between
-            # processes. Those ancestors may have follow-up tasks, so we'll need to
-            # run those too; and if those follow-ups are persistable (but not actually
-            # persisted yet), their values will be usable everywhere, so we'll want to
-            # track the fact that they're running. So really we're going to run a
-            # collection of persistable entries (including the original entry), plus
-            # their immediate non-persistable ancestors.
+            # To run an entry remotely, we need to transmit and compute a subgraph of
+            # tasks. This subgraph will contain one or more "target task states" that
+            # will be computed together, along with "dependency task states" that need
+            # to already be computed and persisted. See the documentation of the
+            # RemoteSubgraph class for more info on how this subgraph is constructed.
             target_entries = [
-                self._get_or_create_entry_for_state(persistable_subgraph_state)
-                for persistable_subgraph_state in remote_subgraph.persistable_but_not_persisted_states
+                self._get_or_create_entry_for_state(target_state)
+                for target_state in remote_subgraph.target_states
             ]
             assert entry in target_entries
 
-            # We want all of our entries to be initialized before we try running
-            # them remotely. We'll just require this of the persistable ones, since
-            # all the other ones are ancestors of them.
+            dep_entries = [
+                self._get_or_create_entry_for_state(external_dep_state)
+                for external_dep_state in remote_subgraph.external_dependency_states
+            ]
+            assert entry not in dep_entries
+
+            # All of our dependency entries will need to be cached before we can run
+            # this subgraph. (One might think that they should already be cached because
+            # they are persistable and they are ancestors of the active entry, so we
+            # should have cached all of them by now. However, it's possible that some
+            # of their artifacts have been deleted since then, so we need to make sure
+            # to actually instantiate their entries and confirm that they're still
+            # cached.)
+            for dep_entry in dep_entries:
+                assert dep_entry.state.should_persist
+                self._add_requirement(
+                    src_entry=entry,
+                    dst_entry=dep_entry,
+                    level=EntryLevel.CACHED,
+                    expiration=EntryRequirement.Expiration.WHEN_SRC_CACHED,
+                )
+            # We want our target states and their ancestors to be initialized before we
+            # run this remotely.
+            # TODO Is this requirement still necessary?
+            # (Note that this doesn't guarantee that every state in the subgraph is
+            # initialized; there can still be non-persistable followups that don't get
+            # initialized here. This isn't a problem for those states, since their
+            # remote execution doesn't affect anything in this process.)
             for target_entry in target_entries:
                 if target_entry == entry:
                     assert target_entry.level >= EntryLevel.INITIALIZED
@@ -254,12 +276,11 @@ class TaskCompletionRunner:
             if self._mark_entry_blocked_if_necessary(entry):
                 return
 
+            active_target_entries = []
             for target_entry in target_entries:
-                # Now we'll also require that each entry be CACHED, which guarantees
-                # that it won't be COMPLETED. (If we didn't do this, the entry's
-                # required level might only be INITIALIZED, in which case it would
-                # already be COMPLETED. However, we know it's not already CACHED,
-                # because it's `persistable_but_not_persisted`.)
+                # Now, we potentially have multiple target entries to compute at once.
+                # We'll add a CACHED requirement to indicate that we want to compute
+                # them, and then we'll activate the ones that aren't cached yet.
                 self._add_requirement(
                     dst_entry=target_entry,
                     level=EntryLevel.CACHED,
@@ -267,8 +288,9 @@ class TaskCompletionRunner:
                 )
                 if target_entry.stage == EntryStage.PENDING:
                     self._mark_entry_active(target_entry)
-                # The entry should now be ACTIVE, because:
-                # - It can't be COMPLETED because of the requirement we added above.
+
+                # At this point the entry should be either COMPLETED (if it's already
+                # cached) or ACTIVE (if it's not).
                 # - It can't be PENDING because we would have just activated it above.
                 # - It shouldn't be BLOCKED, because:
                 #   - we already required the entry to be at least INITIALIZED, and
@@ -279,12 +301,15 @@ class TaskCompletionRunner:
                 #    our original entry, then the reverse should also be true (it's a
                 #    symmetric relationship), so our original entry would already be
                 #    IN_PROGRESS or COMPLETED too.
-                assert target_entry.stage == EntryStage.ACTIVE
+                if target_entry.stage == EntryStage.ACTIVE:
+                    active_target_entries.append(target_entry)
+                else:
+                    assert target_entry.stage == EntryStage.COMPLETED
 
-            stripped_target_states = [
-                remote_subgraph.get_stripped_state(target_entry.state)
-                for target_entry in target_entries
-            ]
+            stripped_active_target_states = remote_subgraph.strip_states(
+                active_target_entry.state
+                for active_target_entry in active_target_entries
+            )
 
             # Remove the executors when sending the jobs over so that the remote
             # executor does not attempt to create its own subprocess or AIP
@@ -307,7 +332,7 @@ class TaskCompletionRunner:
                     aip_task_config,
                     run_in_subprocess,
                     new_task_completion_runner,
-                    stripped_target_states,
+                    stripped_active_target_states,
                 )
 
                 def done_callback(callback_future):
@@ -315,7 +340,7 @@ class TaskCompletionRunner:
                         not callback_future.cancelled()
                         and callback_future.exception() is None
                     ):
-                        for target_entry in target_entries:
+                        for target_entry in active_target_entries:
                             self._context.task_key_logger.log_computed_aip(
                                 target_entry.state.task_key
                             )
@@ -326,10 +351,10 @@ class TaskCompletionRunner:
                 future = self._context.core.process_executor.submit(
                     run_in_subprocess,
                     new_task_completion_runner,
-                    stripped_target_states,
+                    stripped_active_target_states,
                 )
 
-            for target_entry in target_entries:
+            for target_entry in active_target_entries:
                 self._mark_entry_in_progress(target_entry, future)
             return
 
@@ -405,6 +430,9 @@ class TaskCompletionRunner:
             return self._entries_by_task_key[task_key]
         # Before doing anything with this task state, we should make sure its
         # cache state is up to date.
+        # TODO Having to clear the state with each get() call is brittle. It would
+        # probably be better to store this cache/artifact state in the ExecutionContext
+        # so it will automatically get thrown away at the end of the query.
         state.refresh_all_persistent_cache_state(self._context)
         entry = TaskRunnerEntry(self._context, state)
         self._entries_by_task_key[task_key] = entry
