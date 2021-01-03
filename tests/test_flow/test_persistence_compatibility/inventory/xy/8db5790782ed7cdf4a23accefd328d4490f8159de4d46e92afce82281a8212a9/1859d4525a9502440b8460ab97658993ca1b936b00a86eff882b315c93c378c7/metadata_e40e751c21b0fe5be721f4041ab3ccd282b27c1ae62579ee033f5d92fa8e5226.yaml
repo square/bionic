@@ -1,6 +1,6 @@
 artifact:
   content_hash: 5438247b8c
-  url: ../../../../artifacts/xy/b10e8f0f-ccf3-4c5c-88c0-56a8cd0b0fff/xy.json
+  url: ../../../../artifacts/xy/b8cf3d59-4ba9-4156-92c9-1c1cb42c52fe/xy.json
 descriptor: xy
 provenance:
   case_key_elements:
@@ -11,7 +11,7 @@ provenance:
     - y
     - '3'
   code_fingerprint:
-    bytecode_hash: 99241991984f56d688b9d30a36baa3af
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
     is_identity: true
     orig_flow_name: null
     version:
@@ -19,7 +19,7 @@ provenance:
       major: '0'
       minor: '0'
   dep_digests:
-  - exact_hash: 65f52dc78687c1950270a8d7dd6aa9be3d595672b4b24dc3e7b57185d7916dda
+  - exact_hash: e40e751c21b0fe5be721f4041ab3ccd282b27c1ae62579ee033f5d92fa8e5226
     functional_hash: 8db5790782ed7cdf4a23accefd328d4490f8159de4d46e92afce82281a8212a9
     nominal_hash: 1859d4525a9502440b8460ab97658993ca1b936b00a86eff882b315c93c378c7
     provenance:
@@ -31,7 +31,7 @@ provenance:
         - y
         - '3'
       code_fingerprint:
-        bytecode_hash: 0aad63fd26d0b3f1373cd5fbb335f3f2
+        bytecode_hash: b'j\xe4\xc3\xd3K\xfb+o4\xa7\xd0\xbfV"}i'
         is_identity: false
         orig_flow_name: null
         version:
@@ -48,10 +48,10 @@ provenance:
         nominal_hash: 0a16e6f027
         provenance: null
       descriptor: <xy>
-      exact_hash: 65f52dc78687c1950270a8d7dd6aa9be3d595672b4b24dc3e7b57185d7916dda
+      exact_hash: e40e751c21b0fe5be721f4041ab3ccd282b27c1ae62579ee033f5d92fa8e5226
       functional_hash: 8db5790782ed7cdf4a23accefd328d4490f8159de4d46e92afce82281a8212a9
       nominal_hash: 1859d4525a9502440b8460ab97658993ca1b936b00a86eff882b315c93c378c7
   descriptor: xy
-  exact_hash: 65f52dc78687c1950270a8d7dd6aa9be3d595672b4b24dc3e7b57185d7916dda
+  exact_hash: e40e751c21b0fe5be721f4041ab3ccd282b27c1ae62579ee033f5d92fa8e5226
   functional_hash: 8db5790782ed7cdf4a23accefd328d4490f8159de4d46e92afce82281a8212a9
   nominal_hash: 1859d4525a9502440b8460ab97658993ca1b936b00a86eff882b315c93c378c7

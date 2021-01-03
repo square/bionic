@@ -40,28 +40,35 @@ class Harness:
         xy_counter = make_counter()
 
         @builder
-        @xy_counter
         def xy(x, y):
+            xy_counter.mark()
             return x * y
 
         yz_counter = make_counter()
 
         @builder
-        @yz_counter
         def yz(y, z):
+            yz_counter.mark()
             return y * z
 
         xy_plus_yz_counter = make_counter()
 
         @builder
-        @xy_plus_yz_counter
         def xy_plus_yz(xy, yz):
+            xy_plus_yz_counter.mark()
             return xy + yz
 
-        self.flow = builder.build()
         self.xy_counter = xy_counter
         self.yz_counter = yz_counter
         self.xy_plus_yz_counter = xy_plus_yz_counter
+
+        self.manual_flow = builder.build()
+        builder.set("core__versioning_mode", "auto")
+        self.auto_flow = builder.build()
+
+    @property
+    def flows(self):
+        return [self.manual_flow, self.auto_flow]
 
 
 if __name__ == "__main__":
@@ -69,11 +76,12 @@ if __name__ == "__main__":
     def make_counter():
         return ResettingCallCounter()
 
-    flow = Harness(CACHE_TEST_DIR, make_counter).flow
+    harness = Harness(CACHE_TEST_DIR, make_counter)
 
     shutil.rmtree(CACHE_TEST_DIR)
 
-    # call methods to write to cache
-    flow.get("xy")
-    flow.get("yz")
-    flow.get("xy_plus_yz")
+    for flow in harness.flows:
+        # call methods to write to cache
+        flow.get("xy")
+        flow.get("yz")
+        flow.get("xy_plus_yz")
