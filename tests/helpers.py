@@ -7,6 +7,7 @@ import shutil
 from decorator import decorate
 import pandas as pd
 from pandas import testing as pdt
+import networkx as nx
 
 import bionic as bn
 
@@ -112,6 +113,88 @@ class RoundingProtocol(bn.protocols.BaseProtocol):
 
     def read(self, path):
         return float(path.read_bytes())
+
+
+def assert_messages_match_regexes(
+    messages, regexes, allow_unmatched_messages=False, allow_unmatched_regexes=False
+):
+    """
+    Asserts that a sequence of messages can be matched against a sequence of regexes.
+
+    This function tries to find a 1:1 mapping from each message to a regex that it
+    matches. If this is impossible, it finds the best possible mapping and then raises
+    an exception listing the unmatched values.
+
+    If `allow_unmatched_messages` is set, then mappings with some unmatched messages
+    won't raise an exception; likewise for `allow_unmatched_regexes`.
+
+    The runtime of this function is roughly `O(len(messages) * len(regexes))`, so it
+    will be expensive for large inputs.
+    """
+
+    matched_regexes_by_message = find_best_message_regex_pairing(messages, regexes)
+    matched_regexes = set(matched_regexes_by_message.values())
+    unmatched_regexes = [regex for regex in regexes if regex not in matched_regexes]
+    unmatched_messages = [
+        message for message in messages if message not in matched_regexes_by_message
+    ]
+
+    if (unmatched_messages and not allow_unmatched_messages) or (
+        unmatched_regexes and not allow_unmatched_regexes
+    ):
+        failure_message = f"""
+        Failed to match messages against regexes.
+        Unmatched messages: {unmatched_messages!r}
+        Unmatched regexes: {unmatched_regexes!r}
+        """
+        assert False, dedent(failure_message).strip()
+
+
+def find_best_message_regex_pairing(messages, regexes):
+    """
+    Finds a maximal matching between a sequence of messages and a sequence of regexes.
+
+    Returns the largest possible dictionary where each key is a message and each value
+    is a regex that matches its key.
+
+    The runtime of this function should be roughly `O(len(messages) * len(regexes))`.
+    """
+
+    messages = set(messages)
+    compiled_regexes = [re.compile(regex, flags=re.DOTALL) for regex in regexes]
+
+    # We'll reduce this to a bipartite matching problem: treat each message and regex
+    # as a node, and each possible message-regex match as an edge, then find the largest
+    # set of edges that don't share any nodes.
+    graph = nx.Graph()
+    graph.add_nodes_from(messages)
+    graph.add_nodes_from(compiled_regexes)
+    graph.add_edges_from(
+        (message, compiled_regex)
+        for message in messages
+        for compiled_regex in compiled_regexes
+        if compiled_regex.fullmatch(message)
+    )
+
+    # This uses the Hopcroft-Karp algorithm to find the maximum matching. The algorithm
+    # is worst-case O(num_edges * sqrt(num_vertices)), or O(num_vertices ** 2.5), so
+    # "roughly" quadratic.
+    nodes_by_matched_node = nx.algorithms.bipartite.maximum_matching(
+        graph,
+        # NetworkX doesn't know which nodes are messages and which are regexes, so we
+        # need to tell it which side of the graph is which.
+        top_nodes=messages,
+    )
+
+    # The matching algorithm returns every pairing in both directions; we only want to
+    # keep the matches going from message to regex (not vice versa).
+    matched_regexes_by_message = {
+        left_node: right_node.pattern
+        for left_node, right_node in nodes_by_matched_node.items()
+        if left_node in messages
+    }
+
+    return matched_regexes_by_message
 
 
 def assert_re_matches(regex, string, flags=0):

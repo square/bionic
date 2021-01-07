@@ -1,6 +1,5 @@
 import getpass
 import random
-import re
 from multiprocessing.managers import SyncManager
 from typing import Optional
 
@@ -11,6 +10,7 @@ import bionic as bn
 from bionic.gcs import get_gcs_fs_without_warnings
 from .fakes import FakeGcsFs, FakeAipClient
 from ..helpers import (
+    assert_messages_match_regexes,
     SimpleCounter,
     ResettingCallCounter,
 )
@@ -264,11 +264,11 @@ class LogChecker:
         self._caplog.clear()
 
     def expect_regex(self, *expected_patterns):
-        messages = self._pop_messages()
-        for pattern in expected_patterns:
-            assert any(
-                re.fullmatch(pattern, message, flags=re.DOTALL) for message in messages
-            )
+        assert_messages_match_regexes(
+            self._pop_messages(),
+            expected_patterns,
+            allow_unmatched_messages=True,
+        )
 
     def _pop_messages(self):
         messages = [self._format_message(record) for record in self._caplog.records]
