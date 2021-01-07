@@ -37,8 +37,6 @@ PREFIX_SEPARATOR = b"$"
 
 
 # List of things we should do before releasing Smart Caching:
-# - dedup references
-# - caching individual object hashes for a CodeHasher run
 # - hash classes
 # - Throw an exception for unhandled bytecode instruction type
 # - investigate if we can hash module or package versions
