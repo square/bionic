@@ -64,6 +64,7 @@ DEFAULT_PROTOCOL = protos.CombinedProtocol(
     protos.ParquetDataFrameProtocol(),
     protos.ImageProtocol(),
     protos.NumPyProtocol(),
+    protos.PicklableSetProtocol(),
     protos.PicklableProtocol(),
 )
 

@@ -26,11 +26,10 @@ def older_serialized_cache_harness(make_counter, tmp_path):
 # To renegerate cache, run the following command from bionic/ dir
 #   `python -m tests.test_flow.generate_test_compatibility_cache`
 def test_caching_compatibility(older_serialized_cache_harness):
-    # Auto versioned flow code generates different bytecode hash between
-    # Python 3.6 and [3.7, 3.8]. This is because Python 3.7 added new
-    # bytecode instructions opcode that are commonly used, like
-    # LOAD_METHOD.
-    # We skip the auto versioned flow for Python 3.6 and only test it on
+    # The auto-versioned flow generates different bytecode hashes on Python 3.6
+    # compared to 3.7 and 3.8 This is because Python 3.7 added new
+    # bytecode instructions like LOAD_METHOD and uses them widely.
+    # We skip the auto-versioned flow for Python 3.6 and only test it on
     # Python 3.7+.
     if sys.version_info < (3, 7):
         flows = [older_serialized_cache_harness.manual_flow]
@@ -38,11 +37,11 @@ def test_caching_compatibility(older_serialized_cache_harness):
         flows = older_serialized_cache_harness.flows
 
     for flow in flows:
-        assert flow.get("xy") == 6
-        assert flow.get("yz") == 12
-        assert flow.get("xy_plus_yz") == 18
+        assert (
+            flow.get("total_sum") == older_serialized_cache_harness.EXPECTED_TOTAL_SUM
+        )
 
-        # assert that no methods were called
-        assert older_serialized_cache_harness.xy_counter.times_called() == 0
-        assert older_serialized_cache_harness.yz_counter.times_called() == 0
-        assert older_serialized_cache_harness.xy_plus_yz_counter.times_called() == 0
+        # Assert that no methods were called.
+        assert older_serialized_cache_harness.lowercase_sum_counter.times_called() == 0
+        assert older_serialized_cache_harness.uppercase_sum_counter.times_called() == 0
+        assert older_serialized_cache_harness.total_sum_counter.times_called() == 0

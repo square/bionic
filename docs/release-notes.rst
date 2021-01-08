@@ -83,6 +83,10 @@ Improvements
 - When "assisted" or "fully automatic" :ref:`versioning <automatic-versioning>`
   is enabled, Bionic now inspects not just entity functions and values, but also
   any functions they reference and the classes of entity values.
+- Fixed an `issue <https://github.com/square/bionic/issues/307>`__ where sets were
+  serialized non-deterministically, which could lead to downstream values being
+  spuriously recomputed. (Unfortunately this fix doesn't help with other objects that
+  happen to contain sets.)
 
 0.9.2 (Oct 26, 2020)
 --------------------
