@@ -333,8 +333,8 @@ won’t detect changes of the following types:
    global variables that have simple types (int, string, bool, bytes, etc.), but
    it will ignore changes for other types of variables.
 
-3. **Python Classes**: Bionic won’t detect changes to the code of Python classes.
-   [#classes_hash]_
+3. **Python Classes**: Bionic detects some but not all changes to the code of
+   Python classes.
 
 4. **Runtime Code**: Bionic doesn’t actually run any code when inspecting it, so
    it won’t recursively inspect functions that are referenced dynamically. If a
@@ -368,8 +368,6 @@ risk factors listed above.
 
 .. [#bytecode_hash] And any global variables and other functions they reference,
   and so on.
-
-.. [#classes_hash] However, we expect to change this in an upcoming release.
 
 
 Disabling Persistent Caching

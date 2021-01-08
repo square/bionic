@@ -23,6 +23,7 @@ import numpy as np
 from pyarrow import parquet, Table
 import pandas as pd
 
+from .code_hasher import CodeHasher
 from .decoration import decorator_updating_accumulator
 from .exception import EntityValueError, UnsupportedSerializedValueError
 from .deps.optdep import import_optional_dependency
@@ -45,6 +46,9 @@ def check_is_like_protocol(obj):
                 expected method {method_name!r}"""
                 )
             )
+
+
+DEFAULT_VALUE_HASH_DIGEST = "DEFAULT_VALUE_HASH"
 
 
 class BaseProtocol:
@@ -155,6 +159,13 @@ class BaseProtocol:
     def tokenize_file(self, path):
         """Like ``tokenize``, but operates on a serialized value."""
         return tokenization.tokenize(path, read_hashable_bytes_from_file_or_dir)
+
+    def get_extra_value_hash(self, value, suppress_warnings):
+        """
+        Generates additional data that can be added to the hash which doesn't
+        show up in the serialized output.
+        """
+        return DEFAULT_VALUE_HASH_DIGEST
 
     def _write_to_bytes(self, value):
         """
@@ -273,6 +284,9 @@ class PicklableProtocol(BaseProtocol):
     def get_fixed_file_extension(self):
         return "pkl"
 
+    def get_extra_value_hash(self, value, suppress_warnings):
+        return CodeHasher.hash(type(value), suppress_warnings)
+
     def write(self, value, path):
         with path.open("wb") as file_:
             pickle.dump(value, file_, protocol=self._pickle_protocol_version)
@@ -292,6 +306,9 @@ class DillableProtocol(BaseProtocol):
 
     def get_fixed_file_extension(self):
         return "dill"
+
+    def get_extra_value_hash(self, value, suppress_warnings):
+        return CodeHasher.hash(type(value), suppress_warnings)
 
     def __init__(self, suppress_dill_side_effects=True):
         super(DillableProtocol, self).__init__()

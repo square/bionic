@@ -81,8 +81,8 @@ Improvements
   <bionic.outputs>` decorator), those entities and the function itself are now
   all visualized with the same color.
 - When "assisted" or "fully automatic" :ref:`versioning <automatic-versioning>`
-  is enabled, Bionic now inspects not just entity functions, but also any
-  functions they reference.
+  is enabled, Bionic now inspects not just entity functions and values, but also
+  any functions they reference and the classes of entity values.
 
 0.9.2 (Oct 26, 2020)
 --------------------
