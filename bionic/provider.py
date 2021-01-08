@@ -16,21 +16,29 @@ import attr
 import pandas as pd
 
 from .datatypes import (
-    Task,
-    TaskKey,
+    Artifact,
     CaseKey,
     CaseKeySpace,
     CodeFingerprint,
     CodeVersion,
     CodeVersioningPolicy,
     FunctionAttributes,
+    Task,
+    TaskKey,
 )
 from .code_hasher import CodeHasher
 from .deps.optdep import import_optional_dependency
 from .descriptors.parsing import entity_dnode_from_descriptor
 from .descriptors import ast
-from .exception import EntityComputationError, IncompatibleEntityError
+from .exception import (
+    EntityComputationError,
+    EntitySerializationError,
+    IncompatibleEntityError,
+    UnsupportedSerializedValueError,
+)
+from .utils.files import ensure_parent_dir_exists
 from .utils.misc import groups_dict, oneline
+from .utils.urls import path_from_url, url_from_path
 
 import logging
 
@@ -1001,6 +1009,165 @@ class TupleDeconstructionProvider(BaseDerivedProvider):
     def compute_values_from_deps(self, dep_values):
         (input_tuple,) = dep_values
         return input_tuple[self._element_ix]
+
+
+class LoadingFromDiskProvider(BaseDerivedProvider):
+    """
+    A provider for tasks that deserialize values from disk.
+
+    The generated tasks will accept an Artifact corresponding to a local file,
+    load that file into an in-memory object, and return that object.
+    """
+
+    def __init__(self, out_dnode, dep_dnode, protocol, persistent_cache):
+        assert dep_dnode.assume_generic().name == "artifact"
+        assert out_dnode == dep_dnode.child
+
+        super(LoadingFromDiskProvider, self).__init__(
+            out_dnode=out_dnode,
+            dep_dnodes=[dep_dnode],
+        )
+
+        self.out_dnode = out_dnode
+        self.protocol = protocol
+        self.persistent_cache = persistent_cache
+
+    def compute_values_from_deps(self, dep_values):
+        (local_artifact,) = dep_values
+        file_path = path_from_url(local_artifact.url)
+        try:
+            return self.protocol.read(file_path)
+        except UnsupportedSerializedValueError:
+            raise
+        except Exception as e:
+            self.persistent_cache.raise_state_error_with_explanation(
+                e,
+                preamble_message=f"""
+                Unable to read value of descriptor
+                {self.out_dnode.to_descriptor()!r} from file {str(file_path)}
+                """,
+            )
+
+    def get_code_fingerprint(self, case_key, versioning_policy):
+        fingerprint = super(LoadingFromDiskProvider, self).get_code_fingerprint(
+            case_key, versioning_policy
+        )
+        # This is not actually an identity function; clearly we're not returning the
+        # same argument that was passed in. However, we treat it like one in order to
+        # maintain cache compatibility with older versions of Bionic, where loading and
+        # saving were hardcoded into the infrastructure rather than being implemented as
+        # distinct tasks. The upshot is that all artifact hashes are computed as if this
+        # provider's tasks didn't exist.
+        # TODO Next time we introduce a breaking change to cache compatibility, we can
+        # also remove the is_identity tag here.
+        # TODO Ideally the version of this function would also capture any changes to
+        # the underlying protocol implementation.
+        return attr.evolve(fingerprint, is_identity=True)
+
+
+class ValidatingAndSavingToDiskProvider(BaseDerivedProvider):
+    """
+    A provider for tasks that serialize values to disk.
+
+    The generated tasks will accept an in-memory object, validate it, serialize it to
+    disk, and return an Artifact object representing the serialized file.
+    """
+
+    def __init__(self, out_dnode, dep_dnode, protocol, persistent_cache):
+        assert out_dnode.assume_generic().name == "artifact"
+        assert dep_dnode.assume_draft().child == out_dnode.child
+        # At least for now, we only serialize entity values, not other kinds of
+        # descriptors.
+        entity_dnode = dep_dnode.child.assume_entity()
+
+        super(ValidatingAndSavingToDiskProvider, self).__init__(
+            out_dnode=out_dnode,
+            dep_dnodes=[dep_dnode],
+        )
+
+        self.out_dnode = out_dnode
+        self.dep_dnode = dep_dnode
+        self.entity_dnode = entity_dnode
+        self.protocol = protocol
+        self.persistent_cache = persistent_cache
+
+    def compute_values_from_deps(self, dep_values):
+        (value,) = dep_values
+
+        self.protocol.validate_for_dnode(self.dep_dnode, value)
+
+        dir_path = (
+            self.persistent_cache.generate_unique_local_dir_path_for_artifact_dnode(
+                self.out_dnode
+            )
+        )
+        extension = self.protocol.file_extension_for_value(value)
+        entity_name = self.entity_dnode.name
+        value_filename = f"{entity_name}.{extension}"
+        value_path = dir_path / value_filename
+
+        ensure_parent_dir_exists(value_path)
+        try:
+            self.protocol.write(value, value_path)
+        except Exception as e:
+            message = f"""
+            Value of entity {entity_name!r} could not be serialized to disk
+            """
+            raise EntitySerializationError(oneline(message)) from e
+
+        value_hash = self.protocol.tokenize_file(value_path)
+        return Artifact(
+            url=url_from_path(value_path),
+            content_hash=value_hash,
+        )
+        return value_path
+
+    def get_code_fingerprint(self, case_key, versioning_policy):
+        fingerprint = super(
+            ValidatingAndSavingToDiskProvider, self
+        ).get_code_fingerprint(case_key, versioning_policy)
+        # This is not actually an identity function; clearly we're not returning the
+        # same argument that was passed in. However, we treat it like one in order to
+        # maintain cache compatibility with older versions of Bionic, where loading and
+        # saving were hardcoded into the infrastructure rather than being implemented as
+        # distinct tasks. The upshot is that all artifact hashes are computed as if this
+        # provider's tasks didn't exist.
+        # TODO Next time we introduce a breaking change to cache compatibility, we can
+        # also remove the is_identity tag here.
+        return attr.evolve(fingerprint, is_identity=True)
+
+
+class ValidatingProvider(BaseDerivedProvider):
+    """
+    A provider for tasks that validate their input (according to a Protocol) and return
+    it unchanged.
+    """
+
+    def __init__(self, out_dnode, dep_dnode, protocol, warn_persistence_skipped=False):
+        super(ValidatingProvider, self).__init__(
+            out_dnode=out_dnode,
+            dep_dnodes=[dep_dnode],
+        )
+
+        self.dep_dnode = dep_dnode
+        self.protocol = protocol
+        self.warn_persistence_skipped = warn_persistence_skipped
+
+    def get_tasks(self, dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode):
+        return super(ValidatingProvider, self).get_tasks(
+            dep_key_spaces_by_dnode, dep_task_key_lists_by_dnode
+        )
+
+    def compute_values_from_deps(self, dep_values):
+        (value,) = dep_values
+        self.protocol.validate_for_dnode(self.dep_dnode, value)
+        return value
+
+    def get_code_fingerprint(self, case_key, versioning_policy):
+        fingerprint = super(ValidatingProvider, self).get_code_fingerprint(
+            case_key, versioning_policy
+        )
+        return attr.evolve(fingerprint, is_identity=True)
 
 
 class PassthroughProvider(BaseDerivedProvider):

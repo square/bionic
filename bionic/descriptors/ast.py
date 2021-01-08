@@ -3,11 +3,8 @@ This module defines functions and data structures relating to descriptors.
 A descriptor is intended to be a generalized entity name; it's a short string
 expression that can represent the input or output of a function in Bionic. For
 example, instead of referring only to atomic entities like `raw_data` or
-`model`, we will eventually be able to use complex expressions like `model,
-report`, `list of model`, and `file_path of model`. However, for the time
-being we only support descriptors belonging to one of three types: a single entity name
-(EntityNode), a tuple of other descriptors (TupleNode), or a "draft" of another
-descriptor (DraftNode).
+`model`, we can also use more complex expressions like `model, report` (a tuple with
+two elements) or `model/artifact` (the artifact of the model).
 
 A descriptor string can be parsed into a DescriptorNode object, which
 represents the abstract syntax tree (AST) of the expression.  (The parsing code is in
@@ -34,6 +31,7 @@ class NodeTypeEnum(Enum):
     ENTITY = "entity"
     TUPLE = "tuple"
     DRAFT = "draft"
+    GENERIC = "generic"
 
 
 @total_ordering
@@ -100,6 +98,10 @@ class DescriptorNode(ABC):
         """Indicates whether this node is a DraftNode."""
         return self.type_enum == NodeTypeEnum.DRAFT
 
+    def is_generic(self):
+        """Indicates whether this node is a GenericNode."""
+        return self.type_enum == NodeTypeEnum.GENERIC
+
     # I considered adding some way to pattern-match on node type, like
     #
     #        value = dnode.match(
@@ -158,6 +160,10 @@ class DescriptorNode(ABC):
     def assume_draft(self):
         """Returns this node if it is a DraftNode; otherwise throws TypeError."""
         return self._assume_type_enum(NodeTypeEnum.DRAFT)
+
+    def assume_generic(self):
+        """Returns this node if it is a GenericNode; otherwise throws TypeError."""
+        return self._assume_type_enum(NodeTypeEnum.GENERIC)
 
     def _assume_type_enum(self, type_enum):
         if self.type_enum != type_enum:
@@ -298,3 +304,58 @@ class DraftNode(DescriptorNode):
 
     def edit(self, func):
         return func(DraftNode(self.child.edit(func)))
+
+
+VALID_GENERIC_NAMES = {"artifact"}
+
+
+# A more precise name than "generic" would be something like "parameterized entity",
+# or even "generic entity", but since it's not actually a subtype of "entity" I wanted
+# to use a different term. Using "generic" as a noun is a little weird, but not
+# unprecedented.
+#
+# The syntax `model/artifact` is also a bit idiosyncratic. The idea of the slash is to
+# capture the concept that the `artifact` is subordinate to, or modified by, the
+# `model`. Another natural way to write it would be `artifact[model]`, but in general
+# my hope is for the syntax to map to how we would describe this in English: "[the]
+# model artifact". Typically in English the last word in a noun phrase describes
+# what the thing actually is, while the preceding words indicate which one or what kind.
+# Thus, a "model artifact" is an artifact, not a model.
+# In the future I expect descriptors to be used directly like this:
+#
+#     @builder
+#     @bn.accepts(model_path='model/path')
+#     def ...(model_path, ...):
+#         ...
+#
+# However, at the moment none of this is documented or user-visible, so we can always
+# come back and change it.
+@node_attrs
+class GenericNode(DescriptorNode):
+    """
+    A descriptor node corresponding to a "generic", or parameterized, concept.
+
+    A generic is like an entity, but parameterized by some other descriptor. For
+    example, the descriptor `model/artifact` refers to the artifact corresponding to the
+    `model` entity.
+
+    Unlike entities, generics are not defined by users; there's a fixed set of
+    built-in generics. Currently the only generic is the "artifact" generic,
+    which corresponds to a persisted artifact. (Possible future generics:
+    "digest", "path".)
+    """
+
+    child = attr.ib()
+    name = attr.ib()
+
+    type_enum = NodeTypeEnum.GENERIC
+
+    def to_descriptor(self, near_commas=False):
+        # TODO Rename `near_commas` to something more accurate, like `enclose_commas`.
+        return f"{self.child.to_descriptor(near_commas=True)}/{self.name}"
+
+    def all_entity_names(self):
+        return self.child.all_entity_names()
+
+    def edit(self, func):
+        return func(GenericNode(self.child.edit(func), self.name))
