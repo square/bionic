@@ -192,6 +192,52 @@ def test_flow_handles_delete_gracefully(builder):
     flow.get("c")
 
 
+@pytest.mark.needs_parallel
+@pytest.mark.allows_parallel
+def test_flow_handles_intermediate_deletion_in_parallel(builder, make_counter):
+    builder.assign("x", 2)
+
+    @builder
+    @bn.persist(False)
+    def y(x):
+        return x + 1
+
+    @builder
+    def z(y):
+        return y + 1
+
+    flow = builder.build()
+
+    assert flow.get("x") == 2
+    assert flow.get("y") == 3
+
+    for entry in flow.cache.get_entries():
+        entry.delete()
+
+    assert flow.get("z") == 4
+
+
+@pytest.mark.allows_parallel
+def test_flow_handles_partial_tuple_deletion(builder, make_counter):
+    builder.assign("x", 2)
+
+    @builder
+    @bn.outputs("y", "z")
+    def _(x):
+        return x - 1, x + 1
+
+    flow = builder.build()
+
+    assert flow.get("y") == 1
+    assert flow.get("z") == 3
+
+    (z_entry,) = [entry for entry in flow.cache.get_entries() if entry.entity == "z"]
+    z_entry.delete()
+
+    assert flow.get("y") == 1
+    assert flow.get("z") == 3
+
+
 def test_delete_artifact_with_multiple_metadata_files(builder):
     builder.assign("a", 1)
 

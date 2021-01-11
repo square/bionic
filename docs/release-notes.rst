@@ -74,6 +74,12 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
+Bug Fixes
+.........
+
+- Fixed a bug where Bionic could crash when using parallel execution after manually
+  deleting some persisted artifacts (such as with the :ref:`Cache API <cache-api>`).
+
 Improvements
 ............
 
