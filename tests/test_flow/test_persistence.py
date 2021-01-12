@@ -902,6 +902,73 @@ def test_versioning_auto_class_changes(builder, make_counter):
     assert call_counter.times_called() == 1
 
 
+@pytest.mark.parametrize("versioning_mode", ["manual", "assist"])
+def test_versioning_class_changes(builder, make_counter, versioning_mode):
+    call_counter = make_counter()
+
+    # PicklableProtocol cannot pickle IntWrapper class because it is
+    # defined inside the test function. We instead use this custom
+    # protocol that wraps the PicklableProtocol to be able to serialize
+    # IntWrapper.
+    class IntWrapperProtocol(bn.protocols.PicklableProtocol):
+        def write(self, wrapper, path):
+            assert isinstance(wrapper, IntWrapper)
+            super().write(wrapper.value, path)
+
+        def read(self, path):
+            return IntWrapper(super().read(path))
+
+    class IntWrapper:
+        def __init__(self, value):
+            self.value = value
+
+        def __str__(self):
+            return f"IntWrapper: value={self.value}"
+
+    builder.set("core__versioning_mode", versioning_mode)
+
+    builder.assign("x", 2)
+    builder.assign("y", 3)
+
+    @builder
+    @IntWrapperProtocol()
+    @bn.version(1)
+    def wrapped_f(x, y):
+        return IntWrapper(x + y)
+
+    @builder
+    def f(wrapped_f):
+        call_counter.mark()
+        return wrapped_f.value
+
+    assert builder.build().get("f") == 5
+    assert builder.build().get("f") == 5
+    assert call_counter.times_called() == 1
+
+    builder.delete("wrapped_f")
+
+    # Make a change in the __str__ method.
+    class IntWrapper:  # noqa: F811
+        def __init__(self, value):
+            self.value = value
+
+        def __str__(self):
+            return f"value={self.value}"
+
+    @builder  # noqa: F811
+    @IntWrapperProtocol()
+    @bn.version(2)
+    def wrapped_f(x, y):  # noqa: F811
+        return IntWrapper(x + y)
+
+    assert builder.build().get("f") == 5
+    # We don't hash the class of the inputs for manual and assist
+    # versioning modes. So even if the class for `wrapped_f` changes,
+    # if the hash of the `wrapped_f.value` doesn't changes, `f` won't
+    # be recomputed.
+    assert call_counter.times_called() == 0
+
+
 def test_versioning_auto_with_local_refs(builder, make_counter):
     call_counter = make_counter()
 
