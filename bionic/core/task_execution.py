@@ -765,25 +765,28 @@ class TaskState:
         protocol = self.desc_metadata.protocol
         value_hash = protocol.tokenize_file(value_path)
 
-        code_versioning_policy = self.func_attrs.code_versioning_policy
-        code_version = code_versioning_policy.version
-        if not code_version.includes_bytecode:
-            return ""
-
-        protocol = self.desc_metadata.protocol
-        versioning_policy = context.core.versioning_policy
-        try:
-            extra_value_hash = protocol.get_extra_value_hash(
-                value,
-                code_versioning_policy.suppress_bytecode_warnings
-                or versioning_policy.ignore_bytecode_exceptions,
-            )
-        except Exception:
-            if not versioning_policy.ignore_bytecode_exceptions:
+        def _extra_value_hash():
+            code_versioning_policy = self.func_attrs.code_versioning_policy
+            code_version = code_versioning_policy.version
+            versioning_policy = context.core.versioning_policy
+            if (
+                not code_version.includes_bytecode
+                or not versioning_policy.treat_bytecode_as_functional
+            ):
+                return ""
+            protocol = self.desc_metadata.protocol
+            try:
+                return protocol.get_extra_value_hash(
+                    value,
+                    code_versioning_policy.suppress_bytecode_warnings
+                    or versioning_policy.ignore_bytecode_exceptions,
+                )
+            except Exception:
+                if versioning_policy.ignore_bytecode_exceptions:
+                    return ""
                 raise
-            extra_value_hash = ""
 
-        return hash_simple_obj_to_hex([value_hash, extra_value_hash])
+        return hash_simple_obj_to_hex([value_hash, _extra_value_hash()])
 
     def _value_from_local_artifact(self, local_artifact):
         file_path = path_from_url(local_artifact.url)
