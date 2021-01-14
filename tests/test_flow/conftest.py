@@ -170,6 +170,7 @@ def fake_gcs_builder(builder, make_dict):
 def aip_builder(gcs_builder, gcp_project, use_fake_gcp, gcs_fs, tmp_path):
     gcs_builder.set("core__aip_execution__enabled", True)
     gcs_builder.set("core__aip_execution__gcp_project_name", gcp_project)
+    gcs_builder.set("core__aip_execution__docker_image_name", "bionic:latest")
 
     if use_fake_gcp:
         gcs_builder.set("core__aip_execution__poll_period_seconds", 0.1)

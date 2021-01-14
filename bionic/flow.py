@@ -2,7 +2,7 @@
 Contains the FlowBuilder and Flow classes, which implement the core workflow
 construction and execution APIs (respectively).
 """
-
+import logging
 import os
 import shutil
 import warnings
@@ -17,6 +17,7 @@ import pandas as pd
 # A bit annoying that we have to rename this when we import it.
 from . import protocols as protos
 from .aip.client import get_aip_client
+from .aip.docker_image_builder import build_image_if_missing_async
 from .aip.task import Config as AipConfig
 from .cache_api import Cache
 from .datatypes import (
@@ -52,6 +53,9 @@ from .utils.misc import (
 )
 from .utils.reload import recursive_reload
 from .utils.urls import path_from_url
+
+logger = logging.getLogger(__name__)
+
 
 DEFAULT_PROTOCOL = protos.CombinedProtocol(
     protos.JsonProtocol(),
@@ -1900,9 +1904,7 @@ def create_default_flow_config():
 
     builder.assign("core__aip_execution__enabled", False, persist=False)
     builder.assign("core__aip_execution__gcp_project_name", None, persist=False)
-    builder.assign(
-        "core__aip_execution__docker_image_name", "bionic:latest", persist=False
-    )
+    builder.assign("core__aip_execution__docker_image_name", None, persist=False)
     builder.assign("core__aip_execution__poll_period_seconds", 10, persist=False)
 
     @builder
@@ -1924,7 +1926,6 @@ def create_default_flow_config():
     def core__aip_execution__config(
         core__aip_execution__enabled,
         core__aip_execution__gcp_project_name,
-        core__aip_execution__docker_image_uri,
         core__aip_execution__poll_period_seconds,
         core__flow_name,
     ):
@@ -1936,17 +1937,9 @@ def create_default_flow_config():
                 value. AIP uses project to verify IAM permissions.
             """
             raise AssertionError(oneline(error_message))
-        if core__aip_execution__docker_image_uri is None:
-            error_message = """
-                core__aip_execution__docker_image_uri is None, but
-                needs a value. AIP uses the docker image from the
-                Container Registry to run jobs and workers.
-            """
-            raise AssertionError(oneline(error_message))
         return AipConfig(
             uuid=f"{core__flow_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             project_name=core__aip_execution__gcp_project_name,
-            image_uri=core__aip_execution__docker_image_uri,
             poll_period_seconds=core__aip_execution__poll_period_seconds,
         )
 
@@ -1972,6 +1965,7 @@ def create_default_flow_config():
         core__aip_client,
         core__aip_execution__enabled,
         core__aip_execution__config,
+        core__aip_execution__docker_image_uri,
     ):
         if not core__aip_execution__enabled:
             return None
@@ -1986,6 +1980,22 @@ def create_default_flow_config():
                 core__persistent_cache__gcs__fs is None.
             """
             raise AssertionError(oneline(error_message))
+
+        if core__aip_execution__docker_image_uri is None:
+            docker_image_uri_future = build_image_if_missing_async(
+                core__aip_execution__config.project_name,
+            )
+
+            def docker_image_uri_func():
+                if not docker_image_uri_future.done():
+                    logger.info("Waiting for Docker image to finish building...")
+                return docker_image_uri_future.result()
+
+        else:
+
+            def docker_image_uri_func():
+                return core__aip_execution__docker_image_uri
+
         # TODO: Add checks that all the AIP libraries are installed. Otherwise,
         # users have to wait till job submission to get the error back that the
         # required libraries are not installed.
@@ -1993,6 +2003,7 @@ def create_default_flow_config():
             gcs_fs=core__persistent_cache__gcs__fs,
             aip_client=core__aip_client,
             aip_config=core__aip_execution__config,
+            docker_image_uri_func=docker_image_uri_func,
         )
 
     return builder._config.mark_all_entities_default()
