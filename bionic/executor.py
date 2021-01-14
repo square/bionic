@@ -15,9 +15,10 @@ import traceback
 from concurrent.futures.thread import ThreadPoolExecutor
 from functools import partial
 from multiprocessing.managers import SyncManager
+from typing import Callable
 from uuid import uuid4
 
-from .aip.task import Task
+from .aip.task import Task, Config
 from .deps.optdep import import_optional_dependency
 from .utils.misc import oneline, SynchronizedSet
 
@@ -30,18 +31,27 @@ class AipExecutor:
 
     NON_ALPHANUMERIC_PATTERN = re.compile(r"\W")
 
-    def __init__(self, gcs_fs, aip_client, aip_config):
+    def __init__(
+        self,
+        gcs_fs,
+        aip_client,
+        aip_config: Config,
+        docker_image_uri_func: Callable[[], str],
+    ):
         self._gcs_fs = gcs_fs
         self._aip_client = aip_client
         self._aip_config = aip_config
+        self._docker_image_uri_func = docker_image_uri_func
 
     def submit(self, task_key, task_config, fn, *args, **kwargs):
         task = Task(
             name=self._create_job_name(task_key),
+            docker_image_uri=self._docker_image_uri_func(),
             config=self._aip_config,
             task_config=task_config,
             function=partial(fn, *args, **kwargs),
         )
+
         task.submit(gcs_fs=self._gcs_fs, aip_client=self._aip_client)
         return ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="aip-wait-results"

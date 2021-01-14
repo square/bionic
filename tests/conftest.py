@@ -41,6 +41,7 @@ def pytest_configure(config):
         "allows_parallel",
         "can run with parallel execution even when that's not explicitly enabled",
     )
+    add_mark("real_gcp_only", "runs on fake GCP only")
     add_mark("fake_gcp_only", "runs on fake GCP only")
 
     # These markers are added automatically based on parametric fixtures.
@@ -89,6 +90,10 @@ def pytest_collection_modifyitems(config, items):
                 item_is_baseline = False
                 if not has_aip:
                     item.add_marker(skip_needs_aip)
+
+        elif "fake_gcp" in item.keywords:
+            if "real_gcp_only" in item.keywords:
+                continue
 
         if "parallel" in item.keywords:
             if "allows_parallel" not in item.keywords:
