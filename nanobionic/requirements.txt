@@ -1,0 +1,6 @@
+attrs
+networkx
+hsluv
+pydot
+
+jupyter
