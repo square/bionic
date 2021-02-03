@@ -957,6 +957,19 @@ def test_versioning_class_changes(builder, make_counter, versioning_mode):
 
     @builder  # noqa: F811
     @IntWrapperProtocol()
+    @bn.version(1)
+    def wrapped_f(x, y):  # noqa: F811
+        return IntWrapper(x + y)
+
+    if versioning_mode == "assist":
+        with raises_versioning_error_for_entity("wrapped_f"):
+            builder.build().get("f")
+    else:
+        assert builder.build().get("f") == 5
+    assert call_counter.times_called() == 0
+
+    @builder  # noqa: F811
+    @IntWrapperProtocol()
     @bn.version(2)
     def wrapped_f(x, y):  # noqa: F811
         return IntWrapper(x + y)
