@@ -22,6 +22,7 @@ cache.
 import attr
 import dis
 import inspect
+import sys
 import warnings
 
 from .utils.misc import oneline
@@ -86,7 +87,7 @@ def get_code_context(func) -> CodeContext:
     return CodeContext(globals=func.__globals__, cells=cells, varnames=varnames)
 
 
-def get_referenced_objects(code, context):
+def get_referenced_objects(code, context, suppress_warnings=False):
     """
     Attempts to return all objects referenced externally by a code object. In
     some cases, these objects are:
@@ -151,6 +152,27 @@ def get_referenced_objects(code, context):
 
     for op in dis.get_instructions(code):
         try:
+            if op.opname not in SUPPORTED_INSTRUCTIONS and not suppress_warnings:
+                if sys.version_info < (3, 6) or sys.version_info > (3, 8):
+                    message = """
+                    You are using an unsupported Python version for Bionic. This
+                    can result in Bionic missing some code changes to invalidate
+                    cache. Consider using a supported Python version to avoid any
+                    caching issues.
+                    """
+                else:
+                    message = f"""
+                    Bionic does not recognize {op.opname} Bytecode operation.
+                    This should be impossible and is most likely a bug in Bionic.
+                    Please raise a new issue at
+                    https://github.com/square/bionic/issues to let us know.
+                    """
+                message += """
+                You can also suppress this warning by removing the
+                `suppress_bytecode_warnings` override from the
+                `@version` decorator on the corresponding function.
+                """
+                warnings.warn(oneline(message))
             # Sometimes starts_line is None, in which case let's just remember the
             # previous start_line (if any). This way when there's an exception we at
             # least can point users somewhat near the line where the error stems from.
@@ -209,8 +231,6 @@ def get_referenced_objects(code, context):
                 set_tos(None)
             elif op.opname == "LOAD_FAST" and op.argval in context.varnames:
                 set_tos(context.varnames[op.argval])
-            # TODO: Keep track of all known bytecode instructions and throw an
-            # error if we ever see a new instruction.
             else:
                 # For all other instructions, add the current TOS as a
                 # reference.
@@ -246,3 +266,139 @@ class ReferenceProxy:
     """
 
     val = attr.ib()
+
+
+# TODO: See if we can support Python 3.9.
+"""
+List of all the opcode instructions that we have evaluated for finding code
+references. As of now, these are all the instructions listed in dis up to
+Python 3.8.
+"""
+SUPPORTED_INSTRUCTIONS = {
+    "NOP",
+    "POP_TOP",
+    "ROT_TWO",
+    "ROT_THREE",
+    "ROT_FOUR",
+    "DUP_TOP",
+    "DUP_TOP_TWO",
+    "UNARY_POSITIVE",
+    "UNARY_NEGATIVE",
+    "UNARY_NOT",
+    "UNARY_INVERT",
+    "GET_ITER",
+    "GET_YIELD_FROM_ITER",
+    "BINARY_POWER",
+    "BINARY_MULTIPLY",
+    "BINARY_MATRIX_MULTIPLY",
+    "BINARY_FLOOR_DIVIDE",
+    "BINARY_TRUE_DIVIDE",
+    "BINARY_MODULO",
+    "BINARY_ADD",
+    "BINARY_SUBTRACT",
+    "BINARY_SUBSCR",
+    "BINARY_LSHIFT",
+    "BINARY_RSHIFT",
+    "BINARY_AND",
+    "BINARY_XOR",
+    "BINARY_OR",
+    "INPLACE_POWER",
+    "INPLACE_MULTIPLY",
+    "INPLACE_MATRIX_MULTIPLY",
+    "INPLACE_FLOOR_DIVIDE",
+    "INPLACE_TRUE_DIVIDE",
+    "INPLACE_MODULO",
+    "INPLACE_ADD",
+    "INPLACE_SUBTRACT",
+    "INPLACE_LSHIFT",
+    "INPLACE_RSHIFT",
+    "INPLACE_AND",
+    "INPLACE_XOR",
+    "INPLACE_OR",
+    "STORE_SUBSCR",
+    "DELETE_SUBSCR",
+    "GET_AWAITABLE",
+    "GET_AITER",
+    "GET_ANEXT",
+    "END_ASYNC_FOR",
+    "BEFORE_ASYNC_WITH",
+    "SETUP_ASYNC_WITH",
+    "PRINT_EXPR",
+    "BREAK_LOOP",
+    "CONTINUE_LOOP",
+    "SET_ADD",
+    "LIST_APPEND",
+    "MAP_ADD",
+    "RETURN_VALUE",
+    "YIELD_VALUE",
+    "YIELD_FROM",
+    "SETUP_ANNOTATIONS",
+    "IMPORT_STAR",
+    "POP_BLOCK",
+    "POP_EXCEPT",
+    "POP_FINALLY",
+    "BEGIN_FINALLY",
+    "END_FINALLY",
+    "LOAD_BUILD_CLASS",
+    "SETUP_WITH",
+    "WITH_CLEANUP_START",
+    "WITH_CLEANUP_FINISH",
+    "STORE_NAME",
+    "DELETE_NAME",
+    "UNPACK_SEQUENCE",
+    "UNPACK_EX",
+    "STORE_ATTR",
+    "DELETE_ATTR",
+    "STORE_GLOBAL",
+    "DELETE_GLOBAL",
+    "LOAD_CONST",
+    "LOAD_NAME",
+    "BUILD_TUPLE",
+    "BUILD_LIST",
+    "BUILD_SET",
+    "BUILD_MAP",
+    "BUILD_CONST_KEY_MAP",
+    "BUILD_STRING",
+    "BUILD_TUPLE_UNPACK",
+    "BUILD_TUPLE_UNPACK_WITH_CALL",
+    "BUILD_LIST_UNPACK",
+    "BUILD_SET_UNPACK",
+    "BUILD_MAP_UNPACK",
+    "BUILD_MAP_UNPACK_WITH_CALL",
+    "LOAD_ATTR",
+    "COMPARE_OP",
+    "IMPORT_NAME",
+    "IMPORT_FROM",
+    "JUMP_FORWARD",
+    "POP_JUMP_IF_TRUE",
+    "POP_JUMP_IF_FALSE",
+    "JUMP_IF_TRUE_OR_POP",
+    "JUMP_IF_FALSE_OR_POP",
+    "JUMP_ABSOLUTE",
+    "FOR_ITER",
+    "LOAD_GLOBAL",
+    "SETUP_LOOP",
+    "SETUP_EXCEPT",
+    "SETUP_FINALLY",
+    "CALL_FINALLY",
+    "LOAD_FAST",
+    "STORE_FAST",
+    "DELETE_FAST",
+    "STORE_ANNOTATION",
+    "LOAD_CLOSURE",
+    "LOAD_DEREF",
+    "LOAD_CLASSDEREF",
+    "STORE_DEREF",
+    "DELETE_DEREF",
+    "RAISE_VARARGS",
+    "CALL_FUNCTION",
+    "CALL_FUNCTION_KW",
+    "CALL_FUNCTION_EX",
+    "LOAD_METHOD",
+    "CALL_METHOD",
+    "MAKE_FUNCTION",
+    "BUILD_SLICE",
+    "EXTENDED_ARG",
+    "FORMAT_VALUE",
+    "HAVE_ARGUMENT",
+}

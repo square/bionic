@@ -1,11 +1,12 @@
-import pytest
-
+import dis
 import logging
+import pytest
 
 from bionic.code_references import (
     get_code_context,
     get_referenced_objects,
     ReferenceProxy,
+    SUPPORTED_INSTRUCTIONS,
 )
 from bionic.flow import FlowBuilder
 from bionic.utils.misc import oneline
@@ -16,6 +17,16 @@ global_val = 42
 def get_references(func):
     context = get_code_context(func)
     return get_referenced_objects(func.__code__, context)
+
+
+def test_bytecode_instructions():
+    """
+    This test cycles through all the opcode instructions and tests that we have
+    evaluated them for finding code references.
+    """
+
+    for opname in dis.opmap.keys():
+        assert opname in SUPPORTED_INSTRUCTIONS
 
 
 def test_empty_references():

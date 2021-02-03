@@ -38,7 +38,6 @@ PREFIX_SEPARATOR = b"$"
 
 
 # List of things we should do before releasing Smart Caching:
-# - Throw an exception for unhandled bytecode instruction type
 # - verify that we hash all Python constant types
 # - version.suppress_bytecode_warnings TODO
 # - skip and warn for referenced code objects
@@ -340,7 +339,7 @@ class CodeHasher:
             obj_bytes=self._check_and_hash(consts, code_context),
         )
 
-        references = get_referenced_objects(code, code_context)
+        references = get_referenced_objects(code, code_context, self._suppress_warnings)
         # TODO: We should skip any referenced code objects since
         # they can't be analyzed with the current code's
         # code_context.
