@@ -80,13 +80,13 @@ def test_parallel_and_aip(aip_builder, multiprocessing_manager):
         return x + 1
 
     @builder
-    @bn.aip_task_config("n1-standard-4")
+    @bn.run_in_aip("n1-standard-4")
     def y3(x):
         barrier.wait()
         return x + 1
 
     @builder
-    @bn.aip_task_config("n1-standard-4")
+    @bn.run_in_aip("n1-standard-4")
     def y4(x):
         barrier.wait()
         return x + 1
@@ -130,14 +130,14 @@ def test_parallel_fail(aip_builder, make_counter, multiprocessing_manager, log_c
         raise Exception("y2 fail")
 
     @builder
-    @bn.aip_task_config("n1-standard-4")
+    @bn.run_in_aip("n1-standard-4")
     @y3_counter
     def y3(x):
         barrier.wait()
         raise Exception()
 
     @builder
-    @bn.aip_task_config("n1-standard-4")
+    @bn.run_in_aip("n1-standard-4")
     @y4_counter
     def y4(x):
         barrier.wait()
@@ -172,7 +172,7 @@ def test_parallel_fail(aip_builder, make_counter, multiprocessing_manager, log_c
 
     # flake8: noqa: E811
     @builder
-    @bn.aip_task_config("n1-standard-4")
+    @bn.run_in_aip("n1-standard-4")
     @y3_counter
     def y3(x):
         return x + 1

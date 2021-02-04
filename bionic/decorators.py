@@ -490,7 +490,7 @@ def returns(out_descriptor):
     )
 
 
-def aip_task_config(machine, worker_count=None, worker_machine=None):
+def run_in_aip(machine, worker_count=None, worker_machine=None):
     """
     Indicates that the decorated function should be computed in AIP.
     This decorator requires AIP based distributed execution to be enabled, which

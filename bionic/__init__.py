@@ -12,7 +12,7 @@ from .decorators import (  # noqa: F401
     changes_per_run,
     accepts,
     returns,
-    aip_task_config,
+    run_in_aip,
 )
 
 from . import protocol  # noqa: F401
