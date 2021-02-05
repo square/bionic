@@ -39,7 +39,6 @@ PREFIX_SEPARATOR = b"$"
 
 # List of things we should do before releasing Smart Caching:
 # - Throw an exception for unhandled bytecode instruction type
-# - investigate if we can hash module or package versions
 # - verify that we hash all Python constant types
 # - version.suppress_bytecode_warnings TODO
 # - skip and warn for referenced code objects
@@ -231,11 +230,16 @@ class CodeHasher:
             )
 
         elif inspect.isroutine(obj):
-            # TODO: See if we can get the version of the module and
-            # hash the version as well.
             if (
                 obj.__module__ is not None and obj.__module__.startswith("bionic")
             ) or is_internal_file(obj.__code__.co_filename):
+                # It would be nice to hash the module version as well.
+                # But it's not easy to get the version of a submodule.
+                # Top level modules have a version attribute that we
+                # can use, but sub-modules don't have a field like
+                # that. We don't want to import parent modules of the
+                # submodules either because that can have unnecessary
+                # side effects.
                 add_to_hash(hash_accumulator, type_prefix=TypePrefix.INTERNAL_ROUTINE)
                 routine_name = "%s.%s" % (obj.__module__, obj.__name__)
                 add_to_hash(
@@ -258,8 +262,6 @@ class CodeHasher:
             self._update_hash_for_code(hash_accumulator, obj, code_context)
 
         elif inspect.isclass(obj):
-            # TODO: See if we can get the version of the module and
-            # hash the version as well.
             if is_internal_class(obj):
                 add_to_hash(hash_accumulator, type_prefix=TypePrefix.INTERNAL_CLASS)
                 class_name = "%s.%s" % (obj.__module__, obj.__name__)
