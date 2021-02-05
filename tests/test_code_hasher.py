@@ -5,6 +5,7 @@ import pytest
 from sklearn import linear_model
 from textwrap import dedent
 import threading
+import types
 
 from bionic.code_hasher import CodeHasher, TypePrefix
 from .helpers import import_code
@@ -204,7 +205,7 @@ def test_code_hasher():
         def a(self, value):
             self._a = value
 
-    class ClassWithDifferentProperty:
+    class ClassWithDiffProperty:
         def __init__(self):
             self._a = 1
 
@@ -215,6 +216,30 @@ def test_code_hasher():
         @a.setter
         def a(self, value):
             self._a = value
+
+    class ClassWithDynamicAttrLikeProperty:
+        def __init__(self):
+            self._a = 1
+
+        @property
+        def a(self):
+            return self._a
+
+    class ClassWithDynamicAttr:
+        def __init__(self):
+            self._a = 1
+
+        @types.DynamicClassAttribute
+        def a(self):
+            return self._a
+
+    class ClassWithDiffDynamicAttr:
+        def __init__(self):
+            self._a = 1
+
+        @types.DynamicClassAttribute
+        def a(self):
+            return self._a + 1
 
     values = [
         b"",
@@ -300,7 +325,10 @@ def test_code_hasher():
         ClassWithClassMethod1,
         ClassWithClassMethod2,
         ClassWithProperty,
-        ClassWithDifferentProperty,
+        ClassWithDiffProperty,
+        ClassWithDynamicAttrLikeProperty,
+        ClassWithDynamicAttr,
+        ClassWithDiffDynamicAttr,
         TypePrefix,
         TypePrefix.BYTES,
         TypePrefix.BYTEARRAY,
