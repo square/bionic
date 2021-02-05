@@ -39,7 +39,6 @@ PREFIX_SEPARATOR = b"$"
 
 # List of things we should do before releasing Smart Caching:
 # - verify that we hash all Python constant types
-# - version.suppress_bytecode_warnings TODO
 # - skip and warn for referenced code objects
 # - add support for class properties and attr.Attribute
 

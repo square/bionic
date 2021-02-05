@@ -246,7 +246,7 @@ def test_versioning(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
@@ -257,7 +257,7 @@ def test_versioning(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
@@ -268,7 +268,7 @@ def test_versioning(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(major=1, minor=1)
+    @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
@@ -277,7 +277,7 @@ def test_versioning(builder, make_counter):
     assert call_counter.times_called() == 0
 
     @builder  # noqa: F811
-    @bn.version(major=1, minor=1)
+    @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
@@ -288,7 +288,7 @@ def test_versioning(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(major=2)
+    @bn.version_no_warnings(major=2)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
@@ -327,7 +327,7 @@ def test_indirect_versioning(builder, make_counter):
     assert f_call_counter.times_called() == 0
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return 4
@@ -337,7 +337,7 @@ def test_indirect_versioning(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
@@ -347,7 +347,7 @@ def test_indirect_versioning(builder, make_counter):
     assert f_call_counter.times_called() == 0
 
     @builder  # noqa: F811
-    @bn.version(1, minor=1)
+    @bn.version_no_warnings(1, minor=1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
@@ -399,7 +399,7 @@ def test_versioning_assist(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
@@ -410,7 +410,7 @@ def test_versioning_assist(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
@@ -421,7 +421,7 @@ def test_versioning_assist(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(major=1, minor=1)
+    @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
@@ -430,7 +430,7 @@ def test_versioning_assist(builder, make_counter):
     assert call_counter.times_called() == 0
 
     @builder  # noqa: F811
-    @bn.version(major=1, minor=1)
+    @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
@@ -441,7 +441,7 @@ def test_versioning_assist(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(major=2)
+    @bn.version_no_warnings(major=2)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
@@ -477,7 +477,7 @@ def test_versioning_assist_with_refs(builder, make_counter):
         builder.build().get("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return op(x, y)
@@ -492,7 +492,7 @@ def test_versioning_assist_with_refs(builder, make_counter):
         builder.build().get("f")
 
     @builder  # noqa: F811
-    @bn.version(major=1, minor=1)
+    @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return op(x, y)
@@ -507,7 +507,7 @@ def test_versioning_assist_with_refs(builder, make_counter):
         builder.build().get("f")
 
     @builder  # noqa: F811
-    @bn.version(major=2)
+    @bn.version_no_warnings(major=2)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return op(x, y)
@@ -547,7 +547,7 @@ def test_indirect_versioning_assist(builder, make_counter):
         builder.build().get("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return 4
@@ -557,7 +557,7 @@ def test_indirect_versioning_assist(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
@@ -566,7 +566,7 @@ def test_indirect_versioning_assist(builder, make_counter):
         builder.build().get("f")
 
     @builder  # noqa: F811
-    @bn.version(1, minor=1)
+    @bn.version_no_warnings(1, minor=1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
@@ -685,7 +685,7 @@ def test_versioning_auto(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
@@ -696,7 +696,7 @@ def test_versioning_auto(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
@@ -707,7 +707,7 @@ def test_versioning_auto(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(major=1, minor=1)
+    @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
@@ -716,7 +716,7 @@ def test_versioning_auto(builder, make_counter):
     assert call_counter.times_called() == 0
 
     @builder  # noqa: F811
-    @bn.version(major=1, minor=1)
+    @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
@@ -727,7 +727,7 @@ def test_versioning_auto(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
-    @bn.version(major=2)
+    @bn.version_no_warnings(major=2)
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x ** y
@@ -768,7 +768,7 @@ def test_indirect_versioning_auto(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return 4
@@ -780,7 +780,7 @@ def test_indirect_versioning_auto(builder, make_counter):
     assert f_call_counter.times_called() == 0
 
     @builder  # noqa: F811
-    @bn.version(1)
+    @bn.version_no_warnings(1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
@@ -792,7 +792,7 @@ def test_indirect_versioning_auto(builder, make_counter):
     assert f_call_counter.times_called() == 0
 
     @builder  # noqa: F811
-    @bn.version(1, minor=1)
+    @bn.version_no_warnings(1, minor=1)
     def y():  # noqa: F811
         y_call_counter.mark()
         return len("xxxx")
@@ -1083,7 +1083,7 @@ def test_versioning_auto_version_options(builder):
     # With suppress_bytecode_warnings as False, bytecode analysis
     # throws a warning.
     @builder  # noqa: F811
-    @bn.version(major=2, suppress_bytecode_warnings=False)
+    @bn.version(major=2)
     def x():  # noqa: F811
         assert complex_number is not None
         return 1

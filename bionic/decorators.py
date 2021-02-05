@@ -78,7 +78,7 @@ def version(
     ignore_bytecode: Boolean (default False)
         Whether this entity's bytecode should be ignored.
 
-    suppress_bytecode_warnings: Boolean (default True)
+    suppress_bytecode_warnings: Boolean (default False)
         Whether warnings from this entity's bytecode analysis should be ignored.
 
     Returns
@@ -95,7 +95,7 @@ def version(
         )
 
     if suppress_bytecode_warnings is None:
-        suppress_bytecode_warnings = True
+        suppress_bytecode_warnings = False
     if not isinstance(suppress_bytecode_warnings, bool):
         message = f"""
         Argument suppress_bytecode_warnings must be a boolean; got
@@ -117,6 +117,14 @@ def version(
             ),
         )
     )
+
+
+def version_no_warnings(major=None, minor=None):
+    """
+    Same as the `@version` decorator, but it suppresses all bytecode
+    warnings.
+    """
+    return version(major, minor, suppress_bytecode_warnings=True)
 
 
 # In the future I expect we'll have other caching options -- disabling in-memory

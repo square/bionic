@@ -455,7 +455,7 @@ class ModelBinding:
         raw_func_code = f"""
         @builder
         {output_decorator_fragment}
-        @bn.version({self.annotated_func_version})
+        @bn.version_no_warnings({self.annotated_func_version})
         @bn.persist({self.should_persist})
         @bn.memoize({self.should_memoize})
         def _({joined_dep_entity_names}):
