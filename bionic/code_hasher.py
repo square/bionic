@@ -38,7 +38,6 @@ PREFIX_SEPARATOR = b"$"
 
 
 # List of things we should do before releasing Smart Caching:
-# - verify that we hash all Python constant types
 # - add support for attr.Attribute
 
 
@@ -134,6 +133,12 @@ class CodeHasher:
         elif obj is None:
             add_to_hash(hash_accumulator, type_prefix=TypePrefix.NONE)
 
+        elif obj is Ellipsis:
+            add_to_hash(hash_accumulator, type_prefix=TypePrefix.ELLIPSIS)
+
+        elif obj is NotImplemented:
+            add_to_hash(hash_accumulator, type_prefix=TypePrefix.NOT_IMPLEMENTED)
+
         elif isinstance(obj, int):
             add_to_hash(
                 hash_accumulator,
@@ -145,6 +150,13 @@ class CodeHasher:
             add_to_hash(
                 hash_accumulator,
                 type_prefix=TypePrefix.FLOAT,
+                obj_bytes=str(obj).encode(),
+            )
+
+        elif isinstance(obj, complex):
+            add_to_hash(
+                hash_accumulator,
+                type_prefix=TypePrefix.COMPLEX,
                 obj_bytes=str(obj).encode(),
             )
 
@@ -162,11 +174,13 @@ class CodeHasher:
                 obj_bytes=str(obj).encode(),
             )
 
-        elif isinstance(obj, (list, set, tuple)):
+        elif isinstance(obj, (list, set, tuple, frozenset)):
             if isinstance(obj, list):
                 type_prefix = TypePrefix.LIST
             elif isinstance(obj, set):
                 type_prefix = TypePrefix.SET
+            elif isinstance(obj, frozenset):
+                type_prefix = TypePrefix.FROZENSET
             else:
                 type_prefix = TypePrefix.TUPLE
             obj_bytes = str(len(obj)).encode()
@@ -181,6 +195,14 @@ class CodeHasher:
                     type_prefix=TypePrefix.HASH,
                     obj_bytes=self._check_and_hash(elem, code_context),
                 )
+
+        elif isinstance(obj, range):
+            members = [obj.start, obj.stop, obj.step]
+            add_to_hash(
+                hash_accumulator,
+                type_prefix=TypePrefix.RANGE,
+                obj_bytes=self._check_and_hash(members, code_context),
+            )
 
         elif isinstance(obj, dict):
             add_to_hash(
@@ -352,7 +374,6 @@ class CodeHasher:
         return filtered_refs
 
     def _update_hash_for_complex_object(self, hash_accumulator, obj):
-        # TODO: Verify that we hash all Python constant types.
         add_to_hash(hash_accumulator, type_prefix=TypePrefix.DEFAULT)
 
         if not self._suppress_warnings:
@@ -412,6 +433,11 @@ class TypePrefix(Enum):
     ENUM = b"AU"
     PROPERTY = b"AV"
     DYNAMIC_CLASS_ATTR = b"AW"
+    COMPLEX = b"AX"
+    ELLIPSIS = b"AY"
+    FROZENSET = b"AZ"
+    RANGE = b"BA"
+    NOT_IMPLEMENTED = b"BB"
     DEFAULT = b"ZZ"
 
 
