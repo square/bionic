@@ -170,7 +170,7 @@ class SimpleFlowModel:
                 f"""
             @builder
             @bn.changes_per_run({e.is_nondeterministic})
-            @bn.version(major={e.major_version}, minor={e.minor_version})
+            @bn.version_no_warnings(major={e.major_version}, minor={e.minor_version})
             def {name}({', '.join(e.dep_names)}):
                 noop_func({e.nonfunc_value})
                 record_call("{name}")
