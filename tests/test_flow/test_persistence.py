@@ -1069,11 +1069,13 @@ def test_versioning_auto_with_module_refs(builder, make_counter):
 def test_versioning_auto_version_options(builder):
     builder.set("core__versioning_mode", "auto")
 
-    complex_number = complex(1.0, 0.0)
+    import pandas as pd
+
+    df = pd.Series([1, 2, 3])
 
     @builder
     def x():
-        assert complex_number is not None
+        assert df is not None
         return 1
 
     with pytest.warns(None) as warnings:
@@ -1085,7 +1087,7 @@ def test_versioning_auto_version_options(builder):
     @builder  # noqa: F811
     @bn.version(major=2)
     def x():  # noqa: F811
-        assert complex_number is not None
+        assert df is not None
         return 1
 
     with pytest.warns(UserWarning, match="Found a complex object"):
@@ -1096,7 +1098,7 @@ def test_versioning_auto_version_options(builder):
     @builder  # noqa: F811
     @bn.version(major=2, ignore_bytecode=True)
     def x():  # noqa: F811
-        assert complex_number is not None
+        assert df is not None
         return 2
 
     with pytest.warns(None) as warnings:
@@ -1109,7 +1111,7 @@ def test_versioning_auto_version_options(builder):
     @builder  # noqa: F811
     @bn.version(major=2, ignore_bytecode=True)
     def x():  # noqa: F811
-        assert complex_number is not None
+        assert df is not None
         return 3
 
     with pytest.warns(None) as warnings:
