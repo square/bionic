@@ -83,7 +83,7 @@ class BaseProtocol:
     def _raise_validation_exception(self, descriptor_text, exception):
         message = f"""
         Value received for {descriptor_text} is not valid for
-        {self.__class__.__name__} due to {exception.__class__}:
+        {self.__class__.__name__} due to {exception.__class__.__name__}:
         {exception}
         """
         raise EntityValueError(oneline(message)) from exception
@@ -877,7 +877,15 @@ class TupleProtocol(BaseProtocol):
         try:
             items = tuple(value)
         except TypeError as e:
-            raise AssertionError(str(e))
+            message = f"""
+            Expected a sequence with length {self._expected_length};
+            instead, got non-sequence value {value!r}.
+            """
+            if self._expected_length == 1:
+                message += f"""
+                Did you mean to use @output instead of @outputs?
+                """
+            raise AssertionError(oneline(message))
         if len(items) != self._expected_length:
             message = f"""
             Expected a sequence with length {self._expected_length};
