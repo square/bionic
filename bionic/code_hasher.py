@@ -39,7 +39,6 @@ PREFIX_SEPARATOR = b"$"
 
 # List of things we should do before releasing Smart Caching:
 # - verify that we hash all Python constant types
-# - skip and warn for referenced code objects
 # - add support for class properties and attr.Attribute
 
 
@@ -292,28 +291,7 @@ class CodeHasher:
                 )
 
         else:
-            # TODO: Verify that we hash all Python constant types.
-            add_to_hash(hash_accumulator, type_prefix=TypePrefix.DEFAULT)
-            if not self._suppress_warnings:
-                # TODO: What else can we tell about this object to the user?
-                # Can we add line number, filename and object name?
-                message = oneline(
-                    f"""
-                    Found a complex object {obj!r} of type {type(obj)!r}
-                    while analyzing code for caching. Any changes to its
-                    value won't be detected by Bionic, which may result in
-                    Bionic using stale cache values. Consider making this
-                    value a Bionic entity instead.
-
-                    See https://bionic.readthedocs.io/en/stable/warnings.html#avoid-global-state
-                    for more information.
-
-                    You can also suppress this warning by removing the
-                    `suppress_bytecode_warnings` override from the
-                    `@version` decorator on the corresponding function.
-                    """
-                )
-                warnings.warn(message)
+            self._update_hash_for_complex_object(hash_accumulator, obj)
 
     def _update_hash_for_code(self, hash_accumulator, code, code_context):
         assert code_context is not None
@@ -339,14 +317,54 @@ class CodeHasher:
         )
 
         references = get_referenced_objects(code, code_context, self._suppress_warnings)
-        # TODO: We should skip any referenced code objects since
-        # they can't be analyzed with the current code's
-        # code_context.
+        # We find references for a function from it's code object using the code
+        # context created from the function. These references won't necessarily
+        # share the same context with the function, which is why we don't send
+        # the code context to hash the references. But without a code context, we
+        # cannot hash a code object efficiently (since we can't find it's
+        # references). For references that are code objects, we treat them as
+        # complex types and emit a warning for them instead.
+        references = self._filter_referenced_code_objects(hash_accumulator, references)
         add_to_hash(
             hash_accumulator,
             type_prefix=TypePrefix.HASH,
-            obj_bytes=self._check_and_hash(references, code_context),
+            obj_bytes=self._check_and_hash(references),
         )
+
+    def _filter_referenced_code_objects(self, hash_accumulator, references):
+        filtered_refs = []
+        for ref in references:
+            if inspect.iscode(ref):
+                self._update_hash_for_complex_object(hash_accumulator, ref)
+            else:
+                filtered_refs.append(ref)
+
+        return filtered_refs
+
+    def _update_hash_for_complex_object(self, hash_accumulator, obj):
+        # TODO: Verify that we hash all Python constant types.
+        add_to_hash(hash_accumulator, type_prefix=TypePrefix.DEFAULT)
+
+        if not self._suppress_warnings:
+            # TODO: What else can we tell about this object to the user?
+            # Can we add line number, filename and object name?
+            message = oneline(
+                f"""
+                Found a complex object {obj!r} of type {type(obj)!r}
+                while analyzing code for caching. Any changes to its
+                value won't be detected by Bionic, which may result in
+                Bionic using stale cache values. Consider making this
+                value a Bionic entity instead.
+
+                See https://bionic.readthedocs.io/en/stable/warnings.html#avoid-global-state
+                for more information.
+
+                You can also suppress this warning by removing the
+                `suppress_bytecode_warnings` override from the
+                `@version` decorator on the corresponding function.
+                """
+            )
+            warnings.warn(message)
 
 
 class TypePrefix(Enum):

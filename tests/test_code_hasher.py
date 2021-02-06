@@ -316,6 +316,27 @@ def test_complex_type_warning():
     assert len(warnings) == 0
 
 
+def test_code_type_refs_warning():
+    code1 = import_code.__code__
+    code2 = check_hash_equivalence.__code__
+
+    def print_code1():
+        logging.info(code1)
+
+    def print_code2():
+        logging.info(code2)
+
+    with pytest.warns(
+        UserWarning,
+        match="Found a complex object",
+    ):
+        assert CodeHasher.hash(print_code1) == CodeHasher.hash(print_code2)
+
+    with pytest.warns(None) as warnings:
+        assert CodeHasher.hash(print_code1, True) == CodeHasher.hash(print_code2, True)
+    assert len(warnings) == 0
+
+
 def test_same_func_different_names():
     def f1():
         v = 10
