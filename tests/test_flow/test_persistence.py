@@ -1071,11 +1071,11 @@ def test_versioning_auto_version_options(builder):
 
     import pandas as pd
 
-    df = pd.Series([1, 2, 3])
+    series = pd.Series([1, 2, 3])
 
     @builder
     def x():
-        assert df is not None
+        assert series is not None
         return 1
 
     with pytest.warns(None) as warnings:
@@ -1087,7 +1087,7 @@ def test_versioning_auto_version_options(builder):
     @builder  # noqa: F811
     @bn.version(major=2)
     def x():  # noqa: F811
-        assert df is not None
+        assert series is not None
         return 1
 
     with pytest.warns(UserWarning, match="Found a complex object"):
@@ -1098,7 +1098,7 @@ def test_versioning_auto_version_options(builder):
     @builder  # noqa: F811
     @bn.version(major=2, ignore_bytecode=True)
     def x():  # noqa: F811
-        assert df is not None
+        assert series is not None
         return 2
 
     with pytest.warns(None) as warnings:
@@ -1111,7 +1111,7 @@ def test_versioning_auto_version_options(builder):
     @builder  # noqa: F811
     @bn.version(major=2, ignore_bytecode=True)
     def x():  # noqa: F811
-        assert df is not None
+        assert series is not None
         return 3
 
     with pytest.warns(None) as warnings:

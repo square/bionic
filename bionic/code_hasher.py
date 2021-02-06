@@ -174,20 +174,16 @@ class CodeHasher:
                 obj_bytes=str(obj).encode(),
             )
 
-        elif isinstance(obj, (list, set, tuple, frozenset)):
+        elif isinstance(obj, (list, tuple)):
             if isinstance(obj, list):
                 type_prefix = TypePrefix.LIST
-            elif isinstance(obj, set):
-                type_prefix = TypePrefix.SET
-            elif isinstance(obj, frozenset):
-                type_prefix = TypePrefix.FROZENSET
             else:
                 type_prefix = TypePrefix.TUPLE
-            obj_bytes = str(len(obj)).encode()
+            obj_len_bytes = str(len(obj)).encode()
             add_to_hash(
                 hash_accumulator,
                 type_prefix=type_prefix,
-                obj_bytes=obj_bytes,
+                obj_bytes=obj_len_bytes,
             )
             for elem in obj:
                 add_to_hash(
@@ -195,6 +191,31 @@ class CodeHasher:
                     type_prefix=TypePrefix.HASH,
                     obj_bytes=self._check_and_hash(elem, code_context),
                 )
+
+        elif isinstance(obj, (set, frozenset)):
+            if isinstance(obj, set):
+                type_prefix = TypePrefix.SET
+            else:
+                type_prefix = TypePrefix.FROZENSET
+            obj_len_bytes = str(len(obj)).encode()
+            add_to_hash(
+                hash_accumulator,
+                type_prefix=type_prefix,
+                obj_bytes=obj_len_bytes,
+            )
+            # set and frozenset are unordered collection and two sets with the
+            # same elements can have different iteration order. Since the
+            # iteration order is not stable, we first hash the elements and sort
+            # the hash of elements instead. This way, sets with the same elements
+            # will create the same hash.
+            elem_hashes = sorted(
+                self._check_and_hash(elem, code_context) for elem in obj
+            )
+            add_to_hash(
+                hash_accumulator,
+                type_prefix=TypePrefix.HASH,
+                obj_bytes=self._check_and_hash(elem_hashes, code_context),
+            )
 
         elif isinstance(obj, range):
             members = [obj.start, obj.stop, obj.step]
