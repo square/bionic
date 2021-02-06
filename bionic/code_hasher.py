@@ -39,7 +39,7 @@ PREFIX_SEPARATOR = b"$"
 
 # List of things we should do before releasing Smart Caching:
 # - verify that we hash all Python constant types
-# - add support for class properties and attr.Attribute
+# - add support for attr.Attribute
 
 
 class CodeHasher:
@@ -217,6 +217,20 @@ class CodeHasher:
                 obj_bytes=self._check_and_hash(obj.value, code_context),
             )
 
+        elif isinstance(obj, (property, types.DynamicClassAttribute)):
+            if isinstance(obj, property):
+                type_prefix = TypePrefix.PROPERTY
+            else:
+                type_prefix = TypePrefix.DYNAMIC_CLASS_ATTR
+            add_to_hash(hash_accumulator, type_prefix=type_prefix)
+            # A property is identified using fget, fset, fdel, and doc.
+            members = [obj.fget, obj.fset, obj.fdel, obj.__doc__]
+            add_to_hash(
+                hash_accumulator,
+                type_prefix=TypePrefix.HASH,
+                obj_bytes=self._check_and_hash(members, code_context),
+            )
+
         elif inspect.isbuiltin(obj):
             add_to_hash(hash_accumulator, type_prefix=TypePrefix.BUILTIN)
             builtin_name = "%s.%s" % (obj.__module__, obj.__name__)
@@ -276,10 +290,6 @@ class CodeHasher:
                         inspect.ismethoddescriptor(m_value)
                         or inspect.isgetsetdescriptor(m_value)
                         or m_name in {"__class__", "__dict__", "__members__"}
-                        # TODO Remove this when hashing properties.
-                        or isinstance(m_value, property)
-                        # TODO These should be handled the same way as properties.
-                        or isinstance(m_value, types.DynamicClassAttribute)
                         # TODO Remove this when hashing attr classes.
                         or m_name == "__attrs_attrs__"
                     )
@@ -400,6 +410,8 @@ class TypePrefix(Enum):
     HASH = b"AS"
     INTERNAL_CLASS = b"AT"
     ENUM = b"AU"
+    PROPERTY = b"AV"
+    DYNAMIC_CLASS_ATTR = b"AW"
     DEFAULT = b"ZZ"
 
 

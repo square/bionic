@@ -5,6 +5,7 @@ import pytest
 from sklearn import linear_model
 from textwrap import dedent
 import threading
+import types
 
 from bionic.code_hasher import CodeHasher, TypePrefix
 from .helpers import import_code
@@ -192,6 +193,54 @@ def test_code_hasher():
         def v(cls):
             return 20
 
+    class ClassWithProperty:
+        def __init__(self):
+            self._a = 1
+
+        @property
+        def a(self):
+            return self._a
+
+        @a.setter
+        def a(self, value):
+            self._a = value
+
+    class ClassWithDiffProperty:
+        def __init__(self):
+            self._a = 1
+
+        @property
+        def a(self):
+            return self._a + 1
+
+        @a.setter
+        def a(self, value):
+            self._a = value
+
+    class ClassWithDynamicAttrLikeProperty:
+        def __init__(self):
+            self._a = 1
+
+        @property
+        def a(self):
+            return self._a
+
+    class ClassWithDynamicAttr:
+        def __init__(self):
+            self._a = 1
+
+        @types.DynamicClassAttribute
+        def a(self):
+            return self._a
+
+    class ClassWithDiffDynamicAttr:
+        def __init__(self):
+            self._a = 1
+
+        @types.DynamicClassAttribute
+        def a(self):
+            return self._a + 1
+
     values = [
         b"",
         b"123",
@@ -275,6 +324,11 @@ def test_code_hasher():
         ClassWithMethod,
         ClassWithClassMethod1,
         ClassWithClassMethod2,
+        ClassWithProperty,
+        ClassWithDiffProperty,
+        ClassWithDynamicAttrLikeProperty,
+        ClassWithDynamicAttr,
+        ClassWithDiffDynamicAttr,
         TypePrefix,
         TypePrefix.BYTES,
         TypePrefix.BYTEARRAY,
@@ -427,6 +481,24 @@ def test_class_references():
             return global_var_10_copy
 
     class C3:
+        def my(self):
+            return global_var_20
+
+    check_hash_equivalence([[C1, C2], [C3]])
+
+    # References change in properties.
+    class C1:
+        @property
+        def my(self):
+            return global_var_10
+
+    class C2:
+        @property
+        def my(self):
+            return global_var_10_copy
+
+    class C3:
+        @property
         def my(self):
             return global_var_20
 
