@@ -369,6 +369,14 @@ def test_code_hasher():
             idx_by_hash_value[hash_value] = idx
 
 
+def test_set_order():
+    s1 = set([1, "A", 2, 3, 3, 3, 3])
+    s2 = {3, 2, 1, 2, 3, "A"}
+    s3 = {"A", 3, 3, 3, 2, 1, "A"}
+    s4 = {"A", 3, 3, 3, 2, 1, "B"}
+    check_hash_equivalence([[s1, s2, s3], [s4]])
+
+
 def test_complex_type_warning():
     lock = threading.Lock()
     cond = threading.Condition()
