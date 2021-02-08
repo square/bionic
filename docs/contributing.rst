@@ -20,6 +20,25 @@ of the pull request process.
 For Bionic core developers, our internal processes are documented :doc:`here
 <maintaining>`.
 
+Submitting a Pull Request
+-------------------------
+
+To maintain a baseline level of correctness, readability, and design
+coherence, every pull request to Bionic is reviewed by a maintainer.
+Maintainers typically check at least the following:
+
+1. If you're making changes to Bionic's behavior, include tests if possible,
+   and add an entry to the `Release Notes <release-notes.html>`_.
+2. If you're updating Bionic's user-facing API, :ref:`update the
+   documentation <docs>`.
+3. Make sure all existing :ref:`tests <tests>` and :ref:`style checks
+   <style>` pass. (This will be automatically checked by our :ref:`continuous
+   integration <ci>`.)
+4. Try to conform to the style of the surrounding code.
+
+To make your review go as smoothly as possible, we also suggest writing clean
+and helpful commit messages.
+
 Setting Up Your Development Environment
 ---------------------------------------
 
@@ -38,6 +57,8 @@ documents.  On OS X you can do this with Homebrew:
 .. code-block:: bash
 
     brew install pandoc
+
+.. _tests :
 
 Tests
 -----
@@ -72,6 +93,8 @@ command line option telling it which bucket to use:
 
     pytest --bucket=gs://MYBUCKET
 
+.. _style :
+
 Code Style
 ----------
 
@@ -97,6 +120,8 @@ We use `GitHub Actions <https://github.com/features/actions>`_ to run our
 tests and style checks on every branch pushed to GitHub. If you submit a pull
 request, you should see the results show up automatically in the "checks"
 section.
+
+.. _docs :
 
 Updating the Documentation
 --------------------------
