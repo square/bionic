@@ -35,8 +35,6 @@ class Config:
     ----------
     uuid: str
         The globally unique job name on AI platform.
-    image_uri: str
-        The full address on gcr of the docker image for the tasks.
     project: str
         The GCP project where the jobs will be run.
     poll_period_seconds: float
@@ -51,7 +49,6 @@ class Config:
     """
 
     uuid: str
-    image_uri: str
     project_name: str
     poll_period_seconds: float
     account: Optional[str] = None
@@ -65,6 +62,7 @@ class Task:
     name: str
     function: Callable
     config: Config
+    docker_image_uri: str
     task_config: TaskConfig
 
     @property
@@ -93,7 +91,7 @@ class Task:
             "trainingInput": {
                 "serviceAccount": self.config.account,
                 "masterType": self.task_config.machine,
-                "masterConfig": {"imageUri": self.config.image_uri},
+                "masterConfig": {"imageUri": self.docker_image_uri},
                 "args": ["python", "-m", "bionic.aip.main", self.inputs_uri],
                 "packageUris": [],
                 "region": "us-west1",
@@ -111,7 +109,7 @@ class Task:
             output["trainingInput"]["workerCount"] = self.task_config.worker_count
             output["trainingInput"]["workerType"] = self.task_config.worker_machine
             output["trainingInput"]["workerConfig"] = {
-                "imageUri": self.config.image_uri
+                "imageUri": self.docker_image_uri
             }
 
         return output

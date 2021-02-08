@@ -37,6 +37,7 @@ extras["aip"] = combine(
         "google-api-python-client",
         "google-cloud-logging",
         "cloudpickle",
+        "docker",
     ],
     extras["gcp"],
 )
@@ -58,6 +59,7 @@ extras["dev"] = combine(
         "nbsphinx",
         "jupyter",
         "bumpversion",
+        "GitPython",
     ],
     *extras.values()
 )
