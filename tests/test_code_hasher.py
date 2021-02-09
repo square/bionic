@@ -1,3 +1,4 @@
+import attr
 import cmath
 import contextlib
 import logging
@@ -241,6 +242,27 @@ def test_code_hasher():
         def a(self):
             return self._a + 1
 
+    @attr.s(frozen=True)
+    class AttrClassFrozen:
+        a = attr.ib()
+
+    @attr.s
+    class AttrClass:
+        a = attr.ib()
+
+    @attr.s
+    class AttrClassWithDefaults:
+        a = attr.ib(default=1)
+
+    @attr.s
+    class AttrClassWithMultipleMembers:
+        a = attr.ib()
+        b = attr.ib()
+
+    @attr.s
+    class AttrClassWithMetadata:
+        a = attr.ib(metadata={"a": 1})
+
     values = [
         b"",
         b"123",
@@ -302,6 +324,8 @@ def test_code_hasher():
         },
         circular_dict_1_a,
         circular_dict_2_a,
+        types.MappingProxyType({}),
+        types.MappingProxyType({0: "v1", 1: None, "2": ["value1", "value2"]}),
         f1,
         f2,
         f3,
@@ -342,6 +366,11 @@ def test_code_hasher():
         ClassWithDynamicAttrLikeProperty,
         ClassWithDynamicAttr,
         ClassWithDiffDynamicAttr,
+        AttrClassFrozen,
+        AttrClass,
+        AttrClassWithDefaults,
+        AttrClassWithMultipleMembers,
+        AttrClassWithMetadata,
         TypePrefix,
         TypePrefix.BYTES,
         TypePrefix.BYTEARRAY,

@@ -19,6 +19,7 @@ changes to this module that can change the encoding, update
 CACHE_SCHEMA_VERSION to update cache scheme.
 """
 
+import attr
 from enum import Enum
 import hashlib
 import inspect
@@ -35,10 +36,9 @@ from .utils.reload import is_internal_file
 
 
 PREFIX_SEPARATOR = b"$"
-
-
-# List of things we should do before releasing Smart Caching:
-# - add support for attr.Attribute
+# This is gross but types.MethodWrapperType was introduced in Python 3.7
+# and does not exist in 3.6 which Bionic supports.
+METHOD_WRAPPER_TYPE = type("".__str__)
 
 
 class CodeHasher:
@@ -225,11 +225,16 @@ class CodeHasher:
                 obj_bytes=self._check_and_hash(members, code_context),
             )
 
-        elif isinstance(obj, dict):
+        elif isinstance(obj, (dict, types.MappingProxyType)):
+            if isinstance(obj, dict):
+                type_prefix = TypePrefix.DICT
+            else:
+                type_prefix = TypePrefix.MAPPING_PROXY
+            obj_len_bytes = str(len(obj)).encode()
             add_to_hash(
                 hash_accumulator,
-                type_prefix=TypePrefix.DICT,
-                obj_bytes=str(len(obj)).encode(),
+                type_prefix=type_prefix,
+                obj_bytes=obj_len_bytes,
             )
             for key, elem in obj.items():
                 add_to_hash(
@@ -283,6 +288,20 @@ class CodeHasher:
                 obj_bytes=self._check_and_hash(builtin_name, code_context),
             )
 
+        elif inspect.ismethoddescriptor(obj) or isinstance(obj, METHOD_WRAPPER_TYPE):
+            if inspect.ismethoddescriptor(obj):
+                type_prefix = TypePrefix.METHOD_DESCRIPTOR
+            else:
+                type_prefix = TypePrefix.METHOD_WRAPPER
+            add_to_hash(
+                hash_accumulator,
+                type_prefix=type_prefix,
+                # Descriptors are part of core Python impl and method wrappers
+                # wrap the underlying implementation of Pyton (like CPython).
+                # It should be sufficient to hash their names.
+                obj_bytes=obj.__name__.encode(),
+            )
+
         elif inspect.isroutine(obj):
             if (
                 obj.__module__ is not None and obj.__module__.startswith("bionic")
@@ -315,6 +334,20 @@ class CodeHasher:
             add_to_hash(hash_accumulator, type_prefix=TypePrefix.CODE)
             self._update_hash_for_code(hash_accumulator, obj, code_context)
 
+        elif obj is attr.NOTHING:
+            add_to_hash(hash_accumulator, type_prefix=TypePrefix.ATTR_NOTHING)
+
+        # This hashes the instances of `attr.Attribute` class. The actual class
+        # is hashed under the `inspect.isclass` block.
+        # We have special handling for `attr.Attribute` objects because `attr`
+        # classes contains these objects as one of the field and we should detect
+        # any changes to the field in order to detect changes to the class.
+        # Without this special handling, the object will be treated as a complex
+        # variable and Bionic will warn for it.
+        elif isinstance(obj, attr.Attribute):
+            add_to_hash(hash_accumulator, type_prefix=TypePrefix.ATTR_ATTRIBUTE)
+            self._update_hash_for_members_of_obj(hash_accumulator, obj)
+
         elif inspect.isclass(obj):
             if is_internal_class(obj):
                 add_to_hash(hash_accumulator, type_prefix=TypePrefix.INTERNAL_CLASS)
@@ -326,22 +359,7 @@ class CodeHasher:
                 )
             else:
                 add_to_hash(hash_accumulator, type_prefix=TypePrefix.CLASS)
-                members_to_hash = [
-                    m_value
-                    for (m_name, m_value) in inspect.getmembers(obj)
-                    if not (
-                        inspect.ismethoddescriptor(m_value)
-                        or inspect.isgetsetdescriptor(m_value)
-                        or m_name in {"__class__", "__dict__", "__members__"}
-                        # TODO Remove this when hashing attr classes.
-                        or m_name == "__attrs_attrs__"
-                    )
-                ]
-                add_to_hash(
-                    hash_accumulator,
-                    type_prefix=TypePrefix.HASH,
-                    obj_bytes=self._check_and_hash(members_to_hash),
-                )
+                self._update_hash_for_members_of_obj(hash_accumulator, obj)
 
         else:
             self._update_hash_for_complex_object(hash_accumulator, obj)
@@ -393,6 +411,21 @@ class CodeHasher:
                 filtered_refs.append(ref)
 
         return filtered_refs
+
+    def _update_hash_for_members_of_obj(self, hash_accumulator, obj):
+        members_to_hash = [
+            m_value
+            for (m_name, m_value) in inspect.getmembers(obj)
+            if not (
+                inspect.isgetsetdescriptor(m_value)
+                or m_name in {"__class__", "__dict__", "__members__"}
+            )
+        ]
+        add_to_hash(
+            hash_accumulator,
+            type_prefix=TypePrefix.HASH,
+            obj_bytes=self._check_and_hash(members_to_hash),
+        )
 
     def _update_hash_for_complex_object(self, hash_accumulator, obj):
         add_to_hash(hash_accumulator, type_prefix=TypePrefix.DEFAULT)
@@ -459,6 +492,11 @@ class TypePrefix(Enum):
     FROZENSET = b"AZ"
     RANGE = b"BA"
     NOT_IMPLEMENTED = b"BB"
+    ATTR_ATTRIBUTE = b"BC"
+    ATTR_NOTHING = b"BD"
+    METHOD_DESCRIPTOR = b"BE"
+    METHOD_WRAPPER = b"BF"
+    MAPPING_PROXY = b"BG"
     DEFAULT = b"ZZ"
 
 
