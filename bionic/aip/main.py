@@ -18,7 +18,7 @@ def _run(ipath, gcs_fs):
         task = cloudpickle.load(f)
 
     # Now that we have the task, set up logging.
-    _set_up_logging(task.job_id, task.config.project_name)
+    _set_up_logging(task.job_id, task.config.project_id)
     logging.info(f"Read task from {ipath}")
 
     result = task.function()

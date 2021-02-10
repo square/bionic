@@ -45,6 +45,7 @@ from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .filecopier import FileCopier
 from .gcs import upload_to_gcs, get_gcs_fs_without_warnings
+from .utils.gcp_auth import get_gcp_project_id
 from .utils.misc import (
     group_pairs,
     check_exactly_one_present,
@@ -1903,43 +1904,50 @@ def create_default_flow_config():
         return ProcessExecutor(core__parallel_execution__worker_count)
 
     builder.assign("core__aip_execution__enabled", False, persist=False)
-    builder.assign("core__aip_execution__gcp_project_name", None, persist=False)
     builder.assign("core__aip_execution__docker_image_name", None, persist=False)
     builder.assign("core__aip_execution__poll_period_seconds", 10, persist=False)
 
     @builder
     @decorators.immediate
+    def core__aip_execution__gcp_project_id(core__aip_execution__enabled):
+        if not core__aip_execution__enabled:
+            return None
+
+        project_id = get_gcp_project_id()
+        if project_id is None:
+            error_message = """
+                Unable to determine GCP project id from environment.
+            """
+            raise AssertionError(oneline(error_message))
+        return project_id
+
+    @builder
+    @decorators.immediate
     def core__aip_execution__docker_image_uri(
-        core__aip_execution__gcp_project_name,
+        core__aip_execution__gcp_project_id,
         core__aip_execution__docker_image_name,
     ):
         image_name = core__aip_execution__docker_image_name
-        project = core__aip_execution__gcp_project_name
+        project_id = core__aip_execution__gcp_project_id
 
-        if image_name is None or project is None:
+        if image_name is None or project_id is None:
             return None
 
-        return f"gcr.io/{project}/{image_name}"
+        return f"gcr.io/{project_id}/{image_name}"
 
     @builder
     @decorators.immediate
     def core__aip_execution__config(
         core__aip_execution__enabled,
-        core__aip_execution__gcp_project_name,
+        core__aip_execution__gcp_project_id,
         core__aip_execution__poll_period_seconds,
         core__flow_name,
     ):
         if not core__aip_execution__enabled:
             return None
-        if core__aip_execution__gcp_project_name is None:
-            error_message = """
-                core__aip_execution__gcp_project_name is None, but needs a
-                value. AIP uses project to verify IAM permissions.
-            """
-            raise AssertionError(oneline(error_message))
         return AipConfig(
             uuid=f"{core__flow_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            project_name=core__aip_execution__gcp_project_name,
+            project_id=core__aip_execution__gcp_project_id,
             poll_period_seconds=core__aip_execution__poll_period_seconds,
         )
 
@@ -1983,7 +1991,7 @@ def create_default_flow_config():
 
         if core__aip_execution__docker_image_uri is None:
             docker_image_uri_future = build_image_if_missing_async(
-                core__aip_execution__config.project_name,
+                core__aip_execution__config.project_id,
             )
 
             def docker_image_uri_func():

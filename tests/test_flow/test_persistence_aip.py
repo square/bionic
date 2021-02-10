@@ -151,7 +151,7 @@ def git_repo_is_clean_and_pushed():
 )
 @pytest.mark.real_gcp_only
 @pytest.mark.no_parallel
-def test_aip_with_docker_build(aip_builder, gcp_project):
+def test_aip_with_docker_build(aip_builder):
     builder = aip_builder
     builder.set("core__aip_execution__docker_image_name", None)
 

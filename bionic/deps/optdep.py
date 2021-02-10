@@ -29,6 +29,7 @@ def first_token_from_package_desc(desc):
 # aliases we use.
 alias_lists_by_package = {
     "google-cloud-logging": ["google.cloud.logging"],
+    "google-auth": ["google.auth"],
     "Pillow": ["PIL.Image"],
     "dask[dataframe]": ["dask.dataframe"],
     "google-api-python-client": ["googleapiclient.discovery"],

@@ -36,7 +36,7 @@ class Config:
     uuid: str
         The globally unique job name on AI platform.
     project: str
-        The GCP project where the jobs will be run.
+        The GCP project id where the jobs will be run.
     poll_period_seconds: float
         How many seconds to wait between polling calls to AIP while waiting for jobs
         to complete.
@@ -49,7 +49,7 @@ class Config:
     """
 
     uuid: str
-    project_name: str
+    project_id: str
     poll_period_seconds: float
     account: Optional[str] = None
     network: Optional[str] = None
@@ -74,14 +74,14 @@ class Task:
         # In a future version it might be better to make this path
         # specified by the flow, so that it can be inside a GCS cache
         # location and different file types.
-        return f"gs://{self.config.project_name}/bionic/{self.config.uuid}/{self.name}-inputs.cloudpickle"
+        return f"gs://{self.config.project_id}/bionic/{self.config.uuid}/{self.name}-inputs.cloudpickle"
 
     @property
     def output_uri(self) -> str:
         # In a future version it might be better to make this path
         # specified by the flow, so that it can be inside a GCS cache
         # location and different file types.
-        return f"gs://{self.config.project_name}/bionic/{self.config.uuid}/{self.name}-output.cloudpickle"
+        return f"gs://{self.config.project_id}/bionic/{self.config.uuid}/{self.name}-output.cloudpickle"
 
     def _ai_platform_job_spec(self):
         """Conversion from our task data model to a job request on ai platform"""
@@ -127,14 +127,12 @@ class Task:
         self._stage(gcs_fs)
         spec = self._ai_platform_job_spec()
 
-        logging.info(
-            f"Submitting AI Platform task on {self.config.project_name}: {self}"
-        )
+        logging.info(f"Submitting AI Platform task on {self.config.project_id}: {self}")
 
         request = (
             aip_client.projects()
             .jobs()
-            .create(body=spec, parent=f"projects/{self.config.project_name}")
+            .create(body=spec, parent=f"projects/{self.config.project_id}")
         )
         request.execute()
         url = f"https://console.cloud.google.com/ai-platform/jobs/{self.job_id}"
@@ -157,7 +155,7 @@ class Task:
         request = (
             aip_client.projects()
             .jobs()
-            .get(name=f"projects/{self.config.project_name}/jobs/{self.job_id}")
+            .get(name=f"projects/{self.config.project_id}/jobs/{self.job_id}")
         )
         response = request.execute()
         state, error = State[response["state"]], response.get("errorMessage", None)

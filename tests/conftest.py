@@ -17,7 +17,10 @@ def pytest_addoption(parser):
         "--bucket", action="store", help="URL to GCS bucket to use for tests"
     )
     parser.addoption(
-        "--project", action="store", help="GCP project to use for AIP tests"
+        "--aip",
+        action="store_true",
+        default=False,
+        help="run AIP tests, requires --bucket",
     )
     parser.addoption(
         "--parallel",
@@ -61,9 +64,9 @@ def pytest_collection_modifyitems(config, items):
     has_gcs = config.getoption("--bucket")
     skip_needs_gcs = pytest.mark.skip(reason="only runs when --bucket is set")
 
-    has_aip = config.getoption("--project") and has_gcs
+    has_aip = has_gcs and config.getoption("--aip")
     skip_needs_aip = pytest.mark.skip(
-        reason="only runs when --bucket and --project are set"
+        reason="only runs when both --bucket and --aip are set"
     )
 
     also_run_parallel = config.getoption("--parallel")
