@@ -80,6 +80,11 @@ Bug Fixes
 - Fixed a bug where Bionic could crash when using parallel execution after manually
   deleting some persisted artifacts (such as with the :ref:`Cache API <cache-api>`).
 
+New Features
+............
+
+- Bionic can now compute entities in :ref:`Google AI Platform <google-aip>`.
+
 Improvements
 ............
 

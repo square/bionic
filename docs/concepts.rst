@@ -842,21 +842,29 @@ values by "case" instead of by entity.
     # Returns `{'black cat', 'brown cat', 'brown fox'}`.
     builder.build().get('colored_animal', 'set')
 
-Other Features
---------------
+Parallel and Cloud Execution
+----------------------------
+
+By default, Bionic computes values one at a time. Requesting an entity value
+with :meth:`Flow.get <bionic.Flow.get>` can lead to a long computation, as
+Bionic may need to compute that entity's dependencies, and their dependencies,
+and so on.
+
+Bionic can take advantage of more computing resources by using local
+multiprocessing or Google AI Platform. The speedup depends on the structure of
+the :ref:`dependency graph <dagviz>` and/or the type of computation performed.
+See :ref:`Caveats <parallel-caveats>` for more details.
 
 .. _parallel-execution:
 
-Parallel Execution
-..................
+Local Parallel Execution
+........................
 
 .. versionadded:: 0.8.0
 
-Requesting an entity value with :meth:`Flow.get <bionic.Flow.get>` can lead to a long
-computation, as Bionic may need to compute that entity's dependencies, and their
-dependencies, and so on. By default, Bionic computes these values one at a time.
-However, it can also be configured to compute them in parallel; depending on the
-structure of your flow, this can be significantly faster.
+Bionic can use multiple CPU cores to compute entities in parallel. This feature
+is useful if you have many expensive operations which do not depend on each
+other.
 
 Parallel execution can be enabled like this:
 
@@ -865,31 +873,13 @@ Parallel execution can be enabled like this:
     builder.set("core__parallel_execution__enabled", True)
 
 When parallel execution is enabled, Bionic starts up several worker processes
-[#workers]_, each of which can work on one value at a time. Of course, a worker can
-only start computing a value once all its dependencies are complete, so the number of
-processes that can be working at once depends on the :ref:`dependency graph
-<dagviz>`: if there aren't many branches in the graph, then most of the processes
-won't do much work. It does take extra time to set up the processes and move
-information between them, so parallel execution is not guaranteed to be faster
-overall. However, in general, if you have many expensive operations which don't
-depend on each other, enabling parallelism will improve performance.
-
-By default, Bionic will create one worker process for each CPU on your machine. This
-is usually a sensible number, but it can also be set directly:
+[#workers]_, each of which can work on one value at a time. By default, Bionic
+will create one worker process for each CPU on your machine. This is usually a
+sensible number, but it can also be set directly:
 
 .. code-block:: python
 
     builder.set("core__parallel_execution__worker_count", 8)
-
-In order to compute an entity value in a separate process, Bionic needs to serialize
-the entity function and transmit it to the other process; thus, all your functions
-need to be serializable by `cloudpickle <https://github.com/cloudpipe/cloudpickle>`_.
-(This shouldn't be a problem unless your function uses some kind of complex global
-variable, which is already a `bad idea <warnings.rst#avoid-global-state>`_.) The
-entity value itself doesn't necessarily need to be picklable; it will be serialized
-using the :ref:`protocol<protocols>` specified for the entity. Finally, entities
-marked with :func:`@persist(False) <bionic.persist>` are assumed to be unserializable
-and will always be computed in the main process rather than being parallelized.
 
 .. [#workers] The pool of workers is managed by
   `Loky <https://loky.readthedocs.io/en/stable/>`_,
@@ -897,6 +887,80 @@ and will always be computed in the main process rather than being parallelized.
   `multiprocessing <https://docs.python.org/3.8/library/multiprocessing.html>`_ module.
   The pool is global and reusable, so it should only need to be initialized once in
   the lifetime of the main process.
+
+.. _google-aip:
+
+Google AI Platform Execution
+............................
+
+.. versionadded:: 0.9.0
+
+Bionic can use compute resources in the cloud by sending entities to
+`Google AI Platform (AIP) <https://cloud.google.com/ai-platform>`_ for
+computation.
+
+.. code-block:: python
+
+    builder.set('core__aip_execution__enabled', True)
+
+This feature requires having a Docker image in Google Container Registry
+containing the same Python environment (runtime and libraries) as the one used
+in the local environment Bionic is running in.
+
+Bionic can build this Docker image if all the Python libraries in the local
+environment are installed through ``pip``. Otherwise, you will need to specify
+the Docker image:
+
+.. code-block:: python
+
+    builder.set('core__aip_execution__docker_image_name', 'bionic:latest')
+
+Finally, :ref:`Google Cloud Storage <google_cloud_storage_anchor>` must be
+enabled.
+
+Entities marked with the :func:`@run_in_aip <bionic.run_in_aip>`
+decorator will be computed on AIP instead of locally. The decorator takes in a
+`Compute Engine machine type identifier <https://cloud.google.com/ai-platform/training/docs/machine-types#compute-engine-machine-types>`_
+which determines the hardware that runs the AIP job. The decorated entity must
+be serializable and cannot be marked with :func:`@persist(False) <bionic.persist>`.
+
+.. code-block:: python
+
+    @builder
+    @bionic.run_in_aip('n1-standard-4')
+    def x():
+      return 1
+
+Caveats
+.......
+
+There is overhead for doing computation in external processes. The overhead is
+especially significant for Google AI Platform because it may take a few minutes
+to spin up a new job instance. Thus, enabling parallel execution is beneficial
+only if the computation time far exceeds the overhead.
+
+The total speedup also depends on the structure of the :ref:`dependency graph <dagviz>`.
+If there are not many branches in the graph, then there will not be a lot of
+parallelism. Bionic can only start computing a value once all its dependencies are
+complete.
+
+In order to compute an entity value in a separate process, Bionic needs to serialize
+the entity function and transmit it to the other process; thus, all your functions
+need to be serializable by `cloudpickle <https://github.com/cloudpipe/cloudpickle>`_.
+(This shouldn't be a problem unless your function uses some kind of complex global
+variable, which is already a `bad idea <warnings.rst#avoid-global-state>`_.) The
+entity value itself doesn't necessarily need to be picklable; it will be serialized
+using the :ref:`protocol<protocols>` specified for the entity.
+
+Entities with non-serializable values (marked with
+:func:`@persist(False) <bionic.persist>`) may be recomputed multiple times.
+Such entities cannot be sent to another process, hence every process instance
+(local or in Google AI Platform) that needs them for downstream nodes will need
+to compute them separately. Try to avoid expensive functions that produce
+non-serializable output.
+
+Other Features
+--------------
 
 Plotting
 ........
