@@ -167,25 +167,16 @@ def fake_gcs_builder(builder, make_dict):
 
 
 @pytest.fixture
-def aip_builder(gcs_builder, gcp_project, use_fake_gcp, gcs_fs, tmp_path):
+def aip_builder(gcs_builder, use_fake_gcp, gcs_fs, tmp_path):
     gcs_builder.set("core__aip_execution__enabled", True)
-    gcs_builder.set("core__aip_execution__gcp_project_name", gcp_project)
     gcs_builder.set("core__aip_execution__docker_image_name", "bionic:latest")
 
     if use_fake_gcp:
+        gcs_builder.set("core__aip_execution__gcp_project_id", "fake-project")
         gcs_builder.set("core__aip_execution__poll_period_seconds", 0.1)
         gcs_builder.set("core__aip_client", FakeAipClient(gcs_fs, tmp_path))
 
     return gcs_builder
-
-
-@pytest.fixture
-def gcp_project(request, use_fake_gcp) -> str:
-    if use_fake_gcp:
-        return "fake-project"
-    project = request.config.getoption("--project")
-    assert project is not None
-    return project
 
 
 @pytest.fixture(scope="session")

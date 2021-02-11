@@ -34,6 +34,7 @@ extras["parallel"] = ["cloudpickle", "loky"]
 extras["geopandas"] = ["geopandas"]
 extras["aip"] = combine(
     [
+        "google-auth",
         "google-api-python-client",
         "google-cloud-logging",
         "cloudpickle",
