@@ -27,7 +27,7 @@ requirements = [
 
 setup(
     name="bionic",
-    version="0.9.2",
+    version="0.10.0",
     description=(
         "A Python framework for building, running, and sharing data science "
         "workflows"

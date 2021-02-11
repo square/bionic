@@ -19,4 +19,4 @@ from .decorators import (  # noqa: F401
 from . import protocol  # noqa: F401
 from . import util  # noqa: F401
 
-__version__ = u"0.9.2"
+__version__ = u"0.10.0"

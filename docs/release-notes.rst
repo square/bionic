@@ -65,8 +65,8 @@ For each release, we list the following types of change (in this order):
 - **Development Changes**: Significant changes to Bionic's development process, such
   as changes to our Pytest configuration or our Continuous Integration ("CI").
 
-Upcoming Version (Not Yet Released)
------------------------------------
+.. Upcoming Version (Not Yet Released)
+.. -----------------------------------
 
 .. Record any notable changes in this section. When we update the current version,
    add a new version heading below, and then comment out the heading above until more
@@ -74,11 +74,8 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
-Bug Fixes
-.........
-
-- Fixed a bug where Bionic could crash when using parallel execution after manually
-  deleting some persisted artifacts (such as with the :ref:`Cache API <cache-api>`).
+0.10.0 (Feb 12, 2021)
+--------------------
 
 New Features
 ............
@@ -98,6 +95,12 @@ Improvements
   serialized non-deterministically, which could lead to downstream values being
   spuriously recomputed. (Unfortunately this fix doesn't help with other objects that
   happen to contain sets.)
+
+Bug Fixes
+.........
+
+- Fixed a bug where Bionic could crash when using parallel execution after manually
+  deleting some persisted artifacts (such as with the :ref:`Cache API <cache-api>`).
 
 0.9.2 (Oct 26, 2020)
 --------------------
