@@ -5,17 +5,20 @@ point of entry is the PersistentCache, which encapsulates this functionality.
 
 import attr
 import cattr
-import fsspec
 import os
+import shutil
+import tempfile
 from typing import List, Optional, Tuple
 import yaml
 import warnings
 from uuid import uuid4
 from pathlib import Path
-from urllib.parse import unquote
 
 from .datatypes import CodeFingerprint, Artifact
-from .utils.files import ensure_parent_dir_exists
+from .utils.files import (
+    ensure_dir_exists,
+    ensure_parent_dir_exists,
+)
 from .utils.misc import hash_simple_obj_to_hex, oneline
 from .utils.urls import (
     bucket_and_object_names_from_gs_url,
@@ -661,8 +664,9 @@ class LocalStore:
         self._artifact_root_path = root_path / "artifacts"
 
         inventory_root_path = root_path / "inventory"
+        tmp_root_path = root_path / "tmp"
         self.inventory = Inventory(
-            "local disk", "local", LocalFilesystem(inventory_root_path)
+            "local disk", "local", LocalFilesystem(inventory_root_path, tmp_root_path)
         )
 
     def generate_unique_dir_path(self, provenance):
@@ -750,35 +754,43 @@ class LocalFilesystem:
     to local disk.
     """
 
-    def __init__(self, inventory_dir):
+    def __init__(self, inventory_dir, tmp_dir):
         self.root_url = url_from_path(inventory_dir)
-        self._fs = fsspec.filesystem("file")
+        self.tmp_root_path = tmp_dir
 
     def exists(self, url):
-        return self._fs.exists(unquote(url))
+        return path_from_url(url).exists()
 
     def search(self, url_prefix):
-        # This endpoint is a glob **/* search.
-        glob_url = unquote(url_prefix) + "**/*"
-        return [url_from_path(Path(url)) for url in self._fs.glob(glob_url)]
+        path_prefix = path_from_url(url_prefix)
+        if not path_prefix.is_dir():
+            return []
+
+        return [
+            url_from_path(path_prefix / sub_path)
+            for sub_path in path_prefix.glob("**/*")
+        ]
 
     def rm(self, url):
-        self._fs.rm(unquote(url))
+        path = path_from_url(url)
+        path.unlink()
 
     def write_bytes(self, content_bytes, url):
-        ensure_parent_dir_exists(path_from_url(url))
+        path = path_from_url(url)
+        ensure_parent_dir_exists(path)
+        ensure_dir_exists(self.tmp_root_path)
+        working_dir = Path(tempfile.mkdtemp(dir=str(self.tmp_root_path)))
+        try:
+            working_path = working_dir / "tmp_file"
+            working_path.write_bytes(content_bytes)
 
-        with self._fs.transaction:
-            with self._fs.open(unquote(url), "wb") as f:
-                f.write(content_bytes)
+            working_path.rename(path)
+
+        finally:
+            shutil.rmtree(str(working_dir))
 
     def read_bytes(self, url):
-        # fsspec.sepc.AbstractFileSystem.cat_file does the same thing,
-        # but it does not close the file. We should fix this in fsspec
-        # and change this to self._fs.cat_file once the fix is merged
-        # and pulled in Bionic.
-        with self._fs.open(unquote(url), "rb") as f:
-            return f.read()
+        return path_from_url(url).read_bytes()
 
 
 class GcsFilesystem:
