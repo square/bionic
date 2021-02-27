@@ -80,7 +80,8 @@ Bug Fixes
 - Fixes an issue where automatic versioning erroneously treated classes as
   having changed if the module they were defined in was run as ``__main__``.
 - Fixed a bug in Bionic's automatic versioning where Bionic would warn about
-  dynamic imports even when warning suppression was requested.
+  dynamic imports even when warning suppression was requested. The warning
+  messages themselves were also improved.
 
 Improvements
 ............

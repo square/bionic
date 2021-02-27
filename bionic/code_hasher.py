@@ -29,6 +29,7 @@ import warnings
 from .code_references import (
     get_code_context,
     get_referenced_objects,
+    make_suppression_advice,
     ReferenceProxy,
 )
 from .utils.misc import oneline
@@ -323,13 +324,15 @@ class CodeHasher:
                 )
             else:
                 add_to_hash(hash_accumulator, type_prefix=TypePrefix.ROUTINE)
-                code_context = get_code_context(obj)
+                func_code_context = get_code_context(obj)
                 add_to_hash(
                     hash_accumulator,
                     type_prefix=TypePrefix.HASH,
-                    obj_bytes=self._check_and_hash(obj.__defaults__, code_context),
+                    obj_bytes=self._check_and_hash(obj.__defaults__, func_code_context),
                 )
-                self._update_hash_for_code(hash_accumulator, obj.__code__, code_context)
+                self._update_hash_for_code(
+                    hash_accumulator, obj.__code__, func_code_context
+                )
 
         elif inspect.iscode(obj):
             add_to_hash(hash_accumulator, type_prefix=TypePrefix.CODE)
@@ -389,14 +392,17 @@ class CodeHasher:
         )
 
         references = get_referenced_objects(code, code_context, self._suppress_warnings)
-        # We find references for a function from it's code object using the code
+        # We find references for a function from its code object using the code
         # context created from the function. These references won't necessarily
         # share the same context with the function, which is why we don't send
         # the code context to hash the references. But without a code context, we
         # cannot hash a code object efficiently (since we can't find it's
         # references). For references that are code objects, we treat them as
         # complex types and emit a warning for them instead.
-        references = self._filter_referenced_code_objects(hash_accumulator, references)
+        references = self._filter_referenced_code_objects(
+            hash_accumulator,
+            references,
+        )
         add_to_hash(
             hash_accumulator,
             type_prefix=TypePrefix.HASH,
@@ -430,6 +436,8 @@ class CodeHasher:
             obj_bytes=self._check_and_hash(members_to_hash),
         )
 
+    # TODO Why do we use the term "complex" when we also have a
+    # TypePrefix.COMPLEX describing a different thing?
     def _update_hash_for_complex_object(self, hash_accumulator, obj):
         add_to_hash(hash_accumulator, type_prefix=TypePrefix.DEFAULT)
 
@@ -446,11 +454,12 @@ class CodeHasher:
 
                 See https://bionic.readthedocs.io/en/stable/warnings.html#avoid-global-state
                 for more information.
-
-                You can also suppress this warning by removing the
-                `suppress_bytecode_warnings` override from the
-                `@version` decorator on the corresponding function.
                 """
+                # TODO Can we find a way to include the func_name here? (Just
+                # plumbing the current CodeContext through is not enough,
+                # because _update_hash_for_code doesn't pass the CodeContext
+                # when hashing references.)
+                + make_suppression_advice()
             )
             warnings.warn(message)
 

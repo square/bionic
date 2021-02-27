@@ -50,7 +50,9 @@ def test_empty_references():
 
         return warnings
 
-    with pytest.warns(UserWarning, match=".*imports the 'warnings' module.*"):
+    with pytest.warns(
+        UserWarning, match="function 'x'.*imports the 'warnings' module.*"
+    ):
         assert get_references(x) == []
 
     with pytest.warns(None) as recorded_warnings:
