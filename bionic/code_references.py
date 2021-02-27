@@ -206,18 +206,21 @@ def get_referenced_objects(code, context, suppress_warnings=False):
                 # module using the import statement. If a user is importing
                 # modules inside a function, they probably don't want to import
                 # the module until the function execution time.
-                message = f"""
-                Entity function in file {code.co_filename} imports the
-                '{op.argval}' module at line {lineno};
-                Bionic will not be able to automatically detect any changes to this
-                module.
-                To enable automatic detection of changes, import the module at the
-                global level (outside the function) instead.
+                if not suppress_warnings:
+                    message = f"""
+                    Entity function in file {code.co_filename} imports the
+                    '{op.argval}' module at line {lineno};
+                    Bionic will not be able to automatically detect any
+                    changes to this module.
+                    To enable automatic detection of changes, import the
+                    module at the global level (outside the function)
+                    instead.
 
-                To suppress this warning, remove the `suppress_bytecode_warnings`
-                override from the `@version` decorator on the corresponding function.
-                f"""
-                warnings.warn(oneline(message))
+                    To suppress this warning, remove the
+                    `suppress_bytecode_warnings` override from the `@version`
+                    decorator on the corresponding function.
+                    f"""
+                    warnings.warn(oneline(message))
                 set_tos(None)
             elif op.opname in ["LOAD_METHOD", "LOAD_ATTR"]:
                 if isinstance(tos, ReferenceProxy):
