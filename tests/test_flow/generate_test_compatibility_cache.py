@@ -48,16 +48,19 @@ class Harness:
         builder.assign("uppercase_chars", frozenset("ABCDEF"))
 
         @builder
+        @bn.version_no_warnings
         def lowercase_sum(lowercase_chars):
             lowercase_sum_counter.mark()
             return sum(ord(char) for char in lowercase_chars)
 
         @builder
+        @bn.version_no_warnings
         def uppercase_sum(uppercase_chars):
             uppercase_sum_counter.mark()
             return sum(ord(char) for char in uppercase_chars)
 
         @builder
+        @bn.version_no_warnings
         def total_sum(lowercase_sum, uppercase_sum):
             total_sum_counter.mark()
             return lowercase_sum + uppercase_sum

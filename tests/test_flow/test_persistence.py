@@ -378,6 +378,7 @@ def test_versioning_assist(builder, make_counter):
     builder.assign("y", 3)
 
     @builder
+    @bn.version_no_warnings
     def f(x, y):
         call_counter.mark()
         return x + y
@@ -389,6 +390,7 @@ def test_versioning_assist(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
+    @bn.version_no_warnings
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
@@ -462,6 +464,7 @@ def test_versioning_assist_with_refs(builder, make_counter):
         return x + y
 
     @builder
+    @bn.version_no_warnings
     def f(x, y):
         call_counter.mark()
         return op(x, y)
@@ -525,11 +528,13 @@ def test_indirect_versioning_assist(builder, make_counter):
     builder.assign("x", 2)
 
     @builder
+    @bn.version_no_warnings
     def y():
         y_call_counter.mark()
         return 3
 
     @builder
+    @bn.version_no_warnings
     def f(x, y):
         f_call_counter.mark()
         return x + y
@@ -539,6 +544,7 @@ def test_indirect_versioning_assist(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
+    @bn.version_no_warnings
     def y():  # noqa: F811
         y_call_counter.mark()
         return 4
@@ -598,11 +604,13 @@ def test_indirect_nonpersisted_versioning_assist(builder, make_counter):
 
     @builder
     @bn.persist(False)
+    @bn.version_no_warnings
     def y():
         y_call_counter.mark()
         return 3
 
     @builder
+    @bn.version_no_warnings
     def f(x, y):
         f_call_counter.mark()
         return x + y
@@ -613,6 +621,7 @@ def test_indirect_nonpersisted_versioning_assist(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.persist(False)
+    @bn.version_no_warnings
     def y():  # noqa: F811
         y_call_counter.mark()
         return 4
@@ -631,11 +640,13 @@ def test_indirect_nonpersisted_versioning_auto(builder, make_counter):
 
     @builder
     @bn.persist(False)
+    @bn.version_no_warnings
     def y():
         y_call_counter.mark()
         return 3
 
     @builder
+    @bn.version_no_warnings
     def f(x, y):
         f_call_counter.mark()
         return x + y
@@ -646,6 +657,7 @@ def test_indirect_nonpersisted_versioning_auto(builder, make_counter):
 
     @builder  # noqa: F811
     @bn.persist(False)
+    @bn.version_no_warnings
     def y():  # noqa: F811
         y_call_counter.mark()
         return 4
@@ -664,6 +676,7 @@ def test_versioning_auto(builder, make_counter):
     builder.assign("y", 3)
 
     @builder
+    @bn.version_no_warnings
     def f(x, y):
         call_counter.mark()
         return x + y
@@ -675,6 +688,7 @@ def test_versioning_auto(builder, make_counter):
     builder.delete("f")
 
     @builder  # noqa: F811
+    @bn.version_no_warnings
     def f(x, y):  # noqa: F811
         call_counter.mark()
         return x * y
@@ -745,11 +759,13 @@ def test_indirect_versioning_auto(builder, make_counter):
     builder.assign("x", 2)
 
     @builder
+    @bn.version_no_warnings
     def y():
         y_call_counter.mark()
         return 3
 
     @builder
+    @bn.version_no_warnings
     def f(x, y):
         f_call_counter.mark()
         return x + y
@@ -759,6 +775,7 @@ def test_indirect_versioning_auto(builder, make_counter):
     assert f_call_counter.times_called() == 1
 
     @builder  # noqa: F811
+    @bn.version_no_warnings
     def y():  # noqa: F811
         y_call_counter.mark()
         return 4
@@ -847,6 +864,7 @@ def test_versioning_auto_class_changes(builder, make_counter):
         return IntWrapper(x + y)
 
     @builder
+    @bn.version_no_warnings
     def f(wrapped_f):
         call_counter.mark()
         return wrapped_f.value
@@ -937,6 +955,7 @@ def test_versioning_class_changes(builder, make_counter, versioning_mode):
         return IntWrapper(x + y)
 
     @builder
+    @bn.version(suppress_bytecode_warnings=(versioning_mode == "assist"))
     def f(wrapped_f):
         call_counter.mark()
         return wrapped_f.value
@@ -993,6 +1012,7 @@ def test_versioning_auto_with_local_refs(builder, make_counter):
         return ret_val
 
     @builder
+    @bn.version_no_warnings
     @call_counter
     def x():
         return ref_func()
@@ -1031,6 +1051,7 @@ def test_versioning_auto_with_module_refs(builder, make_counter):
     m = import_code(dedent(mod_code))
 
     @builder
+    @bn.version_no_warnings
     @call_counter
     def x():
         return m.ref_func()
@@ -1073,41 +1094,28 @@ def test_versioning_auto_version_options(builder):
 
     series = pd.Series([1, 2, 3])
 
+    # With suppress_bytecode_warnings=False, bytecode analysis emits a warning.
     @builder
     def x():
-        assert series is not None
-        return 1
-
-    with pytest.warns(None) as warnings:
-        assert builder.build().get("x") == 1
-    assert len(warnings) == 0
-
-    # With suppress_bytecode_warnings as False, bytecode analysis
-    # throws a warning.
-    @builder  # noqa: F811
-    @bn.version(major=2)
-    def x():  # noqa: F811
         assert series is not None
         return 1
 
     with pytest.warns(UserWarning, match="Found a complex object"):
         assert builder.build().get("x") == 1
 
-    # With ignore_bytecode=True, we won't analyze bytecode and won't
-    # throw a warning.
+    # With suppress_bytecode_warnings=True, we won't emit a warning.
     @builder  # noqa: F811
-    @bn.version(major=2, ignore_bytecode=True)
+    @bn.version(major=2, suppress_bytecode_warnings=True)
     def x():  # noqa: F811
         assert series is not None
         return 2
 
     with pytest.warns(None) as warnings:
-        # It's a little awkward that we compute the value again even
-        # though we ignore the bytecode. But that's because the
-        # bytecode is now null which changes the version.
         assert builder.build().get("x") == 2
     assert len(warnings) == 0
 
+    # With ignore_bytecode=True, we won't analyze bytecode and won't
+    # emit a warning.
     @builder  # noqa: F811
     @bn.version(major=2, ignore_bytecode=True)
     def x():  # noqa: F811
@@ -1115,8 +1123,21 @@ def test_versioning_auto_version_options(builder):
         return 3
 
     with pytest.warns(None) as warnings:
+        # It's a little awkward that we compute the value again even
+        # though we ignore the bytecode. But that's because the
+        # bytecode is now null which changes the version.
+        assert builder.build().get("x") == 3
+    assert len(warnings) == 0
+
+    @builder  # noqa: F811
+    @bn.version(major=2, ignore_bytecode=True)
+    def x():  # noqa: F811
+        assert series is not None
+        return 4
+
+    with pytest.warns(None) as warnings:
         # Even with the change in bytecode, it uses the cached value.
-        assert builder.build().get("x") == 2
+        assert builder.build().get("x") == 3
     assert len(warnings) == 0
 
 

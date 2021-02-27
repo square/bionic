@@ -55,6 +55,7 @@ def test_gcs_caching(
     builder = preset_gcs_builder
 
     @builder
+    @bn.version_no_warnings
     @call_counter
     def xy(x, y):
         return x * y
@@ -138,6 +139,7 @@ def test_versioning(preset_gcs_builder, make_counter):
     assert flow.setting("x", 4).get("xy") == 12
 
     @builder  # noqa: F811
+    @bn.version_no_warnings
     def xy(x, y):  # noqa: F811
         call_counter.mark()
         return y * x
@@ -264,6 +266,7 @@ def test_multifile_serialization(preset_gcs_builder, make_counter):
 
     @builder
     @bn.protocol.dask
+    @bn.version_no_warnings
     @call_counter
     def df():
         return dask_df
@@ -289,8 +292,8 @@ def test_file_path_copying(preset_gcs_builder, make_counter):
     file_contents = "DATA"
 
     @builder
-    @call_counter
     @bn.protocol.path(operation="move")
+    @bn.version_no_warnings
     def data_path():
         call_counter.mark()
         fd, filename = tempfile.mkstemp()

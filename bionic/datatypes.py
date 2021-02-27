@@ -327,7 +327,7 @@ class CodeVersioningPolicy:
 
     version: CodeVersion = attr.ib()
     suppress_bytecode_warnings: bool = attr.ib(
-        converter=attr.converters.default_if_none(True)
+        converter=attr.converters.default_if_none(False)
     )
 
 

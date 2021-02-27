@@ -87,16 +87,19 @@ def version(
         A decorator which can be applied to an entity function.
     """
 
-    if ignore_bytecode is None:
-        ignore_bytecode = False
-    if not isinstance(ignore_bytecode, bool):
+    # We don't replace any None values with defaults here; instead we let the
+    # CodeVersion and CodeVersioningPolicy constructors apply their own
+    # defaults. That way the defaults for this decorator are the same as for an
+    # undecorated function. (However, we do have to make sure the documentation
+    # of this decorator stays in sync with those defaults.)
+
+    if not isinstance(ignore_bytecode, (bool, type(None))):
         raise ValueError(
             f"Argument ignore_bytecode must be a boolean; got {ignore_bytecode!r}"
         )
+    includes_bytecode = None if ignore_bytecode is None else not ignore_bytecode
 
-    if suppress_bytecode_warnings is None:
-        suppress_bytecode_warnings = False
-    if not isinstance(suppress_bytecode_warnings, bool):
+    if not isinstance(suppress_bytecode_warnings, (bool, type(None))):
         message = f"""
         Argument suppress_bytecode_warnings must be a boolean; got
         {suppress_bytecode_warnings!r}
@@ -111,7 +114,7 @@ def version(
                 version=CodeVersion(
                     major=major,
                     minor=minor,
-                    includes_bytecode=(not ignore_bytecode),
+                    includes_bytecode=includes_bytecode,
                 ),
                 suppress_bytecode_warnings=suppress_bytecode_warnings,
             ),
@@ -124,6 +127,9 @@ def version_no_warnings(major=None, minor=None):
     Same as the `@version` decorator, but it suppresses all bytecode
     warnings.
     """
+    if callable(major):
+        func = major
+        return version_no_warnings()(func)
     return version(major, minor, suppress_bytecode_warnings=True)
 
 
