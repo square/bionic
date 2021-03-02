@@ -154,8 +154,13 @@ def dot_from_graph(graph, vertical=False, curvy_lines=False, name=None):
                 shape="box",
             )
             if doc:
-                tooltip = rewrap_docstring(doc)
-                dot_node.set("tooltip", tooltip)
+                tooltip = (
+                    rewrap_docstring(doc)
+                    + f"\n\nPersisted: {graph.nodes[node]['should_persist']}"
+                )
+            else:
+                tooltip = f"Persisted: {graph.nodes[node]['should_persist']}"
+            dot_node.set("tooltip", tooltip)
             subdot.add_node(dot_node)
 
         dot.add_subgraph(subdot)

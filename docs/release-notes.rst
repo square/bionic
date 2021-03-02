@@ -68,6 +68,12 @@ For each release, we list the following types of change (in this order):
 .. Upcoming Version (Not Yet Released)
 .. -----------------------------------
 
+Improvements
+............
+
+- Added a line to the SVG DAG visualization mouse hover tooltips indicating whether 
+  an entity is persisted.
+
 .. Record any notable changes in this section. When we update the current version,
    add a new version heading below, and then comment out the heading above until more
    changes are added. This way, the "Upcoming Version" section will be never be visible
