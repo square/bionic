@@ -893,7 +893,7 @@ sensible number, but it can also be set directly:
 Google AI Platform Execution
 ............................
 
-.. versionadded:: 0.9.0
+.. versionadded:: 0.10.0
 
 Bionic can use compute resources in the cloud by sending entities to
 `Google AI Platform (AIP) <https://cloud.google.com/ai-platform>`_ for
@@ -903,17 +903,34 @@ computation.
 
     builder.set('core__aip_execution__enabled', True)
 
+Bionic will use your Google Cloud Platform credentials to figure out the project
+ID for running AI Platform jobs. Alternatively, you can manually specify the
+project ID:
+
+.. code-block:: python
+
+    builder.set('core__aip_execution__gcp_project_id', 'my-project')
+
 This feature requires having a Docker image in Google Container Registry
 containing the same Python environment (runtime and libraries) as the one used
 in the local environment Bionic is running in.
 
 Bionic can build this Docker image if all the Python libraries in the local
 environment are installed through ``pip``. Otherwise, you will need to specify
-the Docker image:
+the Docker image.
+
+To use a docker image that you have uploaded to Google Container Registry:
 
 .. code-block:: python
 
     builder.set('core__aip_execution__docker_image_name', 'bionic:latest')
+
+To use a docker image from a different project id or registry, you can specify
+the full path.
+
+.. code-block:: python
+
+    builder.set('core__aip_execution__docker_image_uri', 'gcr.io/other-project/bionic:latest')
 
 Finally, :ref:`Google Cloud Storage <google_cloud_storage_anchor>` must be
 enabled.
