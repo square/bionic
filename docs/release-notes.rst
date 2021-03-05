@@ -74,7 +74,7 @@ For each release, we list the following types of change (in this order):
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
-0.10.0 (Feb 12, 2021)
+0.10.0 (Feb 23, 2021)
 --------------------
 
 New Features
