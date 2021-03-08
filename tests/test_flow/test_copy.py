@@ -63,10 +63,25 @@ def override_gcs_for_copy_if_fake_gcp(use_fake_gcp, gcs_fs, monkeypatch):
         monkeypatch.setattr("bionic.gcs.get_gcs_fs_without_warnings", lambda: gcs_fs)
 
 
+@pytest.fixture
+def override_s3_for_copy_if_fake_s3(use_fake_s3, s3_fs, monkeypatch):
+    """
+    A flow has an instance of GCS filesystem if GCS caching is enabled. But we
+    still need to support the case where the user wants to upload the results to
+    GCS even though GCS caching is disabled for the flow. Hence, the
+    upload_to_gcs method does not use the flow's GCS filesystem in case GCS
+    caching is disabled. If we have a fake GCS filesystem, we have to patch it
+    manually.
+    """
+
+    if use_fake_s3:
+        monkeypatch.setattr("bionic.s3.get_s3_fs", lambda: s3_fs)
+
+
 def test_copy_file_to_existing_local_dir(flow, tmp_path):
     dir_path = tmp_path / "output"
     dir_path.mkdir()
-    flow.get("f", mode="FileCopier").copy(destination=dir_path)
+    flow.get("f", mode="FileCopierS3").copy(destination=dir_path)
 
     expected_file_path = dir_path / "f.json"
     assert json.loads(expected_file_path.read_bytes()) == 5
@@ -74,7 +89,7 @@ def test_copy_file_to_existing_local_dir(flow, tmp_path):
 
 def test_copy_file_to_local_file(flow, tmp_path):
     file_path = tmp_path / "data.json"
-    flow.get("f", mode="FileCopier").copy(destination=file_path)
+    flow.get("f", mode="FileCopierS3").copy(destination=file_path)
 
     assert json.loads(file_path.read_bytes()) == 5
 
@@ -82,29 +97,29 @@ def test_copy_file_to_local_file(flow, tmp_path):
 def test_copy_file_to_local_file_using_str(flow, tmp_path):
     file_path = tmp_path / "data.json"
     file_path_str = str(file_path)
-    flow.get("f", mode="FileCopier").copy(destination=file_path_str)
+    flow.get("f", mode="FileCopierS3").copy(destination=file_path_str)
     assert json.loads(file_path.read_bytes()) == 5
 
 
-@pytest.mark.needs_gcs
-def test_copy_file_to_gcs_dir(
-    flow, tmp_path, tmp_gcs_url_prefix, override_gcs_for_copy_if_fake_gcp, gcs_fs
+@pytest.mark.needs_s3
+def test_copy_file_to_s3_dir(
+    flow, tmp_path, tmp_s3_url_prefix, override_s3_for_copy_if_fake_s3, s3_fs
 ):
-    flow.get("f", mode="FileCopier").copy(destination=tmp_gcs_url_prefix)
-    cloud_url = tmp_gcs_url_prefix + "f.json"
+    flow.get("f", mode="FileCopierS3").copy(destination=tmp_s3_url_prefix)
+    cloud_url = tmp_s3_url_prefix + "f.json"
     local_path = tmp_path / "f.json"
-    gcs_fs.get_file(cloud_url, local_path)
+    s3_fs.get_file(cloud_url, local_path)
     assert json.loads(local_path.read_bytes()) == 5
 
 
-@pytest.mark.needs_gcs
-def test_copy_file_to_gcs_file(
-    flow, tmp_path, tmp_gcs_url_prefix, override_gcs_for_copy_if_fake_gcp, gcs_fs
+@pytest.mark.needs_s3
+def test_copy_file_to_s3_file(
+    flow, tmp_path, tmp_s3_url_prefix, override_s3_for_copy_if_fake_s3, s3_fs
 ):
-    cloud_url = tmp_gcs_url_prefix + "f.json"
-    flow.get("f", mode="FileCopier").copy(destination=cloud_url)
+    cloud_url = tmp_s3_url_prefix + "f.json"
+    flow.get("f", mode="FileCopierS3").copy(destination=cloud_url)
     local_path = tmp_path / "f.json"
-    gcs_fs.get_file(cloud_url, local_path)
+    s3_fs.get_file(cloud_url, local_path)
     assert json.loads(local_path.read_bytes()) == 5
 
 
@@ -119,21 +134,21 @@ def test_copy_dask_to_dir(tmp_path, expected_dask_df, dask_flow):
     assert equal_frame_and_index_content(actual.compute(), expected_dask_df.compute())
 
 
-@pytest.mark.needs_gcs
-def test_copy_dask_to_gcs_dir(
+@pytest.mark.needs_s3
+def test_copy_dask_to_s3_dir(
     tmp_path,
-    tmp_gcs_url_prefix,
+    tmp_s3_url_prefix,
     expected_dask_df,
     dask_flow,
-    override_gcs_for_copy_if_fake_gcp,
-    gcs_fs,
+    override_s3_for_copy_if_fake_s3,
+    s3_fs,
 ):
-    cloud_url = tmp_gcs_url_prefix + "output"
+    cloud_url = tmp_s3_url_prefix + "output"
     local_path = tmp_path / "output"
 
-    dask_flow.get("dask_df", mode="FileCopier").copy(destination=cloud_url)
+    dask_flow.get("dask_df", mode="FileCopierS3").copy(destination=cloud_url)
 
-    gcs_fs.get(cloud_url, str(local_path), recursive=True)
+    s3_fs.get(cloud_url, str(local_path), recursive=True)
     actual = dd.read_parquet(local_path)
     assert equal_frame_and_index_content(actual.compute(), expected_dask_df.compute())
 

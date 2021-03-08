@@ -8,13 +8,13 @@ import os
 import sys
 
 from bionic.deps.optdep import import_optional_dependency
-from bionic.gcs import get_gcs_fs_without_warnings
+from bionic.s3 import get_s3_fs
 
 
-def _run(ipath, gcs_fs):
+def _run(ipath, s3_fs):
     cloudpickle = import_optional_dependency("cloudpickle")
 
-    with gcs_fs.open(ipath, "rb") as f:
+    with s3_fs.open(ipath, "rb") as f:
         task = cloudpickle.load(f)
 
     # Now that we have the task, set up logging.
@@ -25,7 +25,7 @@ def _run(ipath, gcs_fs):
 
     opath = task.output_uri
     logging.info(f"Uploading result to {opath}")
-    with gcs_fs.open(opath, "wb") as f:
+    with s3_fs.open(opath, "wb") as f:
         pickle.dump(result, f)
 
 
@@ -35,7 +35,7 @@ def run():
     This method is a proxy to _run which does the actual work. The proxy exists
     so that _run can be replaced for testing.
     """
-    _run(sys.argv[-1], get_gcs_fs_without_warnings())
+    _run(sys.argv[-1], get_s3_fs())
 
 
 def _set_up_logging(job_id, project_id):

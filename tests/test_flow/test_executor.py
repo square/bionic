@@ -59,7 +59,7 @@ def test_executor_resizes(builder, loky_executor):
 # Test that when bionic sends a job to a parallel or AIP executor, it does not
 # need to wait for the results and can send more jobs to executors.
 # Test only runs in fake AIP because it uses SyncManager Barrier.
-@pytest.mark.fake_gcp_only
+@pytest.mark.fake_s3_only
 def test_parallel_and_aip(aip_builder, multiprocessing_manager):
     builder = aip_builder
 
@@ -101,7 +101,7 @@ def test_parallel_and_aip(aip_builder, multiprocessing_manager):
 # Similar to the test above, but with entity functions that fail to compute.
 # When one or more entity functions fail, bionic should wait for all other
 # concurrent tasks to complete and log all the exceptions.
-@pytest.mark.fake_gcp_only
+@pytest.mark.fake_s3_only
 def test_parallel_fail(aip_builder, make_counter, multiprocessing_manager, log_checker):
     builder = aip_builder
 

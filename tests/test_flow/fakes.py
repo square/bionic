@@ -121,9 +121,103 @@ class FakeGcsFs:
             f.write(content_bytes)
 
 
+class FakeS3Fs:
+    def __init__(self, shared_dict):
+        self._files_by_url: dict = shared_dict
+
+    def cat_file(self, url):
+        with self.open(url, "rb") as f:
+            return f.read()
+
+    def exists(self, url):
+        return url in self._files_by_url or self.isdir(url)
+
+    def get(self, url, str_path, recursive):
+        # We only use get for dirs in Bionic with recursive=True.
+        assert recursive
+        assert self.isdir(url)
+
+        if str_path.endswith("/"):
+            str_path = str_path[:-1]
+
+        file_urls = self._search_files(url)
+        for file_url in file_urls:
+            relative_path = file_url.replace(url, "")
+            file_path = str_path + relative_path
+            self.get_file(file_url, file_path)
+
+    def get_file(self, url, str_path):
+        ensure_parent_dir_exists(Path(str_path))
+        with open(str_path, "wb") as f:
+            f.write(self.cat_file(url))
+
+    def _search_files(self, url):
+        return ["s3://" + glob_url for glob_url in self.glob(url + "**/*")]
+
+    def glob(self, url):
+        # We only use glob in Bionic for urls with **.
+        assert url.endswith("**/*")
+        url = url[:-4]
+        # Glob doesn't return the protocol, so we strip "gs://".
+        urls = []
+        for file_url in self._files_by_url.keys():
+            assert file_url.startswith("s3://")
+            if url in file_url:
+                urls.append(file_url[5:])
+        return urls
+
+    def isdir(self, url):
+        if not url.endswith("/"):
+            url = url + "/"
+        return any(key for key in self._files_by_url.keys() if key.startswith(url))
+
+    @contextmanager
+    def open(self, url, mode):
+        assert url.startswith("s3://")
+
+        assert mode in ("rb", "wb")
+        if mode == "rb" and url not in self._files_by_url:
+            raise FileNotFoundError(f"no file found for url {url}")
+
+        f = io.BytesIO(self._files_by_url.get(url, b""))
+        yield f
+        self._files_by_url[url] = f.getvalue()
+
+    def put(self, str_path, url, recursive):
+        # We only use put for dirs in Bionic with recursive=True.
+        assert recursive
+        path = path_from_url(str_path)
+        assert path.is_dir()
+
+        if url.endswith("/"):
+            url = url[:-1]
+
+        for file_path in path.glob("**/*"):
+            if not file_path.is_file():
+                continue
+            file_path_str = str(file_path)
+            sub_path_str = file_path_str.replace(str_path, "")
+            self.put_file(file_path_str, url + sub_path_str)
+
+    def put_file(self, str_path, url):
+        with self.open(url, "wb") as f:
+            f.write(open(str_path, "rb").read())
+
+    def rm(self, url, recursive=False):
+        if recursive:
+            for file_url in self._search_files(url):
+                del self._files_by_url[file_url]
+        else:
+            del self._files_by_url[url]
+
+    def pipe(self, url, content_bytes):
+        with self.open(url, "wb") as f:
+            f.write(content_bytes)
+
+
 class FakeAipClient:
-    def __init__(self, gcs_fs, tmp_path):
-        self._gcs_fs = gcs_fs
+    def __init__(self, s3_fs, tmp_path):
+        self._s3_fs = s3_fs
         self._tmp_path = tmp_path
         self._jobs: Dict[str, Future] = {}
 
@@ -142,21 +236,21 @@ class FakeAipClient:
         self._modify_disk_cache_location(input_uri)
 
         self._jobs[body["jobId"]] = ProcessPoolExecutor(max_workers=1).submit(
-            run_aip, input_uri, self._gcs_fs
+            run_aip, input_uri, self._s3_fs
         )
 
         return Mock()
 
     def _modify_disk_cache_location(self, input_uri):
-        assert self._gcs_fs.exists(input_uri)
-        with self._gcs_fs.open(input_uri, "rb") as f:
+        assert self._s3_fs.exists(input_uri)
+        with self._s3_fs.open(input_uri, "rb") as f:
             task = cloudpickle.load(f)
 
         task.function.args[0]._context.core.persistent_cache._local_store = LocalStore(
             mkdtemp(dir=self._tmp_path)
         )
 
-        with self._gcs_fs.open(input_uri, "wb") as f:
+        with self._s3_fs.open(input_uri, "wb") as f:
             cloudpickle.dump(task, f)
 
     def _get_aip_job(self, name):

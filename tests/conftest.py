@@ -19,13 +19,10 @@ def pytest_addoption(parser):
         "--slow", action="store_true", default=False, help="run slow tests"
     )
     parser.addoption(
-        "--bucket", action="store", help="URL to GCS bucket to use for tests"
+        "--bucket", action="store", help="URL to S3 bucket to use for tests"
     )
     parser.addoption(
-        "--aip",
-        action="store_true",
-        default=False,
-        help="run AIP tests, requires --bucket",
+        "--project", action="store", help="S3 project to use for AIP tests"
     )
     parser.addoption(
         "--parallel",
@@ -41,7 +38,7 @@ def pytest_configure(config):
 
     # These markers are added manually.
     add_mark("slow", "runs slowly")
-    add_mark("needs_gcs", "requires GCS to run")
+    add_mark("needs_s3", "requires S3 to run")
     add_mark("needs_aip", "requires AIP execution to run")
     add_mark("needs_parallel", "requires parallel execution to run")
     add_mark("no_parallel", "does not run with parallel execution")
@@ -49,18 +46,13 @@ def pytest_configure(config):
         "allows_parallel",
         "can run with parallel execution even when that's not explicitly enabled",
     )
-    add_mark("real_gcp_only", "runs on real GCP only")
-    add_mark("fake_gcp_only", "runs on fake GCP only")
-    add_mark(
-        "needs_aip_and_docker_commit_access",
-        "requires AIP and docker access to the current git commit",
-    )
+    add_mark("fake_s3_only", "runs on fake S3 only")
 
     # These markers are added automatically based on parametric fixtures.
     add_mark("serial", "will run using serial execution")
     add_mark("parallel", "will run using parallel execution")
-    add_mark("real_gcp", "use real gcp")
-    add_mark("fake_gcp", "use fake gcp")
+    add_mark("real_s3", "use real s3")
+    add_mark("fake_s3", "use fake s3")
 
     # This marker is added automatically based on other markers.
     add_mark("baseline", "runs by default when no options are passed to pytest")
@@ -78,10 +70,10 @@ def pytest_collection_modifyitems(config, items):
     also_run_slow = config.getoption("--slow")
     skip_slow = pytest.mark.skip(reason="only runs when --slow is set")
 
-    has_gcs = config.getoption("--bucket")
-    skip_needs_gcs = pytest.mark.skip(reason="only runs when --bucket is set")
+    has_s3 = config.getoption("--bucket")
+    skip_needs_s3 = pytest.mark.skip(reason="only runs when --bucket is set")
 
-    has_aip = has_gcs and config.getoption("--aip")
+    has_aip = config.getoption("--aip") and has_s3
     skip_needs_aip = pytest.mark.skip(
         reason="only runs when both --bucket and --aip are set"
     )
@@ -97,14 +89,14 @@ def pytest_collection_modifyitems(config, items):
             if not also_run_slow:
                 item.add_marker(skip_slow)
 
-        if "real_gcp" in item.keywords:
-            if "fake_gcp_only" in item.keywords:
+        if "real_s3" in item.keywords:
+            if "fake_s3_only" in item.keywords:
                 continue
 
-            if "needs_gcs" in item.keywords:
+            if "needs_s3" in item.keywords:
                 item_is_baseline = False
-                if not has_gcs:
-                    item.add_marker(skip_needs_gcs)
+                if not has_s3:
+                    item.add_marker(skip_needs_s3)
 
             if "needs_aip" in item.keywords:
                 item_is_baseline = False

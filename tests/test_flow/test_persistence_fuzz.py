@@ -386,8 +386,8 @@ class Fuzzer:
 
 
 @pytest.fixture(scope="function")
-def fuzzer(fake_gcs_builder, make_list, tmp_path):
-    return Fuzzer(fake_gcs_builder, make_list)
+def fuzzer(fake_s3_builder, make_list, tmp_path):
+    return Fuzzer(fake_s3_builder, make_list)
 
 
 foreach_mode = pytest.mark.parametrize("versioning_mode", ["manual", "assist", "auto"])

@@ -7,8 +7,8 @@ import logging
 import pytest
 
 import bionic as bn
-from bionic.gcs import get_gcs_fs_without_warnings
-from .fakes import FakeGcsFs, FakeAipClient
+from bionic.s3 import get_s3_fs
+from .fakes import FakeS3Fs, FakeAipClient
 from ..helpers import (
     assert_messages_match_regexes,
     SimpleCounter,
@@ -30,7 +30,7 @@ def parallel_execution_enabled(request) -> bool:
     return request.param == "parallel"
 
 
-# This allows tests that depend on GCS and/or AIP to be run locally using fake
+# This allows tests that depend on S3 and/or AIP to be run locally using fake
 # GCP, and again using real GCP if the correct command line parameters are
 # provided.
 @pytest.fixture(
@@ -41,6 +41,16 @@ def parallel_execution_enabled(request) -> bool:
 )
 def use_fake_gcp(request) -> bool:
     return request.param == "fake-gcp"
+
+
+@pytest.fixture(
+    params=[
+        pytest.param("fake-s3", marks=pytest.mark.fake_s3),
+        pytest.param("real-s3", marks=pytest.mark.real_s3),
+    ],
+)
+def use_fake_s3(request) -> bool:
+    return request.param == "fake-s3"
 
 
 # We provide this at the top level because we want everyone using FlowBuilder
@@ -115,39 +125,39 @@ def make_dict(process_manager):
 
 
 @pytest.fixture
-def gcs_fs(use_fake_gcp, multiprocessing_manager):
-    if use_fake_gcp:
+def s3_fs(use_fake_s3, multiprocessing_manager):
+    if use_fake_s3:
         # When running an AIP job, the GCS filesystem is serialized and then
         # deserialized. Any data written to the deserialized instance needs to
         # be readable by the original instance. Hence, a proxy object is used to
         # store the fake GCS data. This is independent of whether parallel
         # processing has been enabled.
-        return FakeGcsFs(multiprocessing_manager.dict())
+        return FakeS3Fs(multiprocessing_manager.dict())
     else:
-        return get_gcs_fs_without_warnings()
+        return get_s3_fs()
 
 
 @pytest.fixture
-def gcs_builder(builder, tmp_gcs_url_prefix, use_fake_gcp, gcs_fs):
-    URL_PREFIX = "gs://"
-    assert tmp_gcs_url_prefix.startswith(URL_PREFIX)
-    gcs_path = tmp_gcs_url_prefix[len(URL_PREFIX) :]
-    bucket_name, object_path = gcs_path.split("/", 1)
+def s3_builder(builder, tmp_s3_url_prefix, use_fake_s3, s3_fs):
+    URL_PREFIX = "s3://"
+    assert tmp_s3_url_prefix.startswith(URL_PREFIX)
+    s3_path = tmp_s3_url_prefix[len(URL_PREFIX) :]
+    bucket_name, object_path = s3_path.split("/", 1)
 
     builder = builder.build().to_builder()
 
-    builder.set("core__persistent_cache__gcs__bucket_name", bucket_name)
-    builder.set("core__persistent_cache__gcs__object_path", object_path)
-    builder.set("core__persistent_cache__gcs__enabled", True)
+    builder.set("core__persistent_cache__s3__bucket_name", bucket_name)
+    builder.set("core__persistent_cache__s3__object_path", object_path)
+    builder.set("core__persistent_cache__s3__enabled", True)
 
-    if use_fake_gcp:
-        builder.set("core__persistent_cache__gcs__fs", gcs_fs)
+    if use_fake_s3:
+        builder.set("core__persistent_cache__s3__fs", s3_fs)
     else:
         # Since gcs is enabled, if core__persistent_cache__gcs__fs is not set,
         # the builder should use get_gcs_fs_without_warnings() by default.
         # The passed in gcs_fs is used in other places, verify that it is
         # not a fake.
-        assert gcs_fs == get_gcs_fs_without_warnings()
+        assert s3_fs == get_s3_fs()
 
     return builder
 
@@ -155,32 +165,40 @@ def gcs_builder(builder, tmp_gcs_url_prefix, use_fake_gcp, gcs_fs):
 # Unlike gcs_builder, which is parametrized to be either real or fake, this builder is
 # always fake.
 @pytest.fixture
-def fake_gcs_builder(builder, make_dict):
+def fake_s3_builder(builder, make_dict):
     builder = builder.build().to_builder()
 
-    builder.set("core__persistent_cache__gcs__bucket_name", "some-bucket")
-    builder.set("core__persistent_cache__gcs__object_path", "")
-    builder.set("core__persistent_cache__gcs__enabled", True)
-    builder.set("core__persistent_cache__gcs__fs", FakeGcsFs(make_dict()))
+    builder.set("core__persistent_cache__s3__bucket_name", "some-bucket")
+    builder.set("core__persistent_cache__s3__object_path", "")
+    builder.set("core__persistent_cache__s3__enabled", True)
+    builder.set("core__persistent_cache__s3__fs", FakeS3Fs(make_dict()))
 
     return builder
 
 
 @pytest.fixture
-def aip_builder(gcs_builder, use_fake_gcp, gcs_fs, tmp_path):
-    gcs_builder.set("core__aip_execution__enabled", True)
-    gcs_builder.set("core__aip_execution__docker_image_name", "bionic:latest")
+def aip_builder(s3_builder, s3_project, use_fake_s3, s3_fs, tmp_path):
+    s3_builder.set("core__aip_execution__enabled", True)
+    s3_builder.set("core__aip_execution__s3_project_name", s3_project)
 
-    if use_fake_gcp:
-        gcs_builder.set("core__aip_execution__gcp_project_id", "fake-project")
-        gcs_builder.set("core__aip_execution__poll_period_seconds", 0.1)
-        gcs_builder.set("core__aip_client", FakeAipClient(gcs_fs, tmp_path))
+    if use_fake_s3:
+        s3_builder.set("core__aip_execution__poll_period_seconds", 0.1)
+        s3_builder.set("core__aip_client", FakeAipClient(s3_fs, tmp_path))
 
-    return gcs_builder
+    return s3_builder
+
+
+@pytest.fixture
+def s3_project(request, use_fake_s3) -> str:
+    if use_fake_s3:
+        return "fake-project"
+    project = request.config.getoption("--project")
+    assert project is not None
+    return project
 
 
 @pytest.fixture(scope="session")
-def real_gcs_url_stem(request) -> Optional[str]:
+def real_s3_url_stem(request) -> Optional[str]:
     url = request.config.getoption("--bucket")
     if url is not None:
         assert url.startswith("gs://")
@@ -188,62 +206,62 @@ def real_gcs_url_stem(request) -> Optional[str]:
 
 
 @pytest.fixture(scope="session")
-def real_gcs_session_tmp_url_prefix(real_gcs_url_stem) -> Optional[str]:
+def real_s3_session_tmp_url_prefix(real_s3_url_stem) -> Optional[str]:
     """
-    Sets up and tears down a temporary "directory" on GCS to be shared by all
-    of our tests. Not applicable for fake GCS.
+    Sets up and tears down a temporary "directory" on s3 to be shared by all
+    of our tests. Not applicable for fake s3.
     """
 
-    if real_gcs_url_stem is None:
+    if real_s3_url_stem is None:
         yield None
         return
 
-    gcs_fs = get_gcs_fs_without_warnings()
+    s3_fs = get_s3_fs()
 
     random_hex_str = "%016x" % random.randint(0, 2 ** 64)
     path_str = f"{getpass.getuser()}/BNTESTDATA/{random_hex_str}"
 
-    gs_url = real_gcs_url_stem + "/" + path_str + "/"
-    assert not gcs_fs.exists(gs_url)
+    s3_url = real_s3_url_stem + "/" + path_str + "/"
+    assert not s3_fs.exists(gs_url)
 
-    yield gs_url
+    yield s3_url
 
     # This will throw an exception if the URL doesn't exist at this point.
     # Currently every test using this fixture does write some objects under this URL,
     # *and* doesn't clean all of them up. If this changes, we may need to start
     # handling this more gracefully.
-    gcs_fs.rm(gs_url, recursive=True)
+    s3_fs.rm(gs_url, recursive=True)
 
 
 @pytest.fixture
-def tmp_gcs_url_prefix(use_fake_gcp, real_gcs_session_tmp_url_prefix, request) -> str:
-    """A temporary "directory" on GCS for a single test."""
-    if use_fake_gcp:
-        return "gs://fake-bucket/BNTESTDATA/"
+def tmp_s3_url_prefix(use_fake_s3, real_s3_session_tmp_url_prefix, request) -> str:
+    """A temporary "directory" on S3 for a single test."""
+    if use_fake_s3:
+        return "s3://fake-bucket/BNTESTDATA/"
 
-    assert real_gcs_session_tmp_url_prefix is not None
+    assert real_s3_session_tmp_url_prefix is not None
 
     # `gsutil` doesn't support wildcard characters which are `[]` here.
     # This is an open issue with gsutil but till it's fixed, we are going
     # to change the node name to not have any wildcard characters.
     # https://github.com/GoogleCloudPlatform/gsutil/issues/290
-    # gcsfs seems to have the same problem.
+    # s3fs seems to have the same problem.
     node_name = request.node.name.replace("[", "_").replace("]", "")
-    return real_gcs_session_tmp_url_prefix + node_name + "/"
+    return real_s3_session_tmp_url_prefix + node_name + "/"
 
 
 @pytest.fixture
-def clear_test_gcs_data(tmp_gcs_url_prefix, gcs_fs):
+def clear_test_s3_data(tmp_s3_url_prefix, s3_fs):
     """
-    Deletes all GCS data specific to a single test.
+    Deletes all S3 data specific to a single test.
     """
 
-    assert "BNTESTDATA" in tmp_gcs_url_prefix
+    assert "BNTESTDATA" in tmp_s3_url_prefix
 
-    def _clear_test_gcs_data():
-        gcs_fs.rm(tmp_gcs_url_prefix, recursive=True)
+    def _clear_test_s3_data():
+        s3_fs.rm(tmp_s3_url_prefix, recursive=True)
 
-    return _clear_test_gcs_data
+    return _clear_test_s3_data
 
 
 class LogChecker:

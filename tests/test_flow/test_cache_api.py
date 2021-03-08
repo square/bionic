@@ -7,7 +7,7 @@ from bionic import interpret
 from bionic.utils.urls import (
     path_from_url,
     is_file_url,
-    is_gcs_url,
+    is_s3_url,
 )
 
 
@@ -19,9 +19,9 @@ class CacheTester:
     in terms of changes between states.
     """
 
-    def __init__(self, flow, tier=["local", "cloud"], gcs_fs=None):
+    def __init__(self, flow, tier=["local", "cloud"], s3_fs=None):
         self.flow = flow
-        self.gcs_fs = gcs_fs
+        self.s3_fs = s3_fs
         self._old_entries = set()
 
         self._tiers = interpret.str_or_seq_as_list(tier)
@@ -61,7 +61,7 @@ class CacheTester:
         ]
 
     def _validate_entry(self, entry):
-        artifact_bytes = read_bytes_from_url(entry.artifact_url, self.gcs_fs)
+        artifact_bytes = read_bytes_from_url(entry.artifact_url, self.s3_fs)
         value = json.loads(artifact_bytes)
         assert value == self.flow.get(entry.entity)
 
@@ -77,20 +77,20 @@ class CacheTester:
         # instead.)
         # TODO Hmm, is the above true? On closer inspection, it looks like artifact URLs
         # are derelativized right away when we load the metadata YAML.
-        metadata_str = read_bytes_from_url(entry.metadata_url, self.gcs_fs).decode(
+        metadata_str = read_bytes_from_url(entry.metadata_url, self.s3_fs).decode(
             "utf-8"
         )
         assert entry.entity in metadata_str
 
 
-def read_bytes_from_url(url, gcs_fs):
+def read_bytes_from_url(url, s3_fs):
     """Reads the contents of a URL and returns them as a bytes object."""
 
     if is_file_url(url):
         path = path_from_url(url)
         return path.read_bytes()
-    elif is_gcs_url(url):
-        return gcs_fs.cat_file(url)
+    elif is_s3_url(url):
+        return s3_fs.cat_file(url)
     else:
         raise AssertionError(f"Unexpected scheme in URL: {url}")
 
@@ -301,9 +301,9 @@ def test_delete_artifact_with_multiple_metadata_files(builder):
 # `parallel_execution_enabled` and breaks.) I think the way forward might be to make
 # the GCS setup/teardown into `autouse` fixtures that are directly activated by the GCS
 # command line flag.
-@pytest.mark.needs_gcs
-def test_cache_on_gcs(gcs_builder, gcs_fs):
-    builder = gcs_builder
+@pytest.mark.needs_s3
+def test_cache_on_s3(s3_builder, s3_fs):
+    builder = s3_builder
 
     builder.assign("a", 1)
 
@@ -317,9 +317,9 @@ def test_cache_on_gcs(gcs_builder, gcs_fs):
 
     flow = builder.build()
 
-    local_tester = CacheTester(flow, tier="local", gcs_fs=gcs_fs)
-    cloud_tester = CacheTester(flow, tier="cloud", gcs_fs=gcs_fs)
-    total_tester = CacheTester(flow, tier=["local", "cloud"], gcs_fs=gcs_fs)
+    local_tester = CacheTester(flow, tier="local", s3_fs=s3_fs)
+    cloud_tester = CacheTester(flow, tier="cloud", s3_fs=s3_fs)
+    total_tester = CacheTester(flow, tier=["local", "cloud"], s3_fs=s3_fs)
 
     local_tester.expect_zero_entries()
     cloud_tester.expect_zero_entries()

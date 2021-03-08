@@ -22,6 +22,7 @@ from .utils.files import (
 from .utils.misc import hash_simple_obj_to_hex, oneline
 from .utils.urls import (
     bucket_and_object_names_from_gs_url,
+    bucket_and_object_names_from_s3_url,
     derelativize_url,
     path_from_url,
     relativize_url,
@@ -331,7 +332,7 @@ class CacheAccessor:
 
         ensure_parent_dir_exists(file_path)
 
-        logger.info("Downloading %s from GCS ...", self.task_key)
+        logger.info("Downloading %s from S3 ...", self.task_key)
         try:
             self._cloud.download(file_path, cloud_artifact.url)
         except Exception as e:
@@ -351,7 +352,7 @@ class CacheAccessor:
         file_path = path_from_url(local_artifact.url)
         blob_url = url_prefix + "/" + file_path.name
 
-        logger.info("Uploading %s to GCS ...", self.task_key)
+        logger.info("Uploading %s to S3 ...", self.task_key)
         try:
             self._cloud.upload(file_path, blob_url)
         except Exception as e:
@@ -864,6 +865,135 @@ class GcsFilesystem:
 
     def _validate_object_name_from_url(self, url):
         bucket_name, object_name = bucket_and_object_names_from_gs_url(url)
+        assert bucket_name == self._bucket_name
+        assert object_name.startswith(self._object_prefix)
+
+
+class S3CloudStore:
+    """
+    Represents the s3 cloud cache.  Provides both an Inventory that manages
+    artifact (blob) URLs, and a method to generate those URLs (for creating
+    those blobs).
+    """
+
+    def __init__(self, s3_fs, url):
+        self._fs = S3Filesystem(s3_fs, url, "/inventory")
+
+        self.inventory = Inventory("S3", "cloud", self._fs)
+        self._artifact_root_url_prefix = url + "/artifacts"
+
+    def generate_unique_url_prefix(self, provenance):
+        n_attempts = 0
+        while True:
+            # TODO This path can be anything as long as it's unique, so we
+            # could make it more human-readable.
+            url_prefix = "/".join(
+                [
+                    str(self._artifact_root_url_prefix),
+                    valid_filename_from_provenance(provenance),
+                    str(uuid4()),
+                ]
+            )
+
+            if not self._fs.exists(url_prefix):
+                return url_prefix
+            else:
+                n_attempts += 1
+                if n_attempts > 3:
+                    raise AssertionError(
+                        oneline(
+                            f"""
+                        Repeatedly failed to randomly generate a novel
+                        blob name; {self._artifact_root_url_prefix}
+                        already exists"""
+                        )
+                    )
+
+    def upload(self, path, url):
+        if path.is_dir():
+            self._fs.put_dir(path, url)
+        else:
+            assert path.is_file()
+            self._fs.put_file(path, url)
+
+    def download(self, path, url):
+        if self._fs.isdir(url):
+            self._fs.get_dir(url, path)
+        else:
+            self._fs.get_file(url, path)
+
+
+class S3Filesystem:
+    """
+    Wrapper around fsspec's S3 "FileSystem" that validates the bucket
+    and object_prefix. It also exposes extra APIs, namely, search,
+    write_bytes, and read_bytes for convenience and consistency with
+    LocalFilesystem.
+    """
+
+    def __init__(self, s3_fs, url, object_prefix_extension):
+        if url.endswith("/"):
+            url = url[:-1]
+        self.root_url = url + object_prefix_extension
+
+        bucket_name, object_prefix = bucket_and_object_names_from_s3_url(url)
+        self._bucket_name = bucket_name
+        self._object_prefix = object_prefix
+        self._fs = s3_fs
+
+    def exists(self, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.exists(url)
+
+    def search(self, url_prefix):
+        # This endpoint is a glob **/* search.
+        glob_url = url_prefix + "**/*"
+        return ["s3://" + url for url in self._fs.glob(glob_url)]
+
+    def rm(self, url):
+        self._validate_object_name_from_url(url)
+        self._fs.rm(url)
+
+    def write_bytes(self, content_bytes, url):
+        self._validate_object_name_from_url(url)
+        self._fs.pipe(url, content_bytes)
+
+    def read_bytes(self, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.cat_file(url)
+
+    def get_dir(self, url, path):
+        self._validate_object_name_from_url(url)
+        return self._fs.get(url, str(path), recursive=True)
+
+    def get_file(self, url, path):
+        self._validate_object_name_from_url(url)
+        return self._fs.get_file(url, str(path))
+
+    def put_dir(self, path, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.put(str(path), url, recursive=True)
+
+    def put_file(self, path, url):
+        self._validate_object_name_from_url(url)
+        # If s3 url is a folder, we want to write the file in the folder.
+        # There seems to be a bug in fsspec due to which, the file is uploaded
+        # as the url, instead of inside the folder. What this means is, writing
+        # a file c.json to s3://a/b/ would result in file s3://a/b instead of
+        # s3://a/b/c.json.
+        #
+        # `put` API is supposed to write the file inside the folder but it strips
+        # the ending "/" at the end in fsspec's `_strip_protocol` method.
+        if url.endswith("/"):
+            url = url + path.name
+        return self._fs.put_file(str(path), url)
+
+    def isdir(self, url):
+        self._validate_object_name_from_url(url)
+        return self._fs.isdir(url)
+
+    def _validate_object_name_from_url(self, url):
+        bucket_name, object_name = bucket_and_object_names_from_s3_url(url)
         assert bucket_name == self._bucket_name
         assert object_name.startswith(self._object_prefix)
 

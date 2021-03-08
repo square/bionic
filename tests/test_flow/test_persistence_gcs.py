@@ -1,6 +1,6 @@
 """
 This module tests Bionic's GCS caching. In order to run it, you need to set
-the `--bucket` command line option with a GCS path (like `gs://BUCKET_NAME`).
+the `--bucket` command line option with a GCS path (like `s3://BUCKET_NAME`).
 Bionic will cache its data to randomly-generated prefix in this bucket, and
 then clean it up after the tests finish.
 
@@ -23,20 +23,20 @@ from ..helpers import (
 )
 
 # This is detected by pytest and applied to all the tests in this module.
-pytestmark = pytest.mark.needs_gcs
+pytestmark = pytest.mark.needs_s3
 
 
 @pytest.fixture
-def instrumented_gcs_fs(gcs_fs, make_list):
-    return InstrumentedFilesystem(gcs_fs, make_list)
+def instrumented_s3_fs(s3_fs, make_list):
+    return InstrumentedFilesystem(s3_fs, make_list)
 
 
 @pytest.fixture
-def preset_gcs_builder(gcs_builder, instrumented_gcs_fs):
-    builder = gcs_builder
+def preset_s3_builder(s3_builder, instrumented_s3_fs):
+    builder = s3_builder
 
     builder.set("core__versioning_mode", "assist")
-    builder.set("core__persistent_cache__gcs__fs", instrumented_gcs_fs)
+    builder.set("core__persistent_cache__s3__fs", instrumented_s3_fs)
 
     builder.assign("x", 2)
     builder.assign("y", 3)
@@ -44,15 +44,15 @@ def preset_gcs_builder(gcs_builder, instrumented_gcs_fs):
     return builder
 
 
-def test_gcs_caching(
-    preset_gcs_builder,
+def test_s3_caching(
+    preset_s3_builder,
     make_counter,
-    instrumented_gcs_fs,
+    instrumented_s3_fs,
     parallel_execution_enabled,
-    clear_test_gcs_data,
+    clear_test_s3_data,
 ):
     call_counter = make_counter()
-    builder = preset_gcs_builder
+    builder = preset_s3_builder
 
     @builder
     @call_counter
@@ -62,10 +62,10 @@ def test_gcs_caching(
     artifact_regex = "^.*/xy\\.json$"
 
     def times_artifact_uploaded():
-        return instrumented_gcs_fs.matching_urls_uploaded(artifact_regex)
+        return instrumented_s3_fs.matching_urls_uploaded(artifact_regex)
 
     def times_artifact_downloaded():
-        return instrumented_gcs_fs.matching_urls_downloaded(artifact_regex)
+        return instrumented_s3_fs.matching_urls_downloaded(artifact_regex)
 
     flow = builder.build()
     local_cache_path_str = flow.get("core__persistent_cache__flow_dir")
@@ -91,7 +91,7 @@ def test_gcs_caching(
         assert times_artifact_uploaded() == 0
         assert times_artifact_downloaded() == 0
 
-    clear_test_gcs_data()
+    clear_test_s3_data()
     flow = builder.build()
 
     assert flow.get("xy") == 6
@@ -111,7 +111,7 @@ def test_gcs_caching(
         assert times_artifact_uploaded() == 0
         assert times_artifact_downloaded() == 2
 
-    clear_test_gcs_data()
+    clear_test_s3_data()
     local_wipe_path(local_cache_path_str)
     flow = builder.build()
 
@@ -123,9 +123,9 @@ def test_gcs_caching(
         assert times_artifact_downloaded() == 0
 
 
-def test_versioning(preset_gcs_builder, make_counter):
+def test_versioning(preset_s3_builder, make_counter):
     call_counter = make_counter()
-    builder = preset_gcs_builder
+    builder = preset_s3_builder
 
     @builder
     def xy(x, y):
@@ -190,9 +190,9 @@ def test_versioning(preset_gcs_builder, make_counter):
     assert call_counter.times_called() == 0
 
 
-def test_indirect_versioning(preset_gcs_builder, make_counter):
+def test_indirect_versioning(preset_s3_builder, make_counter):
     call_counter = make_counter()
-    builder = preset_gcs_builder
+    builder = preset_s3_builder
 
     @builder
     @bn.version_no_warnings(major=1)
@@ -246,9 +246,9 @@ def test_indirect_versioning(preset_gcs_builder, make_counter):
     assert call_counter.times_called() == 1
 
 
-def test_multifile_serialization(preset_gcs_builder, make_counter):
+def test_multifile_serialization(preset_s3_builder, make_counter):
     call_counter = make_counter()
-    builder = preset_gcs_builder
+    builder = preset_s3_builder
 
     dask_df = dd.from_pandas(
         df_from_csv_str(
@@ -282,9 +282,9 @@ def test_multifile_serialization(preset_gcs_builder, make_counter):
     assert call_counter.times_called() == 0
 
 
-def test_file_path_copying(preset_gcs_builder, make_counter):
+def test_file_path_copying(preset_s3_builder, make_counter):
     call_counter = make_counter()
-    builder = preset_gcs_builder
+    builder = preset_s3_builder
 
     file_contents = "DATA"
 

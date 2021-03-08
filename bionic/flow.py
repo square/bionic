@@ -34,7 +34,7 @@ from .exception import (
     AttributeValidationError,
 )
 from .executor import AipExecutor, ProcessExecutor
-from .persistence import LocalStore, GcsCloudStore, PersistentCache
+from .persistence import LocalStore, S3CloudStore, GcsCloudStore, PersistentCache
 from .provider import (
     ValueProvider,
     HashableWrapper,
@@ -44,8 +44,9 @@ from .deriver import EntityDeriver, entity_is_internal
 from .descriptors.parsing import entity_dnode_from_descriptor
 from . import decorators, decoration
 from .filecopier import FileCopier
+from .filecopier_s3 import FileCopierS3
 from .gcs import upload_to_gcs, get_gcs_fs_without_warnings
-from .utils.gcp_auth import get_gcp_project_id
+from .s3 import upload_to_s3, get_s3_fs
 from .utils.misc import (
     group_pairs,
     check_exactly_one_present,
@@ -1236,6 +1237,8 @@ class Flow:
                 values = result_paths
             elif mode == "FileCopier":
                 values = [FileCopier(path) for path in result_paths]
+            elif mode == "FileCopierS3":
+                values = [FileCopierS3(path) for path in result_paths]
             elif mode == "filename":
                 values = [str(path) for path in result_paths]
             else:
@@ -1378,12 +1381,16 @@ class Flow:
 
         if not dst_dir_path.exists() and "gs:/" not in str(dst_dir_path):
             dst_dir_path.mkdir(parents=True)
+        if not dst_dir_path.exists() and "s3:/" not in str(dst_dir_path):
+            dst_dir_path.mkdir(parents=True)
 
         dst_file_path_str = str(dst_file_path)
 
         if dst_file_path_str.startswith("gs:/"):
             # The path object combines // into /, so we revert it here
             upload_to_gcs(src_file_path, dst_file_path_str.replace("gs:/", "gs://"))
+        if dst_file_path_str.startswith("s3:/"):
+            upload_to_s3(src_file_path, dst_file_path_str.replace("s3:/", "s3://"))
         else:
             shutil.copyfile(str(src_file_path), dst_file_path_str)
 
@@ -1805,30 +1812,30 @@ def create_default_flow_config():
     ):
         return os.path.join(core__persistent_cache__global_dir, core__flow_name)
 
-    builder.assign("core__persistent_cache__gcs__bucket_name", None, persist=False)
-    builder.assign("core__persistent_cache__gcs__enabled", False, persist=False)
+    builder.assign("core__persistent_cache__s3__bucket_name", None, persist=False)
+    builder.assign("core__persistent_cache__s3__enabled", False, persist=False)
 
     @builder
     @decorators.immediate
-    def core__persistent_cache__gcs__object_path():
+    def core__persistent_cache__s3__object_path():
         import getpass
 
         return f"{getpass.getuser()}/bndata/"
 
     @builder
     @decorators.immediate
-    def core__persistent_cache__gcs__url(
-        core__persistent_cache__gcs__bucket_name,
-        core__persistent_cache__gcs__object_path,
+    def core__persistent_cache__s3__url(
+        core__persistent_cache__s3__bucket_name,
+        core__persistent_cache__s3__object_path,
     ):
-        bucket_name = core__persistent_cache__gcs__bucket_name
-        object_path_str = core__persistent_cache__gcs__object_path
+        bucket_name = core__persistent_cache__s3__bucket_name
+        object_path_str = core__persistent_cache__s3__object_path
 
         if bucket_name is None:
             return None
 
         path = PosixPath(bucket_name) / object_path_str
-        return f"gs://{path}"
+        return f"s3://{path}"
 
     @builder
     @decorators.immediate
@@ -1840,41 +1847,41 @@ def create_default_flow_config():
 
     @builder
     @decorators.immediate
-    def core__persistent_cache__gcs__fs(
-        core__persistent_cache__gcs__enabled,
+    def core__persistent_cache__s3__fs(
+        core__persistent_cache__s3__enabled,
     ):
         """
-        An fsspec filesystem corresponding to GCS, or None.
+        An fsspec filesystem corresponding to s3, or None.
 
-        This entity exists so that the GCS filesystem can be replaced for testing.
+        This entity exists so that the s3 filesystem can be replaced for testing.
         """
 
-        gcs_enabled = core__persistent_cache__gcs__enabled
-        if gcs_enabled:
-            return get_gcs_fs_without_warnings()
+        s3_enabled = core__persistent_cache__s3__enabled
+        if s3_enabled:
+            return get_s3_fs_without_warnings()
         else:
             return None
 
     @builder
     @decorators.immediate
     def core__persistent_cache__cloud_store(
-        core__persistent_cache__gcs__fs,
-        core__persistent_cache__gcs__url,
-        core__persistent_cache__gcs__enabled,
+        core__persistent_cache__s3__fs,
+        core__persistent_cache__s3__url,
+        core__persistent_cache__s3__enabled,
     ):
-        gcs_url = core__persistent_cache__gcs__url
-        gcs_enabled = core__persistent_cache__gcs__enabled
-        gcs_fs = core__persistent_cache__gcs__fs
-        if gcs_enabled:
-            if gcs_url is None:
+        s3_url = core__persistent_cache__s3__url
+        s3_enabled = core__persistent_cache__s3__enabled
+        s3_fs = core__persistent_cache__s3__fs
+        if s3_enabled:
+            if s3_url is None:
                 raise AssertionError(
-                    "core__persistent_cache__gcs__url is None, but needs a value"
+                    "core__persistent_cache__s3__url is None, but needs a value"
                 )
-            if gcs_fs is None:
+            if s3_fs is None:
                 raise AssertionError(
-                    "core__persistent_cache__gcs__fs is None, but needs a value"
+                    "core__persistent_cache__s3__fs is None, but needs a value"
                 )
-            return GcsCloudStore(gcs_fs, gcs_url)
+            return S3CloudStore(s3_fs, s3_url)
         else:
             return None
 
@@ -1904,7 +1911,10 @@ def create_default_flow_config():
         return ProcessExecutor(core__parallel_execution__worker_count)
 
     builder.assign("core__aip_execution__enabled", False, persist=False)
-    builder.assign("core__aip_execution__docker_image_name", None, persist=False)
+    builder.assign("core__aip_execution__s3_project_name", None, persist=False)
+    builder.assign(
+        "core__aip_execution__docker_image_name", "bionic:latest", persist=False
+    )
     builder.assign("core__aip_execution__poll_period_seconds", 10, persist=False)
 
     @builder
@@ -1924,11 +1934,11 @@ def create_default_flow_config():
     @builder
     @decorators.immediate
     def core__aip_execution__docker_image_uri(
-        core__aip_execution__gcp_project_id,
+        core__aip_execution__s3_project_name,
         core__aip_execution__docker_image_name,
     ):
         image_name = core__aip_execution__docker_image_name
-        project_id = core__aip_execution__gcp_project_id
+        project = core__aip_execution__s3_project_name
 
         if image_name is None or project_id is None:
             return None
@@ -1939,15 +1949,30 @@ def create_default_flow_config():
     @decorators.immediate
     def core__aip_execution__config(
         core__aip_execution__enabled,
-        core__aip_execution__gcp_project_id,
+        core__aip_execution__s3_project_name,
+        core__aip_execution__docker_image_uri,
         core__aip_execution__poll_period_seconds,
         core__flow_name,
     ):
         if not core__aip_execution__enabled:
             return None
+        if core__aip_execution__s3_project_name is None:
+            error_message = """
+                core__aip_execution__s3_project_name is None, but needs a
+                value. AIP uses project to verify IAM permissions.
+            """
+            raise AssertionError(oneline(error_message))
+        if core__aip_execution__docker_image_uri is None:
+            error_message = """
+                core__aip_execution__docker_image_uri is None, but
+                needs a value. AIP uses the docker image from the
+                Container Registry to run jobs and workers.
+            """
+            raise AssertionError(oneline(error_message))
         return AipConfig(
             uuid=f"{core__flow_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            project_id=core__aip_execution__gcp_project_id,
+            project_name=core__aip_execution__s3_project_name,
+            image_uri=core__aip_execution__docker_image_uri,
             poll_period_seconds=core__aip_execution__poll_period_seconds,
         )
 
@@ -1969,7 +1994,7 @@ def create_default_flow_config():
     @builder
     @decorators.immediate
     def core__aip_executor(
-        core__persistent_cache__gcs__fs,
+        core__persistent_cache__s3__fs,
         core__aip_client,
         core__aip_execution__enabled,
         core__aip_execution__config,
@@ -1982,10 +2007,10 @@ def create_default_flow_config():
                 core__aip_client is None, but needs a value.
             """
             raise AssertionError(oneline(error_message))
-        if core__persistent_cache__gcs__fs is None:
+        if core__persistent_cache__s3__fs is None:
             error_message = """
                 core__aip_execution__enabled is enabled, but
-                core__persistent_cache__gcs__fs is None.
+                core__persistent_cache__s3__fs is None.
             """
             raise AssertionError(oneline(error_message))
 
@@ -2008,7 +2033,7 @@ def create_default_flow_config():
         # users have to wait till job submission to get the error back that the
         # required libraries are not installed.
         return AipExecutor(
-            gcs_fs=core__persistent_cache__gcs__fs,
+            s3_fs=core__persistent_cache__s3__fs,
             aip_client=core__aip_client,
             aip_config=core__aip_execution__config,
             docker_image_uri_func=docker_image_uri_func,

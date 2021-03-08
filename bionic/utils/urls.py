@@ -8,7 +8,8 @@ from urllib.parse import unquote, urlparse
 
 FILE_SCHEME = "file"
 GCS_SCHEME = "gs"
-SUPPORTED_SCHEMES = [FILE_SCHEME, GCS_SCHEME]
+S3_SCHEME = "s3"
+SUPPORTED_SCHEMES = [FILE_SCHEME, GCS_SCHEME, S3_SCHEME]
 
 
 def is_file_url(url):
@@ -19,6 +20,11 @@ def is_file_url(url):
 def is_gcs_url(url):
     result = urlparse(url)
     return result.scheme == GCS_SCHEME
+
+
+def is_s3_url(url):
+    result = urlparse(url)
+    return result.scheme == S3_SCHEME
 
 
 def is_absolute_url(url):
@@ -42,6 +48,14 @@ def url_from_path(path):
 def bucket_and_object_names_from_gs_url(url):
     if not is_gcs_url(url):
         raise ValueError(f'url must have schema "{GCS_SCHEME}": got {url}')
+    result = urlparse(url)
+    result_path = result.path
+    return result.netloc, result_path[1:]
+
+
+def bucket_and_object_names_from_s3_url(url):
+    if not is_s3_url(url):
+        raise ValueError(f'url must have schema "{S3_SCHEME}": got {url}')
     result = urlparse(url)
     result_path = result.path
     return result.netloc, result_path[1:]

@@ -69,22 +69,22 @@ def test_aip_jobs(aip_builder, log_checker):
     assert builder.build().get("y1") == 16
 
     log_checker.expect_regex(
-        r"Staging AI Platform task .* at gs://.*bionic_y1.*",
+        r"Staging AI Platform task .* at s3://.*bionic_y1.*",
         r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_y1.*",
         r"Submitting AI Platform task .*\(name='y1'\).*CaseKey\(x1=1\).*",
         r"Computed   y1\(x1=1\) using AI Platform",
-        r"Downloading y1\(x1=1\) from GCS \.\.\.",
+        r"Downloading y1\(x1=1\) from S3 \.\.\.",
     )
 
     assert builder.build().get("total") == 90
 
     log_checker.expect_regex(
         r"Loaded     y1\(x1=1\) from disk cache",
-        r"Staging AI Platform task .* at gs://.*bionic_y2.*",
+        r"Staging AI Platform task .* at s3://.*bionic_y2.*",
         r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_y2.*",
         r"Submitting AI Platform task .*\(name='y2'\).*CaseKey\(x1=1\).*",
         r"Computed   y2\(x1=1\) using AI Platform",
-        r"Downloading y2\(x1=1\) from GCS \.\.\.",
+        r"Downloading y2\(x1=1\) from S3 \.\.\.",
         r"Computed   y3\(x1=1\)",
         r"Computed   y4\(x1=1\)",
         r"Computed   y5\(x1=1\)",
@@ -106,7 +106,7 @@ def test_aip_fail(aip_builder, log_checker):
         builder.build().get("x_plus_one")
 
     log_checker.expect_regex(
-        r"Staging AI Platform task .* at gs://.*bionic_x_plus_one.*",
+        r"Staging AI Platform task .* at s3://.*bionic_x_plus_one.*",
         r"Started AI Platform task: https://console.cloud.google.com/ai-platform/jobs/.*bionic_x_plus_one.*",
         r"Submitting AI Platform task .*\(name='x_plus_one'\).*CaseKey\(x=1\).*",
         r".*error while doing remote computation for x_plus_one\(x=1\).*AipError.*",

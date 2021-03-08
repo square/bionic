@@ -74,14 +74,14 @@ class Task:
         # In a future version it might be better to make this path
         # specified by the flow, so that it can be inside a GCS cache
         # location and different file types.
-        return f"gs://{self.config.project_id}/bionic/{self.config.uuid}/{self.name}-inputs.cloudpickle"
+        return f"s3://{self.config.project_name}/bionic/{self.config.uuid}/{self.name}-inputs.cloudpickle"
 
     @property
     def output_uri(self) -> str:
         # In a future version it might be better to make this path
         # specified by the flow, so that it can be inside a GCS cache
         # location and different file types.
-        return f"gs://{self.config.project_id}/bionic/{self.config.uuid}/{self.name}-output.cloudpickle"
+        return f"s3://{self.config.project_name}/bionic/{self.config.uuid}/{self.name}-output.cloudpickle"
 
     def _ai_platform_job_spec(self):
         """Conversion from our task data model to a job request on ai platform"""
@@ -114,17 +114,17 @@ class Task:
 
         return output
 
-    def _stage(self, gcs_fs):
+    def _stage(self, s3_fs):
         cloudpickle = import_optional_dependency("cloudpickle")
 
         path = self.inputs_uri
         logging.info(f"Staging AI Platform task {self.name} at {path}")
 
-        with gcs_fs.open(path, "wb") as f:
+        with s3_fs.open(path, "wb") as f:
             cloudpickle.dump(self, f)
 
-    def submit(self, gcs_fs, aip_client):
-        self._stage(gcs_fs)
+    def submit(self, s3_fs, aip_client):
+        self._stage(s3_fs)
         spec = self._ai_platform_job_spec()
 
         logging.info(f"Submitting AI Platform task on {self.config.project_id}: {self}")
@@ -138,7 +138,7 @@ class Task:
         url = f"https://console.cloud.google.com/ai-platform/jobs/{self.job_id}"
         logging.info(f"Started AI Platform task: {url}")
 
-    def wait_for_results(self, gcs_fs, aip_client):
+    def wait_for_results(self, s3_fs, aip_client):
         state, error = self._get_state_and_error(aip_client)
         while state.is_executing():
             time.sleep(self.config.poll_period_seconds)
@@ -148,7 +148,7 @@ class Task:
         if state is not State.SUCCEEDED:
             raise AipError(f"{self.job_id}: " + str(error))
 
-        with gcs_fs.open(self.output_uri, "rb") as f:
+        with s3_fs.open(self.output_uri, "rb") as f:
             return pickle.load(f)
 
     def _get_state_and_error(self, aip_client):

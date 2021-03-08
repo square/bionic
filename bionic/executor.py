@@ -31,14 +31,8 @@ class AipExecutor:
 
     NON_ALPHANUMERIC_PATTERN = re.compile(r"\W")
 
-    def __init__(
-        self,
-        gcs_fs,
-        aip_client,
-        aip_config: Config,
-        docker_image_uri_func: Callable[[], str],
-    ):
-        self._gcs_fs = gcs_fs
+    def __init__(self, s3_fs, aip_client, aip_config):
+        self._s3_fs = s3_fs
         self._aip_client = aip_client
         self._aip_config = aip_config
         self._docker_image_uri_func = docker_image_uri_func
@@ -51,11 +45,10 @@ class AipExecutor:
             task_config=task_config,
             function=partial(fn, *args, **kwargs),
         )
-
-        task.submit(gcs_fs=self._gcs_fs, aip_client=self._aip_client)
+        task.submit(s3_fs=self._s3_fs, aip_client=self._aip_client)
         return ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="aip-wait-results"
-        ).submit(task.wait_for_results, self._gcs_fs, self._aip_client)
+        ).submit(task.wait_for_results, self._s3_fs, self._aip_client)
 
     def _create_job_name(self, task_key):
         # AIP job names must be alphanumeric (including underscore) and start

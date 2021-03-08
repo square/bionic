@@ -4,8 +4,8 @@ from bionic.persistence import relativize_url, derelativize_url
 rel_artifact_url = "../artifacts/artifact.pkl"
 abs_artifact_url = "file:///Users/User/cache/artifacts/artifact.pkl"
 abs_metadata_url = "file:///Users/User/cache/metadata/metadata.yaml"
-gcs_artifact_url = "gs://my_bucket/cache/artifacts/artifact.pkl"
-gcs_metadata_url = "gs://my_bucket/cache/metadata/metadata.yaml"
+gcs_artifact_url = "s3://my_bucket/cache/artifacts/artifact.pkl"
+gcs_metadata_url = "s3://my_bucket/cache/metadata/metadata.yaml"
 
 
 # file url tests
