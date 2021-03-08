@@ -164,7 +164,8 @@ class CodeHasher:
             add_to_hash(
                 hash_accumulator,
                 type_prefix=TypePrefix.STRING,
-                obj_bytes=obj.encode(),
+                # Avoid any encoding errors by not using utf-8.
+                obj_bytes=obj.encode("raw_unicode_escape"),
             )
 
         elif isinstance(obj, bool):

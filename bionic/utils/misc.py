@@ -190,7 +190,7 @@ def update_hash(hash_, obj):
         hash_.update(b"N")
     elif isinstance(obj, str):
         hash_.update(b"S")
-        hash_.update(obj.encode("utf8"))
+        hash_.update(obj.encode("raw_unicode_escape"))
     elif isinstance(obj, bytes):
         hash_.update(b"B")
         hash_.update(obj.encode("utf8"))

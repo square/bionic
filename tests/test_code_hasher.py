@@ -280,6 +280,7 @@ def test_code_hasher():
         "1",
         "123",
         "1.23",
+        "invalid utf8 \udc80",
         0,
         1,
         123,
