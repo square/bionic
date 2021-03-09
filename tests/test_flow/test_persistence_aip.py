@@ -1,9 +1,7 @@
-import os
 import subprocess
 from textwrap import dedent
 
 import pytest
-from git import Repo
 
 import bionic as bn
 
@@ -137,18 +135,7 @@ def test_fix_pip_requirements():
     assert fix_pip_requirements(pip_requirements) == fixed_pip_requirements
 
 
-def git_repo_is_clean_and_pushed():
-    repo = Repo(os.getcwd(), search_parent_directories=True)
-    return (
-        not repo.is_dirty()
-        and len(repo.git.branch("-r", "--contains", repo.head.ref.object.hexsha)) > 0
-    )
-
-
-@pytest.mark.skipif(
-    not git_repo_is_clean_and_pushed(),
-    reason="current commit needs to be available in remote repo for docker access",
-)
+@pytest.mark.needs_aip_and_docker_commit_access
 @pytest.mark.real_gcp_only
 @pytest.mark.no_parallel
 def test_aip_with_docker_build(aip_builder):
