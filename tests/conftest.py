@@ -1,4 +1,9 @@
+import os
+
 import pytest
+from git import Repo
+
+from bionic.utils.misc import oneline
 
 
 @pytest.fixture(autouse=True)
@@ -46,6 +51,10 @@ def pytest_configure(config):
     )
     add_mark("real_gcp_only", "runs on real GCP only")
     add_mark("fake_gcp_only", "runs on fake GCP only")
+    add_mark(
+        "needs_aip_and_docker_commit_access",
+        "requires AIP and docker access to the current git commit",
+    )
 
     # These markers are added automatically based on parametric fixtures.
     add_mark("serial", "will run using serial execution")
@@ -55,6 +64,14 @@ def pytest_configure(config):
 
     # This marker is added automatically based on other markers.
     add_mark("baseline", "runs by default when no options are passed to pytest")
+
+
+def is_current_commit_remotely_available():
+    repo = Repo(os.getcwd(), search_parent_directories=True)
+    return (
+        not repo.is_dirty()
+        and len(repo.git.branch("-r", "--contains", repo.head.ref.object.hexsha)) > 0
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -107,6 +124,23 @@ def pytest_collection_modifyitems(config, items):
 
         elif "needs_parallel" in item.keywords:
             continue
+
+        if "needs_aip_and_docker_commit_access" in item.keywords:
+            if not has_aip:
+                item.add_marker(skip_needs_aip)
+            elif not is_current_commit_remotely_available():
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason=oneline(
+                            """
+                        only runs when --bucket and --aip are set and the
+                        current git commit is available for access by docker
+                        build; that means the commit is pushed to the remote
+                        repository
+                    """
+                        )
+                    )
+                )
 
         if item_is_baseline:
             item.add_marker(pytest.mark.baseline)
