@@ -557,6 +557,15 @@ def test_class_references():
     check_hash_equivalence([[type(1), type(2)], [type("str1"), type("str2")]])
 
 
+def test_same_class_different_module():
+    from . import helpers
+
+    class EmptyClass:
+        pass
+
+    check_hash_equivalence([[EmptyClass, helpers.EmptyClass]])
+
+
 def test_changes_in_references():
     v = 10
 
