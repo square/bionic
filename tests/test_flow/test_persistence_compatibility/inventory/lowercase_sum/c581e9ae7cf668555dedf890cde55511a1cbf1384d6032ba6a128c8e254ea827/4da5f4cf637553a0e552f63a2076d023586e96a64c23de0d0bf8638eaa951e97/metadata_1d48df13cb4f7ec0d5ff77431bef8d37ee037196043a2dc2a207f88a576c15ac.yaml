@@ -1,0 +1,47 @@
+artifact:
+  content_hash: 53f0c7cbf9464530929bbdb5991d003f15e53687898ab690af83ee8ea90c1533
+  url: ../../../../artifacts/lowercase_sum/663d2b29-02b8-40b4-b6fe-7b93a7f1fda7/lowercase_sum.json
+descriptor: lowercase_sum
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - lowercase_chars
+    - 9ed0cd8e69
+  code_fingerprint:
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 1d48df13cb4f7ec0d5ff77431bef8d37ee037196043a2dc2a207f88a576c15ac
+    functional_hash: c581e9ae7cf668555dedf890cde55511a1cbf1384d6032ba6a128c8e254ea827
+    nominal_hash: 4da5f4cf637553a0e552f63a2076d023586e96a64c23de0d0bf8638eaa951e97
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - lowercase_chars
+        - 9ed0cd8e69
+      code_fingerprint:
+        bytecode_hash: b'\xd8!\\\xa0wX\x8d\x1c\x06\xb8AK\xaf\xde\xa8\xc2'
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        functional_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        nominal_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        provenance: null
+      descriptor: <lowercase_sum>
+      exact_hash: 1d48df13cb4f7ec0d5ff77431bef8d37ee037196043a2dc2a207f88a576c15ac
+      functional_hash: c581e9ae7cf668555dedf890cde55511a1cbf1384d6032ba6a128c8e254ea827
+      nominal_hash: 4da5f4cf637553a0e552f63a2076d023586e96a64c23de0d0bf8638eaa951e97
+  descriptor: lowercase_sum
+  exact_hash: 1d48df13cb4f7ec0d5ff77431bef8d37ee037196043a2dc2a207f88a576c15ac
+  functional_hash: c581e9ae7cf668555dedf890cde55511a1cbf1384d6032ba6a128c8e254ea827
+  nominal_hash: 4da5f4cf637553a0e552f63a2076d023586e96a64c23de0d0bf8638eaa951e97

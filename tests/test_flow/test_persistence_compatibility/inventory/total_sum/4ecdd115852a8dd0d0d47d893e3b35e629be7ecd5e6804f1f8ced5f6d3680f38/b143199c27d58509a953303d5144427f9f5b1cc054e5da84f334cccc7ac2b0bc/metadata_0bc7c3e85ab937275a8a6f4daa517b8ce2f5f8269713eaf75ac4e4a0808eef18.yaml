@@ -1,0 +1,57 @@
+artifact:
+  content_hash: 927b8935346c55e24d2cf6de1a771cf018fb38df4bd182acad078557b88a773d
+  url: ../../../../artifacts/total_sum/2192a5f8-4373-44f3-997f-986a55b8c565/total_sum.json
+descriptor: total_sum
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - lowercase_chars
+    - 9ed0cd8e69
+  - !!python/tuple
+    - uppercase_chars
+    - e99019711a
+  code_fingerprint:
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 0bc7c3e85ab937275a8a6f4daa517b8ce2f5f8269713eaf75ac4e4a0808eef18
+    functional_hash: 4ecdd115852a8dd0d0d47d893e3b35e629be7ecd5e6804f1f8ced5f6d3680f38
+    nominal_hash: b143199c27d58509a953303d5144427f9f5b1cc054e5da84f334cccc7ac2b0bc
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - lowercase_chars
+        - 9ed0cd8e69
+      - !!python/tuple
+        - uppercase_chars
+        - e99019711a
+      code_fingerprint:
+        bytecode_hash: b'\xf9\x8a\xd9\xda\xf2\xc3Hb<\xa5\xde\xc2g\x04xA'
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: 53f0c7cbf9464530929bbdb5991d003f15e53687898ab690af83ee8ea90c1533
+        functional_hash: 53f0c7cbf9464530929bbdb5991d003f15e53687898ab690af83ee8ea90c1533
+        nominal_hash: 53f0c7cbf9464530929bbdb5991d003f15e53687898ab690af83ee8ea90c1533
+        provenance: null
+      - exact_hash: cca69c8993ccba521327129f3f6d91ff72b7b1fb625ce355541dc349be74668b
+        functional_hash: cca69c8993ccba521327129f3f6d91ff72b7b1fb625ce355541dc349be74668b
+        nominal_hash: cca69c8993ccba521327129f3f6d91ff72b7b1fb625ce355541dc349be74668b
+        provenance: null
+      descriptor: <total_sum>
+      exact_hash: 0bc7c3e85ab937275a8a6f4daa517b8ce2f5f8269713eaf75ac4e4a0808eef18
+      functional_hash: 4ecdd115852a8dd0d0d47d893e3b35e629be7ecd5e6804f1f8ced5f6d3680f38
+      nominal_hash: b143199c27d58509a953303d5144427f9f5b1cc054e5da84f334cccc7ac2b0bc
+  descriptor: total_sum
+  exact_hash: 0bc7c3e85ab937275a8a6f4daa517b8ce2f5f8269713eaf75ac4e4a0808eef18
+  functional_hash: 4ecdd115852a8dd0d0d47d893e3b35e629be7ecd5e6804f1f8ced5f6d3680f38
+  nominal_hash: b143199c27d58509a953303d5144427f9f5b1cc054e5da84f334cccc7ac2b0bc
