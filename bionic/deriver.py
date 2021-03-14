@@ -152,6 +152,7 @@ class EntityDeriver:
             tasks = self._get_or_create_dinfo_for_dnode(dnode).tasks
             descriptor = dnode.to_descriptor()
             doc = self._obtain_metadata_for_dnode(dnode).doc
+            should_persist = self._obtain_metadata_for_dnode(dnode).should_persist
             should_collapse = should_collapse_dnode(dnode)
 
             for task_ix, task in enumerate(
@@ -171,6 +172,7 @@ class EntityDeriver:
                     case_key=task.key.case_key,
                     task_ix=task_ix,
                     doc=doc,
+                    should_persist=should_persist,
                 )
 
                 for dep_state in state.dep_states:

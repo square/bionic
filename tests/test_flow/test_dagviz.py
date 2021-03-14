@@ -93,13 +93,20 @@ def test_dot_names_and_colors(flow_dot):
 
 def test_dot_tooltips(flow_dot):
     nodes = nodes_by_name_from_dot(flow_dot)
-    assert nodes['"last_name"'].get_tooltip() is None
-    assert nodes['"all_names"'].get_tooltip() == "Comma-separated list of names."
-    assert nodes['"initials[0]"'].get_tooltip() == "Just the initials."
-    assert nodes['"initials[1]"'].get_tooltip() == "Just the initials."
+    assert nodes['"last_name"'].get_tooltip() == "Persisted: True"
+    assert (
+        nodes['"all_names"'].get_tooltip()
+        == "Comma-separated list of names.\n\nPersisted: True"
+    )
+    assert (
+        nodes['"initials[0]"'].get_tooltip() == "Just the initials.\n\nPersisted: True"
+    )
+    assert (
+        nodes['"initials[1]"'].get_tooltip() == "Just the initials.\n\nPersisted: True"
+    )
     assert (
         nodes['"<full_name, initials>[0]"'].get_tooltip()
-        == "(Intermediate value) A Python tuple with 2 values."
+        == "(Intermediate value) A Python tuple with 2 values.\n\nPersisted: False"
     )
 
 
