@@ -1,0 +1,47 @@
+artifact:
+  content_hash: a3e8bae3649bc57d44b928616c9a641643e36bd26e13467f24dffe7aba3eaff2
+  url: ../../../../artifacts/lowercase_sum/de5fbcf9-04cb-4d97-904d-143f6026cc29/lowercase_sum.json
+descriptor: lowercase_sum
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - lowercase_chars
+    - 9ed0cd8e69
+  code_fingerprint:
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 2e2d5764818cb6e62e45750c7db820213bd83ed229cf9dc872cd63b9c2c71748
+    functional_hash: 16a5020c0dd7dafae91469e1354fcb6da36749f6463140b227f9728119f37f18
+    nominal_hash: 4e72ffc669b8623d8e467c17c4ceaa1765d1a091af6dd952288758b8d919ff26
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - lowercase_chars
+        - 9ed0cd8e69
+      code_fingerprint:
+        bytecode_hash: b'\xd8!\\\xa0wX\x8d\x1c\x06\xb8AK\xaf\xde\xa8\xc2'
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        functional_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        nominal_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        provenance: null
+      descriptor: <lowercase_sum>
+      exact_hash: 2e2d5764818cb6e62e45750c7db820213bd83ed229cf9dc872cd63b9c2c71748
+      functional_hash: 16a5020c0dd7dafae91469e1354fcb6da36749f6463140b227f9728119f37f18
+      nominal_hash: 4e72ffc669b8623d8e467c17c4ceaa1765d1a091af6dd952288758b8d919ff26
+  descriptor: lowercase_sum
+  exact_hash: 2e2d5764818cb6e62e45750c7db820213bd83ed229cf9dc872cd63b9c2c71748
+  functional_hash: 16a5020c0dd7dafae91469e1354fcb6da36749f6463140b227f9728119f37f18
+  nominal_hash: 4e72ffc669b8623d8e467c17c4ceaa1765d1a091af6dd952288758b8d919ff26

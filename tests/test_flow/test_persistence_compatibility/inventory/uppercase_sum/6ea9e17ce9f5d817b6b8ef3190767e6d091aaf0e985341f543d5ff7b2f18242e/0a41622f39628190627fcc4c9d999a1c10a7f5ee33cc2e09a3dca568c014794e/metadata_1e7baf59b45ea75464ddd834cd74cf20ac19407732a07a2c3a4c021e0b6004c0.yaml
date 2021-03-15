@@ -1,0 +1,47 @@
+artifact:
+  content_hash: 03cd8df2dd4256cd04907f6b281b2116f9188b3f32cd99d7e6d98f81b9a0e675
+  url: ../../../../artifacts/uppercase_sum/630de9d4-6303-482a-90f2-4b4a9f9e53c5/uppercase_sum.json
+descriptor: uppercase_sum
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - uppercase_chars
+    - e99019711a
+  code_fingerprint:
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 1e7baf59b45ea75464ddd834cd74cf20ac19407732a07a2c3a4c021e0b6004c0
+    functional_hash: 6ea9e17ce9f5d817b6b8ef3190767e6d091aaf0e985341f543d5ff7b2f18242e
+    nominal_hash: 0a41622f39628190627fcc4c9d999a1c10a7f5ee33cc2e09a3dca568c014794e
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - uppercase_chars
+        - e99019711a
+      code_fingerprint:
+        bytecode_hash: b'\xc0j\x18\x8f\xeef\xff\x0e\x89%\xa8z#\x16\x8d\xc9'
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: 95f21ce003ce31aba89385b8f7bd69e443fa1376763b8f9168313d778950e2ec
+        functional_hash: 95f21ce003ce31aba89385b8f7bd69e443fa1376763b8f9168313d778950e2ec
+        nominal_hash: 95f21ce003ce31aba89385b8f7bd69e443fa1376763b8f9168313d778950e2ec
+        provenance: null
+      descriptor: <uppercase_sum>
+      exact_hash: 1e7baf59b45ea75464ddd834cd74cf20ac19407732a07a2c3a4c021e0b6004c0
+      functional_hash: 6ea9e17ce9f5d817b6b8ef3190767e6d091aaf0e985341f543d5ff7b2f18242e
+      nominal_hash: 0a41622f39628190627fcc4c9d999a1c10a7f5ee33cc2e09a3dca568c014794e
+  descriptor: uppercase_sum
+  exact_hash: 1e7baf59b45ea75464ddd834cd74cf20ac19407732a07a2c3a4c021e0b6004c0
+  functional_hash: 6ea9e17ce9f5d817b6b8ef3190767e6d091aaf0e985341f543d5ff7b2f18242e
+  nominal_hash: 0a41622f39628190627fcc4c9d999a1c10a7f5ee33cc2e09a3dca568c014794e
