@@ -48,6 +48,16 @@ jobs:
       with:
         service_account_key: ${{ secrets.GCP_SA_KEY }}
         export_default_credentials: true
+    - name: Set up GCS bucket argument
+      # If we have access to a GCS bucket, we want to run our tests with it.
+      # But if we were triggered from a pull request (as opposed to a push) then
+      # we won't have access to any secrets, in which case we need to omit the
+      # `--bucket` argument.
+      # Unfortunately this seems to be the simplest way to make this work. See
+      #    https://github.community/t/how-can-i-test-if-secrets-are-available-in-an-action/17911
+      # for more details.
+      run: |
+        ([ -z ${{ secrets.GCP_BUCKET }} ] || echo "BUCKET_ARG=--bucket=${{ secrets.GCP_BUCKET }}" >> $GITHUB_ENV)
     - name: Lint with flake8 and black
       run: |
         flake8
@@ -55,11 +65,11 @@ jobs:
     - name: Run baseline tests
       # Running GCS tests in CI costs less than a dollar per day on average.
       run: |
-        pytest --bucket=${{ secrets.GCP_BUCKET }}
+        pytest $BUCKET_ARG
     - name: Run extra tests (sharded)
       # Running each test on each Python version is expensive, so we compromise: we run
       # the baseline tests above on each version, since they're fast and hopefully
       # comprehensive enough to shake out any version-specific bugs; and we run each of
       # the other tests on just one Python version, reducing the total build time.
       run: |
-        pytest --bucket=${{ secrets.GCP_BUCKET }} --parallel --slow -m 'not baseline' --num-shards 3 --shard-id ${{matrix.shard-id}}
+        pytest $BUCKET_ARG --parallel --slow -m 'not baseline' --num-shards 3 --shard-id ${{matrix.shard-id}}
