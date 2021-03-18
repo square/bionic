@@ -419,7 +419,9 @@ class CodeHasher:
             for (m_name, m_value) in inspect.getmembers(obj)
             if not (
                 inspect.isgetsetdescriptor(m_value)
-                or m_name in {"__class__", "__dict__", "__members__"}
+                # We ignore __module__ because it can vary depending on whether
+                # that class's module was run as __main__.
+                or m_name in {"__class__", "__dict__", "__members__", "__module__"}
             )
         ]
         add_to_hash(

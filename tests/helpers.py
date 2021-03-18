@@ -333,3 +333,9 @@ def import_code(code, vars_dict={}, is_module_internal=False):
     module.__dict__.update(vars_dict)
     exec(code, module.__dict__)
     return module
+
+
+# This exists because we have a test case that requires two identical classes
+# defined in different modules.
+class EmptyClass:
+    pass

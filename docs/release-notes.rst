@@ -65,8 +65,8 @@ For each release, we list the following types of change (in this order):
 - **Development Changes**: Significant changes to Bionic's development process, such
   as changes to our Pytest configuration or our Continuous Integration ("CI").
 
-.. Upcoming Version (Not Yet Released)
-.. -----------------------------------
+Upcoming Version (Not Yet Released)
+-----------------------------------
 
 Improvements
 ............
@@ -79,6 +79,12 @@ Improvements
    changes are added. This way, the "Upcoming Version" section will be never be visible
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
+
+Bug Fixes
+---------
+
+- Fixes an issue where automatic versioning erroneously treated classes as
+  having changed if the module they were defined in was run as ``__main__``.
 
 0.10.0 (Feb 23, 2021)
 --------------------
