@@ -126,9 +126,21 @@ def test_wrong_number_of_outputs(builder):
 def test_non_sequence_outputs(builder):
     @builder
     @bn.outputs("a", "b")
-    def three_outputs():
+    def non_sequence_output():
         return 1
 
     flow = builder.build()
     with pytest.raises(EntityValueError):
         flow.get("a")
+
+
+def test_non_sequence_outputs_message(builder):
+    @builder
+    @bn.outputs("a")
+    def non_sequence_output():
+        return 7
+
+    flow = builder.build()
+    with pytest.raises(EntityValueError) as e:
+        flow.get("a")
+        assert "did you mean to use @output instead of @outputs?" in e.value

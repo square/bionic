@@ -107,6 +107,11 @@ Improvements
   serialized non-deterministically, which could lead to downstream values being
   spuriously recomputed. (Unfortunately this fix doesn't help with other objects that
   happen to contain sets.)
+- Clarified an `error message <https://github.com/square/bionic/issues/331>`__ that
+  occurs when users pass a single argument to @bn.outputs instead of using @bn.output.
+  TupleProtocol's validate method now provides more information about what is expected
+  and, in the case when a user passes a single argument, asks if the user meant to
+  use @bn.output instead.
 
 Bug Fixes
 .........
