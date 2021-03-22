@@ -68,12 +68,6 @@ For each release, we list the following types of change (in this order):
 Upcoming Version (Not Yet Released)
 -----------------------------------
 
-Improvements
-............
-
-- Added a line to the SVG DAG visualization mouse hover tooltips indicating whether 
-  an entity is persisted.
-
 .. Record any notable changes in this section. When we update the current version,
    add a new version heading below, and then comment out the heading above until more
    changes are added. This way, the "Upcoming Version" section will be never be visible
@@ -81,13 +75,29 @@ Improvements
    "latest" docs (corresponding to the master branch).
 
 Bug Fixes
----------
+.........
 
 - Fixes an issue where automatic versioning erroneously treated classes as
   having changed if the module they were defined in was run as ``__main__``.
+- Fixed a bug in Bionic's automatic versioning where Bionic would warn about
+  dynamic imports even when warning suppression was requested. The warning
+  messages themselves were also improved.
+
+Improvements
+............
+
+- Added a line to the SVG DAG visualization mouse hover tooltips indicating
+  whether an entity is persisted.
+- Clarified an `error message
+  <https://github.com/square/bionic/issues/331>`__ that occurs when users pass
+  a single argument to ``@bn.outputs`` instead of using ``@bn.output``. The
+  error message now provides more information about what is expected and, in
+  the case when a user passes a single argument, asks if the user meant to
+  use ``@bn.output`` instead.
+
 
 0.10.0 (Feb 23, 2021)
---------------------
+---------------------
 
 New Features
 ............
@@ -107,11 +117,6 @@ Improvements
   serialized non-deterministically, which could lead to downstream values being
   spuriously recomputed. (Unfortunately this fix doesn't help with other objects that
   happen to contain sets.)
-- Clarified an `error message <https://github.com/square/bionic/issues/331>`__ that
-  occurs when users pass a single argument to @bn.outputs instead of using @bn.output.
-  TupleProtocol's validate method now provides more information about what is expected
-  and, in the case when a user passes a single argument, asks if the user meant to
-  use @bn.output instead.
 
 Bug Fixes
 .........

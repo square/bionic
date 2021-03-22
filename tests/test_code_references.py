@@ -14,9 +14,9 @@ from bionic.utils.misc import oneline
 global_val = 42
 
 
-def get_references(func):
+def get_references(func, **kwargs):
     context = get_code_context(func)
-    return get_referenced_objects(func.__code__, context)
+    return get_referenced_objects(func.__code__, context, **kwargs)
 
 
 def test_bytecode_instructions():
@@ -50,8 +50,14 @@ def test_empty_references():
 
         return warnings
 
-    with pytest.warns(UserWarning, match=".*imports the 'warnings' module.*"):
+    with pytest.warns(
+        UserWarning, match="function 'x'.*imports the 'warnings' module.*"
+    ):
         assert get_references(x) == []
+
+    with pytest.warns(None) as recorded_warnings:
+        assert get_references(x, suppress_warnings=True) == []
+    assert len(recorded_warnings) == 0
 
 
 def test_global_references():

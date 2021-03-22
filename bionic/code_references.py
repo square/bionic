@@ -84,7 +84,27 @@ def get_code_context(func) -> CodeContext:
     if inspect.ismethod(func):
         varnames = {"self": func.__self__}
 
-    return CodeContext(globals=func.__globals__, cells=cells, varnames=varnames)
+    return CodeContext(
+        globals=func.__globals__,
+        cells=cells,
+        varnames=varnames,
+    )
+
+
+def make_suppression_advice(func_name=None):
+    message = """
+    To suppress this warning, apply the following decorator to the top-level
+    Bionic entity function:
+    @version(suppress_bytecode_warnings=True).
+    """
+    if func_name is not None:
+        message = (
+            f"""
+        The issue is in the {func_name!s} function.
+        """
+            + message
+        )
+    return message
 
 
 def get_referenced_objects(code, context, suppress_warnings=False):
@@ -167,11 +187,7 @@ def get_referenced_objects(code, context, suppress_warnings=False):
                     Please raise a new issue at
                     https://github.com/square/bionic/issues to let us know.
                     """
-                message += """
-                You can also suppress this warning by removing the
-                `suppress_bytecode_warnings` override from the
-                `@version` decorator on the corresponding function.
-                """
+                message += make_suppression_advice(code.co_name)
                 warnings.warn(oneline(message))
             # Sometimes starts_line is None, in which case let's just remember the
             # previous start_line (if any). This way when there's an exception we at
@@ -206,18 +222,18 @@ def get_referenced_objects(code, context, suppress_warnings=False):
                 # module using the import statement. If a user is importing
                 # modules inside a function, they probably don't want to import
                 # the module until the function execution time.
-                message = f"""
-                Entity function in file {code.co_filename} imports the
-                '{op.argval}' module at line {lineno};
-                Bionic will not be able to automatically detect any changes to this
-                module.
-                To enable automatic detection of changes, import the module at the
-                global level (outside the function) instead.
-
-                To suppress this warning, remove the `suppress_bytecode_warnings`
-                override from the `@version` decorator on the corresponding function.
-                f"""
-                warnings.warn(oneline(message))
+                if not suppress_warnings:
+                    message = f"""
+                    The function {code.co_name!r} in file {code.co_filename}
+                    imports the '{op.argval}' module at line {lineno};
+                    if this module's code changes, Bionic will not be able to
+                    detect that this function needs to be recomputed.
+                    To make this detection possible, import the module at the
+                    global level (outside the function) instead.
+                    """
+                    warnings.warn(
+                        oneline(message + make_suppression_advice(code.co_name))
+                    )
                 set_tos(None)
             elif op.opname in ["LOAD_METHOD", "LOAD_ATTR"]:
                 if isinstance(tos, ReferenceProxy):
