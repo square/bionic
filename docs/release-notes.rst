@@ -82,6 +82,8 @@ Bug Fixes
 - Fixed a bug in Bionic's automatic versioning where Bionic would warn about
   dynamic imports even when warning suppression was requested. The warning
   messages themselves were also improved.
+- Fixed a bug where Bionic would incorrectly suppress versioning warnings for
+  functions that hadn't been decorated with the ``@version`` decorator.
 
 Improvements
 ............
