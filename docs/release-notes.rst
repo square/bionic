@@ -74,10 +74,14 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
+0.11.0 (Mar 23, 2021)
+---------------------
+
 Bug Fixes
 .........
 
-- Fixes an issue where automatic versioning erroneously treated classes as
+- Fixed an issue with hashing of strings containing invalid unicode.
+- Fixed an issue where automatic versioning erroneously treated classes as
   having changed if the module they were defined in was run as ``__main__``.
 - Fixed a bug in Bionic's automatic versioning where Bionic would warn about
   dynamic imports even when warning suppression was requested. The warning
@@ -97,6 +101,12 @@ Improvements
   the case when a user passes a single argument, asks if the user meant to
   use ``@bn.output`` instead.
 
+Cache Compatibility Changes
+...........................
+
+- This release of Bionic cannot load cached data created by previous releases.
+  Instead of attempting to load old an old cached value, Bionic will recompute
+  (and re-cache) a new value.
 
 0.10.0 (Feb 23, 2021)
 ---------------------
