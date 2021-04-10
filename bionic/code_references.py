@@ -196,7 +196,14 @@ def get_referenced_objects(code, context, suppress_warnings=False):
                 lineno = op.starts_line
 
             if op.opname in ["LOAD_GLOBAL", "LOAD_NAME"]:
-                if op.argval in context.globals:
+                # When loading a variable name, we try to see if it's in the
+                # set of global variables -- unless it's `__name__`. The
+                # `__name__` variable contains the name of the current module,
+                # *unless* that module is the one being run on the command
+                # line, in which case it contains "__main__". Since this
+                # variable changes depending on how our Python program is being
+                # run, we don't want to include it in any hashes.
+                if op.argval in context.globals and op.argval != "__name__":
                     set_tos(context.globals[op.argval])
                 else:
                     # This can happen if the variable does not exist, or if LOAD_NAME

@@ -1,0 +1,47 @@
+artifact:
+  content_hash: cca69c8993ccba521327129f3f6d91ff72b7b1fb625ce355541dc349be74668b
+  url: ../../../../artifacts/uppercase_sum/fbdc03e4-c713-4a7f-aca6-79bd31bb9d62/uppercase_sum.json
+descriptor: uppercase_sum
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - uppercase_chars
+    - e99019711a
+  code_fingerprint:
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 154a158abcc7649a0948905714394ab5816346d05843df523261458828e60035
+    functional_hash: 77f703a7588b04005d8ba8db4cf58b8accd9b951a7c301e0bd7a844315aab6b8
+    nominal_hash: 25476be4b0032b37f58d1721d86043060b4c8647fe9fdeefc8dd30636231f542
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - uppercase_chars
+        - e99019711a
+      code_fingerprint:
+        bytecode_hash: b'\xc0j\x18\x8f\xeef\xff\x0e\x89%\xa8z#\x16\x8d\xc9'
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: 95f21ce003ce31aba89385b8f7bd69e443fa1376763b8f9168313d778950e2ec
+        functional_hash: 95f21ce003ce31aba89385b8f7bd69e443fa1376763b8f9168313d778950e2ec
+        nominal_hash: 95f21ce003ce31aba89385b8f7bd69e443fa1376763b8f9168313d778950e2ec
+        provenance: null
+      descriptor: <uppercase_sum>
+      exact_hash: 154a158abcc7649a0948905714394ab5816346d05843df523261458828e60035
+      functional_hash: 77f703a7588b04005d8ba8db4cf58b8accd9b951a7c301e0bd7a844315aab6b8
+      nominal_hash: 25476be4b0032b37f58d1721d86043060b4c8647fe9fdeefc8dd30636231f542
+  descriptor: uppercase_sum
+  exact_hash: 154a158abcc7649a0948905714394ab5816346d05843df523261458828e60035
+  functional_hash: 77f703a7588b04005d8ba8db4cf58b8accd9b951a7c301e0bd7a844315aab6b8
+  nominal_hash: 25476be4b0032b37f58d1721d86043060b4c8647fe9fdeefc8dd30636231f542

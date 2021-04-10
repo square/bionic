@@ -1,0 +1,47 @@
+artifact:
+  content_hash: a3e8bae3649bc57d44b928616c9a641643e36bd26e13467f24dffe7aba3eaff2
+  url: ../../../../artifacts/lowercase_sum/1c22c085-6fa5-4df7-a69a-a03a3e880e90/lowercase_sum.json
+descriptor: lowercase_sum
+provenance:
+  case_key_elements:
+  - !!python/tuple
+    - lowercase_chars
+    - 9ed0cd8e69
+  code_fingerprint:
+    bytecode_hash: b'`\xad\xae\x8e\xb8b5\x96%\x14\x04\xee\r\xc9w3'
+    is_identity: true
+    orig_flow_name: null
+    version:
+      includes_bytecode: true
+      major: '0'
+      minor: '0'
+  dep_digests:
+  - exact_hash: 68023f00b2b8d8baf1e747165c0432eabc0148ce5f801b3da9103ede202da633
+    functional_hash: df26876dd4463a18ff0c4fe5ed4088f6642b919fa5690e7c36314dab74b6aeae
+    nominal_hash: 928386e200f120009b0fba16b2f0de0c22974433d0e30690957ef441b254b74f
+    provenance:
+      case_key_elements:
+      - !!python/tuple
+        - lowercase_chars
+        - 9ed0cd8e69
+      code_fingerprint:
+        bytecode_hash: b'\xd8!\\\xa0wX\x8d\x1c\x06\xb8AK\xaf\xde\xa8\xc2'
+        is_identity: false
+        orig_flow_name: null
+        version:
+          includes_bytecode: true
+          major: '0'
+          minor: '0'
+      dep_digests:
+      - exact_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        functional_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        nominal_hash: fae27d617aaf3e7d982e787694bfe8aa6184450716890f3529f5b9dbbe8a6f18
+        provenance: null
+      descriptor: <lowercase_sum>
+      exact_hash: 68023f00b2b8d8baf1e747165c0432eabc0148ce5f801b3da9103ede202da633
+      functional_hash: df26876dd4463a18ff0c4fe5ed4088f6642b919fa5690e7c36314dab74b6aeae
+      nominal_hash: 928386e200f120009b0fba16b2f0de0c22974433d0e30690957ef441b254b74f
+  descriptor: lowercase_sum
+  exact_hash: 68023f00b2b8d8baf1e747165c0432eabc0148ce5f801b3da9103ede202da633
+  functional_hash: df26876dd4463a18ff0c4fe5ed4088f6642b919fa5690e7c36314dab74b6aeae
+  nominal_hash: 928386e200f120009b0fba16b2f0de0c22974433d0e30690957ef441b254b74f
