@@ -74,6 +74,21 @@ Upcoming Version (Not Yet Released)
    in the "stable" docs (corresponding to the last release) but will be visible in the
    "latest" docs (corresponding to the master branch).
 
+Bug Fixes
+.........
+
+- Fixed an issue where automatic versioning erroneously treated classes as
+  having changed if the module they were defined in was run as ``__main__``.
+  (This bug was similar to the one fixed in the previous version, but not the
+  same one.)
+
+Cache Compatibility Changes
+...........................
+
+- This release of Bionic cannot load cached data created by previous releases.
+  Instead of attempting to load old an old cached value, Bionic will recompute
+  (and re-cache) a new value.
+
 0.11.0 (Mar 23, 2021)
 ---------------------
 

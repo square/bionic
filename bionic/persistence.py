@@ -897,7 +897,7 @@ def valid_filename_from_provenance(provenance):
     return provenance.descriptor.replace(" ", "-")
 
 
-CACHE_SCHEMA_VERSION = 12
+CACHE_SCHEMA_VERSION = 13
 
 
 class YamlRecordParsingError(Exception):
