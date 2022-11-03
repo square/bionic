@@ -22,7 +22,7 @@ requirements = [
     "numpy",
     "pandas",
     "pyarrow",
-    "pyrsistent",
+    "pyrsistent!=0.19.1",
 ]
 
 setup(
