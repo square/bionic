@@ -44,7 +44,7 @@ jobs:
         # build failures.
         pip freeze
     - name: Set up gcloud
-      uses: google-github-actions/setup-gcloud@master
+      uses: google-github-actions/setup-gcloud@main
       with:
         service_account_key: ${{ secrets.GCP_SA_KEY }}
         export_default_credentials: true
