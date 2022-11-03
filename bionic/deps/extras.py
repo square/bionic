@@ -54,6 +54,7 @@ extras["dev"] = combine(
         "flake8",
         "flake8-print",
         "flake8-fixme",
+        "importlib-metadata<5",  # flake8 is incompatible with importlib 5.0.0
         "sphinx!=3.2.0",
         "sphinx_rtd_theme",
         "sphinx-autobuild",
