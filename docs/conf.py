@@ -16,12 +16,12 @@ sys.path.insert(0, os.path.abspath(".."))
 
 # -- Project information -----------------------------------------------------
 
-project = u"bionic"
-copyright = u"2019, Square"
-author = u"Janek Klawe"
+project = "bionic"
+copyright = "2019, Square"
+author = "Janek Klawe"
 
 # The short X.Y version
-version = u"0.11.0"
+version = "0.11.0"
 # The full version, including alpha/beta/rc tags
 release = version
 
@@ -67,7 +67,7 @@ language = None
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = [
-    u"_build",
+    "_build",
     "Thumbs.db",
     ".DS_Store",
     "**.ipynb_checkpoints",
@@ -135,7 +135,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "bionic.tex", u"bionic Documentation", u"Janek Klawe", "manual"),
+    (master_doc, "bionic.tex", "bionic Documentation", "Janek Klawe", "manual"),
 ]
 
 
@@ -143,7 +143,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "bionic", u"bionic Documentation", [author], 1)]
+man_pages = [(master_doc, "bionic", "bionic Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output ----------------------------------------------
@@ -155,7 +155,7 @@ texinfo_documents = [
     (
         master_doc,
         "bionic",
-        u"bionic Documentation",
+        "bionic Documentation",
         author,
         "bionic",
         "One line description of project.",

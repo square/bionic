@@ -200,7 +200,7 @@ def real_gcs_session_tmp_url_prefix(real_gcs_url_stem) -> Optional[str]:
 
     gcs_fs = get_gcs_fs_without_warnings()
 
-    random_hex_str = "%016x" % random.randint(0, 2 ** 64)
+    random_hex_str = "%016x" % random.randint(0, 2**64)
     path_str = f"{getpass.getuser()}/BNTESTDATA/{random_hex_str}"
 
     gs_url = real_gcs_url_stem + "/" + path_str + "/"
