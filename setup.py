@@ -23,6 +23,7 @@ requirements = [
     "pandas",
     "pyarrow",
     "pyrsistent!=0.19.1",
+    "decorator<5",
 ]
 
 setup(
