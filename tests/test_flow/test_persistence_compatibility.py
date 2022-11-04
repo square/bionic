@@ -26,17 +26,7 @@ def older_serialized_cache_harness(make_counter, tmp_path):
 # To renegerate cache, run the following command from bionic/ dir
 #   `python -m tests.test_flow.generate_test_compatibility_cache`
 def test_caching_compatibility(older_serialized_cache_harness):
-    # The auto-versioned flow generates different bytecode hashes on Python 3.6
-    # compared to 3.7 and 3.8 This is because Python 3.7 added new
-    # bytecode instructions like LOAD_METHOD and uses them widely.
-    # We skip the auto-versioned flow for Python 3.6 and only test it on
-    # Python 3.7+.
-    if sys.version_info < (3, 7):
-        flows = [older_serialized_cache_harness.manual_flow]
-    else:
-        flows = older_serialized_cache_harness.flows
-
-    for flow in flows:
+    for flow in older_serialized_cache_harness.flows:
         assert (
             flow.get("total_sum") == older_serialized_cache_harness.EXPECTED_TOTAL_SUM
         )

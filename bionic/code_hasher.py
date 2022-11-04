@@ -37,9 +37,6 @@ from .utils.reload import is_internal_file
 
 
 PREFIX_SEPARATOR = b"$"
-# This is gross but types.MethodWrapperType was introduced in Python 3.7
-# and does not exist in 3.6 which Bionic supports.
-METHOD_WRAPPER_TYPE = type("".__str__)
 
 
 class CodeHasher:
@@ -290,7 +287,7 @@ class CodeHasher:
                 obj_bytes=self._check_and_hash(builtin_name, code_context),
             )
 
-        elif inspect.ismethoddescriptor(obj) or isinstance(obj, METHOD_WRAPPER_TYPE):
+        elif inspect.ismethoddescriptor(obj) or isinstance(obj, types.MethodWrapperType):
             if inspect.ismethoddescriptor(obj):
                 type_prefix = TypePrefix.METHOD_DESCRIPTOR
             else:
