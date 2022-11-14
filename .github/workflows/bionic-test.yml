@@ -20,10 +20,8 @@ jobs:
       # version.)
       fail-fast: false
       matrix:
-        python-version: [3.6, 3.7, 3.8]
+        python-version: [3.7, 3.8]
         include:
-          - python-version: 3.6
-            shard-id: 0
           - python-version: 3.7
             shard-id: 1
           - python-version: 3.8
@@ -44,7 +42,7 @@ jobs:
         # build failures.
         pip freeze
     - name: Set up gcloud
-      uses: google-github-actions/setup-gcloud@master
+      uses: google-github-actions/setup-gcloud@main
       with:
         service_account_key: ${{ secrets.GCP_SA_KEY }}
         export_default_credentials: true

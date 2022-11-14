@@ -176,7 +176,7 @@ def test_versioning(preset_gcs_builder, make_counter):
     @bn.version_no_warnings(major=1)
     def xy(x, y):  # noqa: F811
         call_counter.mark()
-        return x ** y
+        return x**y
 
     flow = builder.build()
 
@@ -200,7 +200,7 @@ def test_indirect_versioning(preset_gcs_builder, make_counter):
     @bn.version_no_warnings(major=1)
     def xy(x, y):
         call_counter.mark()
-        return x ** y
+        return x**y
 
     flow = builder.build()
     assert flow.get("xy") == 8
@@ -240,7 +240,7 @@ def test_indirect_versioning(preset_gcs_builder, make_counter):
     @bn.version_no_warnings(major=2)
     def xy(x, y):  # noqa: F811
         call_counter.mark()
-        return y ** x
+        return y**x
 
     flow = builder.build()
 

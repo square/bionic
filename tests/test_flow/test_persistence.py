@@ -280,7 +280,7 @@ def test_versioning(builder, make_counter):
     @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
-        return x ** y
+        return x**y
 
     assert builder.build().get("f") == 6
     assert call_counter.times_called() == 0
@@ -291,7 +291,7 @@ def test_versioning(builder, make_counter):
     @bn.version_no_warnings(major=2)
     def f(x, y):  # noqa: F811
         call_counter.mark()
-        return x ** y
+        return x**y
 
     assert builder.build().get("f") == 8
     assert call_counter.times_called() == 1
@@ -435,7 +435,7 @@ def test_versioning_assist(builder, make_counter):
     @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
-        return x ** y
+        return x**y
 
     with raises_versioning_error_for_entity("f"):
         builder.build().get("f")
@@ -446,7 +446,7 @@ def test_versioning_assist(builder, make_counter):
     @bn.version_no_warnings(major=2)
     def f(x, y):  # noqa: F811
         call_counter.mark()
-        return x ** y
+        return x**y
 
     assert builder.build().get("f") == 8
     assert call_counter.times_called() == 1
@@ -504,7 +504,7 @@ def test_versioning_assist_with_refs(builder, make_counter):
     assert call_counter.times_called() == 0
 
     def op(x, y):  # noqa: F811
-        return x ** y
+        return x**y
 
     with raises_versioning_error_for_entity("f"):
         builder.build().get("f")
@@ -733,7 +733,7 @@ def test_versioning_auto(builder, make_counter):
     @bn.version_no_warnings(major=1, minor=1)
     def f(x, y):  # noqa: F811
         call_counter.mark()
-        return x ** y
+        return x**y
 
     assert builder.build().get("f") == 8
     assert call_counter.times_called() == 1
@@ -744,7 +744,7 @@ def test_versioning_auto(builder, make_counter):
     @bn.version_no_warnings(major=2)
     def f(x, y):  # noqa: F811
         call_counter.mark()
-        return x ** y
+        return x**y
 
     assert builder.build().get("f") == 8
     assert call_counter.times_called() == 1

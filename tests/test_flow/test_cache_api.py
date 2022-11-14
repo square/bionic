@@ -106,7 +106,7 @@ def preset_flow(builder):
 
     @builder
     def xy_squared(xy):
-        return xy ** 2
+        return xy**2
 
     return builder.build()
 
@@ -134,7 +134,7 @@ def test_get_entries(preset_flow):
     @builder  # noqa: F811
     @bn.version(1)
     def xy(x, y):  # noqa: F811
-        return x ** y
+        return x**y
 
     tester.flow = builder.build()
 

@@ -14,7 +14,7 @@ def preset_builder(builder):
 
     @builder
     def ys(xs):
-        return [x ** 2 for x in xs]
+        return [x**2 for x in xs]
 
     return builder
 

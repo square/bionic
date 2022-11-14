@@ -128,7 +128,7 @@ def merge_tester(builder):
 
     @fb
     def x(root_x):
-        return root_x ** 2
+        return root_x**2
 
     tester.add("DerivedSingle", fb.build())
 
@@ -167,7 +167,7 @@ def merge_tester(builder):
     @fb  # noqa: F811
     @bn.persist(False)
     def x(root_x):  # noqa: F811
-        return root_x ** 2
+        return root_x**2
 
     tester.add("DS", fb.build())
 

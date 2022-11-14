@@ -22,7 +22,8 @@ requirements = [
     "numpy",
     "pandas",
     "pyarrow",
-    "pyrsistent",
+    "pyrsistent!=0.19.1",
+    "decorator<5",
 ]
 
 setup(
@@ -42,7 +43,7 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     extras_require=extras_require,
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     zip_safe=False,
     keywords="bionic",
     classifiers=[
@@ -51,6 +52,6 @@ setup(
         "Natural Language :: English",
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
     ],
 )

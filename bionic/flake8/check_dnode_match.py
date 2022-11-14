@@ -216,4 +216,4 @@ if __name__ == "__main__":
         code = Path(filename).read_text()
         tree = ast.parse(code)
         for message in Checker(tree).run():
-            print(message)  # noqa: T001
+            print(message)  # noqa: T201
