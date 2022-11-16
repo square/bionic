@@ -22,13 +22,15 @@ requirements = [
     "numpy",
     "pandas",
     "pyarrow",
+    # 0.19.1 had a regression which was fixed in 0.19.2
+    # See tobgu/pyrsistent#263 on GitHub.
     "pyrsistent!=0.19.1",
     "decorator<5",
 ]
 
 setup(
     name="bionic",
-    version="0.11.0",
+    version="0.11.1",
     description=(
         "A Python framework for building, running, and sharing data science "
         "workflows"
